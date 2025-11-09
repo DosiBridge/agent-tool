@@ -13,7 +13,8 @@ services:
       PORT: "8000"
       # CORS configuration - update with your actual frontend URL(s)
       # Frontend runs on port 8086, so include that
-      CORS_ORIGINS: "http://localhost:8086,http://127.0.0.1:8086"
+      # Add your VPS IP or domain here
+      CORS_ORIGINS: "http://160.191.163.85:8086,http://localhost:8086,http://127.0.0.1:8086"
       # Optional API keys - set these if needed
       OPENAI_API_KEY: ""
       FIRECRAWL_API_KEY: ""
