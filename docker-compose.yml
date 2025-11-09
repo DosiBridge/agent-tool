@@ -11,7 +11,9 @@ services:
       PYTHONUNBUFFERED: "1"
       PYTHONPATH: "/app"
       PORT: "8000"
-      CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:8086"
+      # CORS configuration - update with your actual frontend URL(s)
+      # Frontend runs on port 8086, so include that
+      CORS_ORIGINS: "http://localhost:8086,http://127.0.0.1:8086"
       # Optional API keys - set these if needed
       OPENAI_API_KEY: ""
       FIRECRAWL_API_KEY: ""
@@ -29,7 +31,10 @@ services:
       - "8086:3000"
     environment:
       NODE_ENV: "production"
-      NEXT_PUBLIC_API_BASE_URL: "http://localhost:8000"
+      # Backend API URL - update with your VPS IP or domain if accessing remotely
+      # For localhost: use http://localhost:8085 (backend exposed port)
+      # For VPS: use http://your-vps-ip:8085 or https://api.yourdomain.com
+      NEXT_PUBLIC_API_BASE_URL: "http://localhost:8085"
     restart: unless-stopped
     depends_on:
       - agent-backend

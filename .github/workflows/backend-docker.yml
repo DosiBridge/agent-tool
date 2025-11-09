@@ -39,11 +39,11 @@ jobs:
             --build-arg PYTHON_VERSION="${{ secrets.PYTHON_VERSION || '3.11.6' }}" \
             --build-arg UID="${{ secrets.UID || '1000' }}" \
             -f backend/Dockerfile \
-            -t mcp-server:latest \
+            -t agent-backend:latest \
             backend/
 
       - name: Push Docker image
         run: |
-          docker tag mcp-server:latest ${{ secrets.DOCKER_USERNAME }}/mcp-server:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/mcp-server:latest
+          docker tag mcp-server:latest ${{ secrets.DOCKER_USERNAME }}/agent-backend:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/agent-backend:latest
 
