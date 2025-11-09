@@ -351,6 +351,9 @@ async def chat_stream(request: ChatRequest):
     async def generate() -> AsyncGenerator[str, None]:
         stream_completed = False
         try:
+            # Send initial connection message to verify stream is working
+            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connected'})}\n\n"
+            
             if request.mode == "rag":
                 # For RAG mode, we'll stream the response
                 from src.rag import rag_system
@@ -809,13 +812,17 @@ async def chat_stream(request: ChatRequest):
                     # Ignore other errors in finally
                     pass
     
+    # Create response with proper headers for SSE
+    # Note: FastAPI Swagger UI doesn't display streaming responses properly
+    # Use curl or the frontend to test streaming
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
+            "X-Accel-Buffering": "no",
+            "Content-Type": "text/event-stream; charset=utf-8"
         }
     )
 
