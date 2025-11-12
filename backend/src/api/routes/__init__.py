@@ -6,7 +6,9 @@ from .sessions import router as sessions_router
 from .tools import router as tools_router
 from .mcp_servers import router as mcp_servers_router
 from .llm_config import router as llm_config_router
-from .mcp_routes import router as mcp_routes_router, setup_mcp_routes
+from .mcp_routes import router as mcp_routes_router
+from .auth import router as auth_router
+from .mcp_routes import setup_mcp_routes
 
 __all__ = [
     "chat_router",
@@ -15,6 +17,7 @@ __all__ = [
     "mcp_servers_router",
     "llm_config_router",
     "mcp_routes_router",
+    "auth_router",
     "setup_mcp_routes",
 ]
 

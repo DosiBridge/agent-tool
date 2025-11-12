@@ -1,7 +1,8 @@
 """
-Database models for LLM config and MCP servers
+Database models for LLM config, MCP servers, and Users
 """
-from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 # Import Base from database (may be None if database is not available)
@@ -66,7 +67,30 @@ if Base is not None:
             if include_api_key:
                 result["api_key"] = self.api_key
             return result
+
+    class User(Base):
+        """User model for authentication"""
+        __tablename__ = "users"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        email = Column(String(255), unique=True, nullable=False, index=True)
+        name = Column(String(255), nullable=False)
+        hashed_password = Column(String(255), nullable=False)
+        is_active = Column(Boolean, default=True, nullable=False)
+        created_at = Column(DateTime(timezone=True), server_default=func.now())
+        updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+        
+        def to_dict(self) -> dict:
+            """Convert model to dictionary (without password)"""
+            return {
+                "id": self.id,
+                "email": self.email,
+                "name": self.name,
+                "is_active": self.is_active,
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+            }
 else:
     # Dummy classes when database is not available
     LLMConfig = None  # type: ignore
     MCPServer = None  # type: ignore
+    User = None  # type: ignore

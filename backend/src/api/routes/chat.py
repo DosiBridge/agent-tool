@@ -4,7 +4,7 @@ Chat endpoints (streaming and non-streaming)
 import asyncio
 import json
 from typing import AsyncGenerator
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage
@@ -17,6 +17,9 @@ from src.mcp_client import MCPClientManager
 from src.tools import retrieve_dosiblog_context
 from src.llm_factory import create_llm_from_config
 from src.rag import rag_system
+from src.auth import get_current_active_user, get_current_user
+from src.models import User
+from typing import Optional
 from ..models import ChatRequest, ChatResponse
 from ..utils import sanitize_tools_for_gemini
 
@@ -24,7 +27,10 @@ router = APIRouter()
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    current_user: Optional[User] = Depends(get_current_user)
+):
     """
     Non-streaming chat endpoint
     
@@ -92,7 +98,8 @@ async def chat(request: ChatRequest):
                     
                     tools_context = "\n".join(tool_descriptions) if tool_descriptions else "No tools available"
                     
-                    history = history_manager.get_session_messages(request.session_id)
+                    user_id = current_user.id if current_user else None
+                    history = history_manager.get_session_messages(request.session_id, user_id)
                     context = rag_system.retrieve_context(request.message)
                     
                     prompt = ChatPromptTemplate.from_messages([
@@ -114,7 +121,8 @@ async def chat(request: ChatRequest):
                     )).content
                     
                     # Save to history
-                    session_history = history_manager.get_session_history(request.session_id)
+                    user_id = current_user.id if current_user else None
+                    session_history = history_manager.get_session_history(request.session_id, user_id)
                     session_history.add_user_message(request.message)
                     session_history.add_ai_message(answer)
                     
@@ -213,7 +221,10 @@ async def chat(request: ChatRequest):
 
 
 @router.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(
+    request: ChatRequest,
+    current_user: Optional[User] = Depends(get_current_user)
+):
     """
     Streaming chat endpoint - returns chunks as they're generated
     
@@ -343,7 +354,8 @@ async def chat_stream(request: ChatRequest):
                 
                 # Save to history
                 if full_response:
-                    session_history = history_manager.get_session_history(request.session_id)
+                    user_id = current_user.id if current_user else None
+                    session_history = history_manager.get_session_history(request.session_id, user_id)
                     session_history.add_user_message(request.message)
                     session_history.add_ai_message(full_response)
                 
@@ -402,7 +414,8 @@ async def chat_stream(request: ChatRequest):
                             tools_context = "\n".join(tool_descriptions) if tool_descriptions else "No tools available"
                             
                             # Build enhanced prompt with tool information
-                            history = history_manager.get_session_messages(request.session_id)
+                            user_id = current_user.id if current_user else None
+                            history = history_manager.get_session_messages(request.session_id, user_id)
                             context = rag_system.retrieve_context(request.message)
                             
                             prompt = ChatPromptTemplate.from_messages([
@@ -487,7 +500,8 @@ async def chat_stream(request: ChatRequest):
                             
                             # Save to history
                             if full_response:
-                                session_history = history_manager.get_session_history(request.session_id)
+                                user_id = current_user.id if current_user else None
+                                session_history = history_manager.get_session_history(request.session_id, user_id)
                                 session_history.add_user_message(request.message)
                                 session_history.add_ai_message(full_response)
                             
@@ -560,7 +574,8 @@ async def chat_stream(request: ChatRequest):
                             return
                         
                         # Get history
-                        history = history_manager.get_session_messages(request.session_id)
+                        user_id = current_user.id if current_user else None
+                        history = history_manager.get_session_messages(request.session_id, user_id)
                         messages = list(history) + [HumanMessage(content=request.message)]
                         yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'starting_agent_execution', 'message_count': len(messages)})}\n\n"
                         
@@ -679,7 +694,8 @@ async def chat_stream(request: ChatRequest):
                         
                         # Save to history
                         if full_response:
-                            session_history = history_manager.get_session_history(request.session_id)
+                            user_id = current_user.id if current_user else None
+                            session_history = history_manager.get_session_history(request.session_id, user_id)
                             session_history.add_user_message(request.message)
                             session_history.add_ai_message(full_response)
                         

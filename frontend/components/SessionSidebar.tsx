@@ -5,8 +5,9 @@
 'use client';
 
 import { deleteSession } from '@/lib/api';
+import { deleteStoredSession, getStoredSessions } from '@/lib/sessionStorage';
 import { useStore } from '@/lib/store';
-import { AlertTriangle, Loader2, MessageSquare, Plus, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Edit2, Loader2, MessageSquare, Plus, Save, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 
@@ -16,12 +17,14 @@ interface SessionSidebarProps {
 }
 
 export default function SessionSidebar({ isOpen = true, onClose }: SessionSidebarProps) {
+    const isAuthenticated = useStore((state) => state.isAuthenticated);
     const sessions = useStore((state) => state.sessions);
     const sessionsLoading = useStore((state) => state.sessionsLoading);
     const currentSessionId = useStore((state) => state.currentSessionId);
     const loadSessions = useStore((state) => state.loadSessions);
     const setCurrentSession = useStore((state) => state.setCurrentSession);
     const createNewSession = useStore((state) => state.createNewSession);
+    const updateSessionTitle = useStore((state) => state.updateSessionTitle);
     const clearMessages = useStore((state) => state.clearMessages);
 
     useEffect(() => {
@@ -29,6 +32,8 @@ export default function SessionSidebar({ isOpen = true, onClose }: SessionSideba
     }, [loadSessions]);
 
     const [deletingSession, setDeletingSession] = useState<string | null>(null);
+    const [editingSession, setEditingSession] = useState<string | null>(null);
+    const [editTitle, setEditTitle] = useState('');
 
     const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -37,8 +42,19 @@ export default function SessionSidebar({ isOpen = true, onClose }: SessionSideba
 
     const confirmDelete = async (sessionId: string) => {
         try {
-            await deleteSession(sessionId);
+            // Delete from backend if authenticated
+            if (isAuthenticated) {
+                try {
+                    await deleteSession(sessionId);
+                } catch (error) {
+                    console.warn('Failed to delete from backend, deleting from browser storage:', error);
+                }
+            }
+
+            // Always delete from browser storage
+            deleteStoredSession(sessionId);
             toast.success('Session deleted');
+
             if (sessionId === currentSessionId) {
                 createNewSession();
             }
@@ -48,6 +64,32 @@ export default function SessionSidebar({ isOpen = true, onClose }: SessionSideba
         } finally {
             setDeletingSession(null);
         }
+    };
+
+    const handleEditSession = (sessionId: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const storedSessions = getStoredSessions();
+        const session = storedSessions.find(s => s.id === sessionId);
+        setEditTitle(session?.title || sessionId);
+        setEditingSession(sessionId);
+    };
+
+    const handleSaveEdit = (sessionId: string) => {
+        if (editTitle.trim()) {
+            updateSessionTitle(sessionId, editTitle.trim());
+            toast.success('Session renamed');
+        }
+        setEditingSession(null);
+        setEditTitle('');
+    };
+
+    const getSessionTitle = (sessionId: string): string => {
+        const storedSessions = getStoredSessions();
+        const session = storedSessions.find(s => s.id === sessionId);
+        if (session?.title) {
+            return session.title;
+        }
+        return sessionId === 'default' ? 'Default' : sessionId;
     };
 
     return (
@@ -113,50 +155,100 @@ export default function SessionSidebar({ isOpen = true, onClose }: SessionSideba
                             <p className="text-xs text-gray-600 mt-1">Start a new chat to begin</p>
                         </div>
                     ) : (
-                        sessions.map((session) => (
-                            <div
-                                key={session.session_id}
-                                onClick={() => {
-                                    if (session.session_id !== currentSessionId) {
-                                        setCurrentSession(session.session_id);
-                                        onClose?.();
-                                    }
-                                }}
-                                onKeyDown={(e) => {
-                                    if ((e.key === 'Enter' || e.key === ' ') && session.session_id !== currentSessionId) {
-                                        e.preventDefault();
-                                        setCurrentSession(session.session_id);
-                                        onClose?.();
-                                    }
-                                }}
-                                tabIndex={0}
-                                role="button"
-                                aria-label={`Switch to session ${session.session_id === 'default' ? 'Default' : session.session_id}`}
-                                className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-lg cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#10a37f] touch-manipulation ${session.session_id === currentSessionId
-                                    ? 'bg-[#343541] text-white shadow-md'
-                                    : 'hover:bg-[#2d2d2f] text-gray-300 active:bg-[#2d2d2f]'
-                                    }`}
-                            >
-                                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                                    <MessageSquare className={`w-4 h-4 shrink-0 ${session.session_id === currentSessionId ? 'text-[#10a37f]' : 'text-gray-500'}`} />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-xs sm:text-sm font-medium truncate">
-                                            {session.session_id === 'default' ? 'Default' : session.session_id}
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-0.5">
-                                            {session.message_count} {session.message_count === 1 ? 'message' : 'messages'}
+                        sessions.map((session) => {
+                            const isEditing = editingSession === session.session_id;
+                            const sessionTitle = getSessionTitle(session.session_id);
+
+                            return (
+                                <div
+                                    key={session.session_id}
+                                    onClick={() => {
+                                        if (!isEditing && session.session_id !== currentSessionId) {
+                                            setCurrentSession(session.session_id);
+                                            onClose?.();
+                                        }
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (!isEditing && (e.key === 'Enter' || e.key === ' ') && session.session_id !== currentSessionId) {
+                                            e.preventDefault();
+                                            setCurrentSession(session.session_id);
+                                            onClose?.();
+                                        }
+                                    }}
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-label={`Switch to session ${sessionTitle}`}
+                                    className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-lg cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#10a37f] touch-manipulation ${session.session_id === currentSessionId
+                                        ? 'bg-[#343541] text-white shadow-md'
+                                        : 'hover:bg-[#2d2d2f] text-gray-300 active:bg-[#2d2d2f]'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                                        <MessageSquare className={`w-4 h-4 shrink-0 ${session.session_id === currentSessionId ? 'text-[#10a37f]' : 'text-gray-500'}`} />
+                                        <div className="flex-1 min-w-0">
+                                            {isEditing ? (
+                                                <div className="flex items-center gap-1">
+                                                    <input
+                                                        type="text"
+                                                        value={editTitle}
+                                                        onChange={(e) => setEditTitle(e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.stopPropagation();
+                                                                handleSaveEdit(session.session_id);
+                                                            } else if (e.key === 'Escape') {
+                                                                e.stopPropagation();
+                                                                setEditingSession(null);
+                                                                setEditTitle('');
+                                                            }
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="flex-1 px-2 py-1 bg-[#2d2d2f] border border-gray-600 rounded text-xs sm:text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#10a37f]"
+                                                        autoFocus
+                                                    />
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSaveEdit(session.session_id);
+                                                        }}
+                                                        className="p-1 hover:bg-[#40414f] rounded"
+                                                    >
+                                                        <Save className="w-3 h-3 text-[#10a37f]" />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="text-xs sm:text-sm font-medium truncate">
+                                                        {sessionTitle}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-0.5">
+                                                        {session.message_count} {session.message_count === 1 ? 'message' : 'messages'}
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
+                                    {!isEditing && (
+                                        <div className="flex items-center gap-1 ml-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                                            <button
+                                                onClick={(e) => handleEditSession(session.session_id, e)}
+                                                className="p-1.5 hover:bg-[#40414f] rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-[#10a37f] touch-manipulation shrink-0"
+                                                aria-label={`Rename session ${sessionTitle}`}
+                                            >
+                                                <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 hover:text-gray-300" aria-hidden="true" />
+                                            </button>
+                                            <button
+                                                onClick={(e) => handleDeleteSession(session.session_id, e)}
+                                                className="p-1.5 hover:bg-red-500/20 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-red-500 touch-manipulation shrink-0"
+                                                aria-label={`Delete session ${sessionTitle}`}
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-400 hover:text-red-300" aria-hidden="true" />
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                                <button
-                                    onClick={(e) => handleDeleteSession(session.session_id, e)}
-                                    className="ml-2 p-1.5 sm:p-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-red-500/20 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-red-500 touch-manipulation shrink-0"
-                                    aria-label={`Delete session ${session.session_id === 'default' ? 'Default' : session.session_id}`}
-                                >
-                                    <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-400 hover:text-red-300" aria-hidden="true" />
-                                </button>
-                            </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
 

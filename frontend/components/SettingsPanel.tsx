@@ -18,7 +18,7 @@ import {
     updateMCPServer,
 } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { AlertTriangle, Cpu, Edit2, Loader2, Plus, RotateCcw, Save, Server, Trash2, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Cpu, Edit2, Loader2, Lock, Plus, RotateCcw, Save, Server, Trash2, Wrench, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 
@@ -28,6 +28,7 @@ interface SettingsPanelProps {
 }
 
 export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+    const isAuthenticated = useStore((state) => state.isAuthenticated);
     const mcpServers = useStore((state) => state.mcpServers);
     const llmConfig = useStore((state) => state.llmConfig);
     const loadMCPServers = useStore((state) => state.loadMCPServers);
@@ -211,6 +212,62 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     };
 
     if (!isOpen) return null;
+
+    // Show login prompt if not authenticated
+    if (!isAuthenticated) {
+        return (
+            <>
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-2 sm:p-3 md:p-4" onClick={onClose}>
+                    <div
+                        className="bg-[#343541] rounded-xl shadow-2xl w-full max-w-md flex flex-col border border-gray-700"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="p-6 sm:p-8 text-center">
+                            <div className="mb-6 flex justify-center">
+                                <div className="p-4 bg-[#40414f] rounded-full">
+                                    <Lock className="w-12 h-12 text-[#10a37f]" />
+                                </div>
+                            </div>
+                            <h2 className="text-2xl font-bold text-white mb-3">
+                                Authentication Required
+                            </h2>
+                            <p className="text-gray-400 mb-6">
+                                Please log in or create an account to access MCP server configuration and model settings.
+                            </p>
+                            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                                <button
+                                    onClick={() => {
+                                        onClose();
+                                        const event = new CustomEvent('open-auth', { detail: { mode: 'login' } });
+                                        window.dispatchEvent(event);
+                                    }}
+                                    className="px-6 py-2.5 bg-[#10a37f] hover:bg-[#0d8f6e] text-white font-medium rounded-lg transition-colors"
+                                >
+                                    Log in
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        onClose();
+                                        const event = new CustomEvent('open-auth', { detail: { mode: 'register' } });
+                                        window.dispatchEvent(event);
+                                    }}
+                                    className="px-6 py-2.5 bg-[#40414f] hover:bg-[#2d2d2f] text-white font-medium rounded-lg transition-colors border border-gray-600"
+                                >
+                                    Create account
+                                </button>
+                            </div>
+                            <button
+                                onClick={onClose}
+                                className="mt-4 text-gray-400 hover:text-gray-300 text-sm transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </>
+        );
+    }
 
     return (
         <>

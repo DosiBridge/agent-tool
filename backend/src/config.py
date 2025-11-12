@@ -113,9 +113,16 @@ class Config:
         # Load from database
         if DB_AVAILABLE:
             try:
-                if db:
-                    # Use provided session - extract data while session is active
-                    llm_config = db.query(LLMConfig).filter(LLMConfig.active == True).first()
+                session_to_use = db
+                if not session_to_use:
+                    # Create new session if none provided
+                    session_to_use = get_db_context().__enter__()
+                    should_close = True
+                else:
+                    should_close = False
+                
+                try:
+                    llm_config = session_to_use.query(LLMConfig).filter(LLMConfig.active == True).first()
                     if llm_config:
                         # Extract data while session is active
                         config = llm_config.to_dict(include_api_key=True)
@@ -131,25 +138,9 @@ class Config:
                         
                         print(f"📝 Loaded LLM config from database: {config.get('type', 'gemini')} - {config.get('model', 'unknown')}")
                         return config
-                else:
-                    # Create new session
-                    with get_db_context() as session:
-                        llm_config = session.query(LLMConfig).filter(LLMConfig.active == True).first()
-                        if llm_config:
-                            # Extract data while session is active
-                            config = llm_config.to_dict(include_api_key=True)
-                            # Ensure API key is loaded from environment if not in database
-                            if not config.get('api_key'):
-                                if config.get('type', '').lower() == 'gemini':
-                                    config['api_key'] = os.getenv("GOOGLE_API_KEY")
-                                elif config.get('type', '').lower() == 'openai':
-                                    # For OpenAI, use a separate key if available, otherwise use embeddings key
-                                    config['api_key'] = os.getenv("OPENAI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
-                                elif config.get('type', '').lower() == 'groq':
-                                    config['api_key'] = os.getenv("GROQ_API_KEY")
-                            
-                            print(f"📝 Loaded LLM config from database: {config.get('type', 'gemini')} - {config.get('model', 'unknown')}")
-                            return config
+                finally:
+                    if should_close:
+                        get_db_context().__exit__(None, None, None)
             except Exception as e:
                 print(f"⚠️  Failed to load LLM config from database: {e}")
         

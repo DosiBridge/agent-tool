@@ -12,6 +12,7 @@ from .routes import (
     mcp_servers_router,
     llm_config_router,
     mcp_routes_router,
+    auth_router,
     setup_mcp_routes,
 )
 
@@ -51,6 +52,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
 app.include_router(chat_router, prefix="/api", tags=["chat"])
 app.include_router(sessions_router, prefix="/api", tags=["sessions"])
 app.include_router(tools_router, prefix="/api", tags=["tools"])

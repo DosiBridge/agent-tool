@@ -15,35 +15,59 @@ class ConversationHistoryManager:
         self.store: Dict[str, ChatMessageHistory] = {}
         print("✓ Conversation History Manager initialized")
     
-    def get_session_history(self, session_id: str) -> BaseChatMessageHistory:
+    def get_session_history(self, session_id: str, user_id: int = None) -> BaseChatMessageHistory:
         """
         Get or create a chat history for a specific session
         
         Args:
             session_id: Unique identifier for the conversation session
+            user_id: Optional user ID to make sessions user-specific
             
         Returns:
             ChatMessageHistory for the session
         """
-        if session_id not in self.store:
-            self.store[session_id] = ChatMessageHistory()
-            print(f"📝 Created new conversation session: {session_id}")
-        return self.store[session_id]
+        # Create user-specific session key if user_id is provided
+        if user_id is not None:
+            session_key = f"user_{user_id}_{session_id}"
+        else:
+            session_key = session_id
+        
+        if session_key not in self.store:
+            self.store[session_key] = ChatMessageHistory()
+            print(f"📝 Created new conversation session: {session_key}")
+        return self.store[session_key]
     
-    def get_session_messages(self, session_id: str) -> List[BaseMessage]:
+    def get_session_messages(self, session_id: str, user_id: int = None) -> List[BaseMessage]:
         """Get all messages from a session"""
-        if session_id in self.store:
-            return self.store[session_id].messages
+        if user_id is not None:
+            session_key = f"user_{user_id}_{session_id}"
+        else:
+            session_key = session_id
+        
+        if session_key in self.store:
+            return self.store[session_key].messages
         return []
     
-    def clear_session(self, session_id: str) -> None:
+    def clear_session(self, session_id: str, user_id: int = None) -> None:
         """Clear history for a specific session"""
-        if session_id in self.store:
-            self.store[session_id].clear()
-            print(f"🗑️  Cleared session: {session_id}")
+        if user_id is not None:
+            session_key = f"user_{user_id}_{session_id}"
+        else:
+            session_key = session_id
+        
+        if session_key in self.store:
+            self.store[session_key].clear()
+            print(f"🗑️  Cleared session: {session_key}")
     
-    def list_sessions(self) -> List[str]:
-        """List all active session IDs"""
+    def list_sessions(self, user_id: int = None) -> List[str]:
+        """List all active session IDs for a user (or all if user_id is None)"""
+        if user_id is not None:
+            prefix = f"user_{user_id}_"
+            return [
+                key.replace(prefix, "") 
+                for key in self.store.keys() 
+                if key.startswith(prefix)
+            ]
         return list(self.store.keys())
     
     def get_session_summary(self, session_id: str) -> str:

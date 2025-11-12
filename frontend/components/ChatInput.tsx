@@ -111,6 +111,8 @@ export default function ChatInput() {
             }
             setStreaming(false);
             setLoading(false);
+            // Auto-focus on chat input when error occurs
+            setTimeout(() => textareaRef.current?.focus(), 100);
             return;
           }
 
@@ -145,6 +147,9 @@ export default function ChatInput() {
             } else if (toolsUsed.length > 0) {
               updateLastMessageTools([...toolsUsed]);
             }
+
+            // Auto-focus on chat input when response is complete
+            setTimeout(() => textareaRef.current?.focus(), 100);
           }
         },
         (error: Error) => {
@@ -160,10 +165,14 @@ export default function ChatInput() {
           }
           setStreaming(false);
           setLoading(false);
+          // Auto-focus on chat input when error occurs
+          setTimeout(() => textareaRef.current?.focus(), 100);
         },
         () => {
           setStreaming(false);
           setLoading(false);
+          // Auto-focus on chat input when stream is cancelled
+          setTimeout(() => textareaRef.current?.focus(), 100);
         }
       );
     } catch (error) {
@@ -182,6 +191,8 @@ export default function ChatInput() {
       }
       setStreaming(false);
       setLoading(false);
+      // Auto-focus on chat input when error occurs
+      setTimeout(() => textareaRef.current?.focus(), 100);
     }
   };
 
@@ -197,6 +208,8 @@ export default function ChatInput() {
       setStreaming(false);
       setLoading(false);
       toast.success('Generation stopped');
+      // Auto-focus on chat input when stopped
+      setTimeout(() => textareaRef.current?.focus(), 100);
     }
   };
 
