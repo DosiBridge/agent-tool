@@ -2,12 +2,13 @@
  * API client for backend communication
  */
 
-const API_BASE_URL = 'http://localhost:8085';
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL;
 
 export interface ChatRequest {
   message: string;
   session_id: string;
-  mode: 'agent' | 'rag';
+  mode: "agent" | "rag";
 }
 
 export interface ChatResponse {
@@ -34,7 +35,7 @@ export interface SessionInfo {
   session_id: string;
   message_count: number;
   messages: Array<{
-    role: 'user' | 'assistant';
+    role: "user" | "assistant";
     content: string;
   }>;
 }
@@ -54,7 +55,7 @@ export interface MCPServerRequest {
 }
 
 export interface LLMConfig {
-  type: 'openai' | 'groq' | 'ollama' | 'gemini';
+  type: "openai" | "groq" | "ollama" | "gemini";
   model: string;
   api_key?: string;
   base_url?: string;
@@ -92,17 +93,21 @@ export interface ToolsInfo {
 // Helper function to handle API errors
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    const error = await response
+      .json()
+      .catch(() => ({ detail: response.statusText }));
     throw new Error(error.detail || error.message || `HTTP ${response.status}`);
   }
   return response.json();
 }
 
 // Chat API
-export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
+export async function sendChatMessage(
+  request: ChatRequest
+): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE_URL}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
   return handleResponse<ChatResponse>(response);
@@ -119,54 +124,63 @@ export function createStreamReader(
   let isAborted = false;
 
   fetch(`${API_BASE_URL}/api/chat/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
     signal: abortController.signal,
   })
     .then(async (response) => {
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: response.statusText }));
-        throw new Error(error.detail || error.message || `HTTP ${response.status}`);
+        const error = await response
+          .json()
+          .catch(() => ({ detail: response.statusText }));
+        throw new Error(
+          error.detail || error.message || `HTTP ${response.status}`
+        );
       }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
       if (!reader) {
-        throw new Error('No response body');
+        throw new Error("No response body");
       }
 
-      let buffer = '';
+      let buffer = "";
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done || isAborted) break;
 
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
           for (const line of lines) {
             if (isAborted) break;
-            
+
             const trimmedLine = line.trim();
             if (!trimmedLine) continue;
 
-            if (trimmedLine.startsWith('data: ')) {
+            if (trimmedLine.startsWith("data: ")) {
               try {
                 const jsonStr = trimmedLine.slice(6);
                 if (!jsonStr) continue;
-                
+
                 const data = JSON.parse(jsonStr) as StreamChunk;
                 onChunk(data);
-                
+
                 if (data.done || data.error) {
                   onComplete();
                   return;
                 }
               } catch (e) {
-                console.error('Failed to parse SSE data:', e, 'Line:', trimmedLine);
+                console.error(
+                  "Failed to parse SSE data:",
+                  e,
+                  "Line:",
+                  trimmedLine
+                );
                 // Continue processing other lines
               }
             }
@@ -176,7 +190,7 @@ export function createStreamReader(
         // Process remaining buffer
         if (buffer.trim() && !isAborted) {
           const trimmedBuffer = buffer.trim();
-          if (trimmedBuffer.startsWith('data: ')) {
+          if (trimmedBuffer.startsWith("data: ")) {
             try {
               const jsonStr = trimmedBuffer.slice(6);
               if (jsonStr) {
@@ -184,7 +198,7 @@ export function createStreamReader(
                 onChunk(data);
               }
             } catch (e) {
-              console.error('Failed to parse remaining buffer:', e);
+              console.error("Failed to parse remaining buffer:", e);
             }
           }
         }
@@ -193,7 +207,11 @@ export function createStreamReader(
           onComplete();
         }
       } catch (error) {
-        if (!isAborted && error instanceof Error && error.name !== 'AbortError') {
+        if (
+          !isAborted &&
+          error instanceof Error &&
+          error.name !== "AbortError"
+        ) {
           onError(error);
         }
       } finally {
@@ -205,7 +223,7 @@ export function createStreamReader(
       }
     })
     .catch((error) => {
-      if (!isAborted && error.name !== 'AbortError') {
+      if (!isAborted && error.name !== "AbortError") {
         onError(error instanceof Error ? error : new Error(String(error)));
       }
     });
@@ -224,7 +242,7 @@ export async function getSession(sessionId: string): Promise<SessionInfo> {
 
 export async function deleteSession(sessionId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/session/${sessionId}`, {
-    method: 'DELETE',
+    method: "DELETE",
   });
   await handleResponse(response);
 }
@@ -235,64 +253,91 @@ export async function listSessions(): Promise<{ sessions: Session[] }> {
 }
 
 // MCP Servers API
-export async function listMCPServers(): Promise<{ servers: MCPServer[]; count: number }> {
+export async function listMCPServers(): Promise<{
+  servers: MCPServer[];
+  count: number;
+}> {
   const response = await fetch(`${API_BASE_URL}/api/mcp-servers`);
-  const data = await handleResponse<{ status?: string; servers: MCPServer[]; count: number }>(response);
+  const data = await handleResponse<{
+    status?: string;
+    servers: MCPServer[];
+    count: number;
+  }>(response);
   // Backend returns {status, servers, count}, extract just servers and count
   return { servers: data.servers, count: data.count };
 }
 
-export async function addMCPServer(server: MCPServerRequest): Promise<{ server: MCPServer; message: string }> {
+export async function addMCPServer(
+  server: MCPServerRequest
+): Promise<{ server: MCPServer; message: string }> {
   const response = await fetch(`${API_BASE_URL}/api/mcp-servers`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(server),
   });
   return handleResponse(response);
 }
 
-export async function updateMCPServer(name: string, server: MCPServerRequest): Promise<{ server: MCPServer; message: string }> {
+export async function updateMCPServer(
+  name: string,
+  server: MCPServerRequest
+): Promise<{ server: MCPServer; message: string }> {
   if (!name || !name.trim()) {
-    throw new Error('Server name is required');
+    throw new Error("Server name is required");
   }
   // URL encode the server name to handle special characters
   const encodedName = encodeURIComponent(name.trim());
-  const response = await fetch(`${API_BASE_URL}/api/mcp-servers/${encodedName}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(server),
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/mcp-servers/${encodedName}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(server),
+    }
+  );
   return handleResponse(response);
 }
 
 export async function deleteMCPServer(name: string): Promise<void> {
   if (!name || !name.trim()) {
-    throw new Error('Server name is required');
+    throw new Error("Server name is required");
   }
   // URL encode the server name to handle special characters
   const encodedName = encodeURIComponent(name.trim());
-  const response = await fetch(`${API_BASE_URL}/api/mcp-servers/${encodedName}`, {
-    method: 'DELETE',
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/mcp-servers/${encodedName}`,
+    {
+      method: "DELETE",
+    }
+  );
   await handleResponse(response);
 }
 
-export async function toggleMCPServer(name: string): Promise<{ server: MCPServer; message: string }> {
+export async function toggleMCPServer(
+  name: string
+): Promise<{ server: MCPServer; message: string }> {
   if (!name || !name.trim()) {
-    throw new Error('Server name is required');
+    throw new Error("Server name is required");
   }
   // URL encode the server name to handle special characters
   const encodedName = encodeURIComponent(name.trim());
-  const response = await fetch(`${API_BASE_URL}/api/mcp-servers/${encodedName}/toggle`, {
-    method: 'PATCH',
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/mcp-servers/${encodedName}/toggle`,
+    {
+      method: "PATCH",
+    }
+  );
   return handleResponse(response);
 }
 
 // LLM Config API
 export async function getLLMConfig(): Promise<{ config: LLMConfigResponse }> {
   const response = await fetch(`${API_BASE_URL}/api/llm-config`);
-  const data = await handleResponse<{ status: string; config: LLMConfigResponse; has_api_key?: boolean }>(response);
+  const data = await handleResponse<{
+    status: string;
+    config: LLMConfigResponse;
+    has_api_key?: boolean;
+  }>(response);
   // Backend returns {status, config, has_api_key}, but frontend expects {config}
   // Merge has_api_key into config if present
   if (data.has_api_key !== undefined && data.config) {
@@ -301,10 +346,12 @@ export async function getLLMConfig(): Promise<{ config: LLMConfigResponse }> {
   return { config: data.config };
 }
 
-export async function setLLMConfig(config: LLMConfig): Promise<{ message: string; config: LLMConfigResponse }> {
+export async function setLLMConfig(
+  config: LLMConfig
+): Promise<{ message: string; config: LLMConfigResponse }> {
   const response = await fetch(`${API_BASE_URL}/api/llm-config`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
   });
   return handleResponse(response);
