@@ -217,15 +217,15 @@ export default function ChatInput() {
   };
 
   return (
-    <div className="border-t border-gray-700 bg-[#343541] dark:bg-[#2d2d2f] shrink-0">
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4">
+    <div className="border-t border-gray-700 bg-[#343541] dark:bg-[#2d2d2f] shrink-0 safe-area-inset-bottom">
+      <div className="max-w-4xl mx-auto px-2 sm:px-3 md:px-4 lg:px-6 py-2 sm:py-3 md:py-4">
         {/* Mode selector */}
-        <div className="flex justify-center mb-2 sm:mb-3">
+        <div className="flex justify-center mb-2 sm:mb-2.5 md:mb-3">
           <div className="inline-flex items-center rounded-lg border border-gray-600 bg-[#40414f] p-0.5 sm:p-1">
             <button
               onClick={() => setMode("agent")}
               disabled={inputDisabled}
-              className={`px-3 py-1.5 sm:px-4 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 ${mode === "agent"
+              className={`px-2.5 py-1.5 sm:px-3 sm:py-1.5 md:px-4 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 touch-manipulation ${mode === "agent"
                 ? "bg-[#10a37f] text-white shadow-sm"
                 : "text-gray-400 hover:text-gray-200"
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -235,7 +235,7 @@ export default function ChatInput() {
             <button
               onClick={() => setMode("rag")}
               disabled={inputDisabled}
-              className={`px-3 py-1.5 sm:px-4 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 ${mode === "rag"
+              className={`px-2.5 py-1.5 sm:px-3 sm:py-1.5 md:px-4 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 touch-manipulation ${mode === "rag"
                 ? "bg-[#10a37f] text-white shadow-sm"
                 : "text-gray-400 hover:text-gray-200"
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -251,7 +251,7 @@ export default function ChatInput() {
             e.preventDefault();
             handleSend();
           }}
-          className="flex gap-2 sm:gap-3"
+          className="flex gap-2 sm:gap-2.5 md:gap-3"
         >
           <div className="flex-1 relative">
             <textarea
@@ -262,9 +262,9 @@ export default function ChatInput() {
               placeholder="Message DOSI-AI-agent..."
               disabled={inputDisabled}
               rows={1}
-              className="w-full px-3 py-2.5 sm:px-4 sm:py-3.5 pr-10 sm:pr-12 border border-gray-600 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] bg-[#40414f] text-gray-100 placeholder-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm sm:text-base"
+              className="w-full px-3 py-2.5 sm:px-3.5 sm:py-3 md:px-4 md:py-3.5 pr-9 sm:pr-10 md:pr-12 border border-gray-600 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] bg-[#40414f] text-gray-100 placeholder-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm sm:text-base"
               style={{
-                minHeight: "48px",
+                minHeight: "44px",
                 maxHeight: "200px",
                 boxSizing: "border-box",
               }}
@@ -276,11 +276,11 @@ export default function ChatInput() {
               <button
                 type="button"
                 onClick={handleClear}
-                className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-[#2d2d2f] transition-colors"
+                className="absolute right-2 sm:right-2.5 md:right-3 top-1/2 -translate-y-1/2 p-1.5 sm:p-1.5 md:p-2 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-[#2d2d2f] transition-colors touch-manipulation"
                 aria-label="Clear message"
                 title="Clear"
               >
-                <X className="w-4 h-4" />
+                <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
             )}
 
@@ -308,17 +308,17 @@ export default function ChatInput() {
             <button
               type="button"
               onClick={handleStop}
-              className="shrink-0 h-12 w-12 sm:h-14 sm:w-14 rounded-2xl bg-red-500 hover:bg-red-600 active:bg-red-700 text-white transition-all shadow-md hover:scale-105 active:scale-95 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              className="shrink-0 h-11 w-11 sm:h-12 sm:w-12 md:h-14 md:w-14 rounded-2xl bg-red-500 hover:bg-red-600 active:bg-red-700 text-white transition-all shadow-md hover:scale-105 active:scale-95 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 touch-manipulation"
               aria-label="Stop generation"
               title="Stop generation"
             >
-              <Square className="w-4 h-4 sm:w-5 sm:h-5 fill-white" />
+              <Square className="w-4 h-4 sm:w-4 sm:h-4 md:w-5 md:h-5 fill-white" />
             </button>
           ) : (
             <button
               type="submit"
               disabled={sendDisabled}
-              className="shrink-0 h-12 w-12 sm:h-14 sm:w-14 rounded-2xl bg-[#10a37f] hover:bg-[#0d8f6e] active:bg-[#0b7d5f] disabled:bg-gray-600 disabled:cursor-not-allowed text-white transition-all shadow-md hover:scale-105 active:scale-95 disabled:scale-100 disabled:shadow-none flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:ring-offset-2"
+              className="shrink-0 h-11 w-11 sm:h-12 sm:w-12 md:h-14 md:w-14 rounded-2xl bg-[#10a37f] hover:bg-[#0d8f6e] active:bg-[#0b7d5f] disabled:bg-gray-600 disabled:cursor-not-allowed text-white transition-all shadow-md hover:scale-105 active:scale-95 disabled:scale-100 disabled:shadow-none flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:ring-offset-2 touch-manipulation"
               aria-label="Send message"
               title={
                 sendDisabled
@@ -329,16 +329,16 @@ export default function ChatInput() {
               }
             >
               {isLoading ? (
-                <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                <Loader2 className="w-4 h-4 sm:w-4 sm:h-4 md:w-5 md:h-5 animate-spin" />
               ) : (
-                <Send className="w-4 h-4 sm:w-5 sm:h-5" />
+                <Send className="w-4 h-4 sm:w-4 sm:h-4 md:w-5 md:h-5" />
               )}
             </button>
           )}
         </form>
 
         {/* Keyboard shortcuts hint */}
-        <div className="mt-2 text-center text-xs text-gray-500">
+        <div className="mt-1.5 sm:mt-2 text-center text-xs text-gray-500">
           <span className="hidden sm:inline">
             Press{" "}
             <kbd className="px-1.5 py-0.5 text-xs font-mono bg-[#40414f] border border-gray-600 rounded text-gray-300">

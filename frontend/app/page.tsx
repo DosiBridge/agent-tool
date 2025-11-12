@@ -41,7 +41,7 @@ export default function Home() {
   return (
     <div className="flex h-screen bg-[#343541] dark:bg-[#2d2d2f] overflow-hidden">
       <Toaster
-        position="top-right"
+        position="top-center"
         toastOptions={{
           duration: 4000,
           style: {
@@ -49,6 +49,8 @@ export default function Home() {
             color: 'var(--foreground)',
             borderRadius: '12px',
             boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+            maxWidth: '90vw',
+            fontSize: '14px',
           },
         }}
       />
@@ -57,34 +59,34 @@ export default function Home() {
       <SessionSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 w-full">
         {/* Header */}
-        <header className="border-b border-gray-700 bg-[#343541] dark:bg-[#2d2d2f] px-3 sm:px-4 md:px-6 py-3 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
+        <header className="border-b border-gray-700 bg-[#343541] dark:bg-[#2d2d2f] px-2 sm:px-4 md:px-6 py-2 sm:py-3 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             {/* Mobile menu button */}
             <button
               onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 hover:bg-[#40414f] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#10a37f]"
+              className="lg:hidden p-2 sm:p-2.5 hover:bg-[#40414f] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#10a37f] active:bg-[#40414f] touch-manipulation"
               aria-label="Open sidebar"
             >
-              <Menu className="w-5 h-5 text-gray-300" />
+              <Menu className="w-5 h-5 sm:w-6 sm:h-6 text-gray-300" />
             </button>
 
-            <h1 className="text-lg sm:text-xl font-semibold text-gray-200 truncate">
+            <h1 className="text-base sm:text-lg md:text-xl font-semibold text-gray-200 truncate">
               DOSI-AI-agent
             </h1>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 shrink-0">
             <div className="hidden sm:block">
               <HealthStatus />
             </div>
             <button
               onClick={() => setSettingsOpen(true)}
-              className="p-2 hover:bg-[#40414f] rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#10a37f] active:scale-95"
+              className="p-2 sm:p-2.5 hover:bg-[#40414f] rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#10a37f] active:scale-95 touch-manipulation"
               aria-label="Open settings"
             >
-              <Settings className="w-5 h-5 text-gray-300" aria-hidden="true" />
+              <Settings className="w-5 h-5 sm:w-6 sm:h-6 text-gray-300" aria-hidden="true" />
             </button>
           </div>
         </header>

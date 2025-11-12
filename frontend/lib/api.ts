@@ -415,6 +415,14 @@ export async function setLLMConfig(
   return handleResponse(response);
 }
 
+export async function resetLLMConfig(): Promise<{ message: string; config: LLMConfigResponse }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/llm-config/reset`, {
+    method: "POST",
+  });
+  return handleResponse(response);
+}
+
 // Health API
 export async function getHealth(): Promise<HealthStatus> {
   const apiBaseUrl = await getApiBaseUrl();
