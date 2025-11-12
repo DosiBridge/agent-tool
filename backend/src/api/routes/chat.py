@@ -1,371 +1,36 @@
 """
-FastAPI application with streaming chat endpoints
+Chat endpoints (streaming and non-streaming)
 """
 import asyncio
 import json
-import contextlib
-import os
-from typing import AsyncGenerator, Optional
-from sqlalchemy.orm import Session
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
+from typing import AsyncGenerator
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-import sys
-from pathlib import Path
-import logging
-
-# Add project root to path for imports (if needed)
-# Note: When run as module, parent.parent is project root
+from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.tools import BaseTool
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from src.config import Config
 from src.history import history_manager
-from src.agent import run_agent_mode, run_rag_mode
 from src.mcp_client import MCPClientManager
 from src.tools import retrieve_dosiblog_context
 from src.llm_factory import create_llm_from_config
-from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain_core.tools import BaseTool, StructuredTool
-from mcp_servers.registry import MCP_SERVERS, get_mcp_server, list_available_servers
-from src.database import get_db, init_db
-from src.models import LLMConfig, MCPServer
+from src.rag import rag_system
+from src.auth import get_current_active_user, get_current_user
+from src.models import User
+from typing import Optional
+from ..models import ChatRequest, ChatResponse
+from ..utils import sanitize_tools_for_gemini
+
+router = APIRouter()
 
 
-def sanitize_tools_for_gemini(tools: list, llm_type: str) -> list:
-    """
-    Sanitize tools for Gemini compatibility.
-    Gemini doesn't support 'any_of' in function schemas when combined with other fields.
-    This function creates new tool instances with sanitized schemas.
-    """
-    if llm_type.lower() != 'gemini':
-        return tools
-    
-    sanitized_tools = []
-    for tool in tools:
-        if not isinstance(tool, BaseTool):
-            sanitized_tools.append(tool)
-            continue
-        
-        try:
-            # Check if tool has args_schema that might contain any_of
-            if hasattr(tool, 'args_schema') and tool.args_schema:
-                # Get the schema
-                if hasattr(tool.args_schema, 'schema'):
-                    schema_dict = tool.args_schema.schema()
-                else:
-                    schema_dict = tool.args_schema
-                
-                # Check if schema has any_of that needs sanitization
-                needs_sanitization = False
-                
-                def check_for_any_of(obj):
-                    nonlocal needs_sanitization
-                    if isinstance(obj, dict):
-                        if 'anyOf' in obj or 'any_of' in obj:
-                            needs_sanitization = True
-                        for v in obj.values():
-                            check_for_any_of(v)
-                    elif isinstance(obj, list):
-                        for item in obj:
-                            check_for_any_of(item)
-                
-                check_for_any_of(schema_dict)
-                
-                if needs_sanitization:
-                    print(f"🔧 Sanitizing tool '{getattr(tool, 'name', 'unknown')}' schema for Gemini compatibility...")
-                    
-                    def sanitize_schema_obj(obj):
-                        """Recursively sanitize schema objects to remove any_of"""
-                        if isinstance(obj, dict):
-                            # Create a deep copy to avoid modifying the original
-                            obj = obj.copy()
-                            
-                            # Replace any_of with simpler type
-                            if 'anyOf' in obj or 'any_of' in obj:
-                                any_of = obj.get('anyOf') or obj.get('any_of', [])
-                                type_set = set()
-                                for option in any_of:
-                                    if isinstance(option, dict):
-                                        opt_type = option.get('type')
-                                        if opt_type:
-                                            type_set.add(opt_type)
-                                
-                                # Prefer string for flexibility (can accept numbers as strings)
-                                new_schema = {'type': 'string'}
-                                # Copy description if present
-                                if 'description' in obj:
-                                    new_schema['description'] = obj['description']
-                                return new_schema
-                            
-                            # Recursively sanitize nested objects
-                            if 'properties' in obj:
-                                obj['properties'] = {
-                                    k: sanitize_schema_obj(v) for k, v in obj['properties'].items()
-                                }
-                            if 'items' in obj:
-                                obj['items'] = sanitize_schema_obj(obj['items'])
-                            
-                            return obj
-                        elif isinstance(obj, list):
-                            return [sanitize_schema_obj(item) for item in obj]
-                        return obj
-                    
-                    # Get sanitized schema
-                    sanitized_schema_dict = sanitize_schema_obj(schema_dict)
-                    
-                    # Get the original model for reference
-                    original_model = tool.args_schema
-                    
-                    # Create a new Pydantic model with sanitized schema
-                    from pydantic import create_model, BaseModel
-                    from typing import Any
-                    
-                    # Extract properties from sanitized schema
-                    properties = sanitized_schema_dict.get('properties', {})
-                    
-                    # Create field definitions for the new model
-                    field_definitions = {}
-                    for field_name, field_schema in properties.items():
-                        field_type = str  # Default to string since we sanitized to string
-                        if field_schema.get('type') == 'number':
-                            field_type = float
-                        elif field_schema.get('type') == 'integer':
-                            field_type = int
-                        elif field_schema.get('type') == 'boolean':
-                            field_type = bool
-                        
-                        # Get default value if present
-                        default = field_schema.get('default', ...)
-                        if default is ...:
-                            field_definitions[field_name] = (field_type, ...)
-                        else:
-                            field_definitions[field_name] = (field_type, default)
-                    
-                    # Create new model class
-                    model_name = f"Sanitized{original_model.__name__ if hasattr(original_model, '__name__') else 'Args'}"
-                    SanitizedArgsModel = create_model(
-                        model_name,
-                        **field_definitions
-                    )
-                    
-                    # Create a new StructuredTool with the sanitized model
-                    from langchain_core.tools import StructuredTool
-                    
-                    # Get the original tool's function
-                    original_func = tool.func if hasattr(tool, 'func') else None
-                    if not original_func:
-                        # If we can't get the function, just patch the schema methods
-                        def make_sanitized_method(sanitized_schema):
-                            def sanitized_method(*args, **kwargs):
-                                return sanitized_schema
-                            return sanitized_method
-                        
-                        sanitized_method = make_sanitized_method(sanitized_schema_dict)
-                        if hasattr(original_model, 'schema'):
-                            original_model.schema = sanitized_method
-                        if hasattr(original_model, 'model_json_schema'):
-                            original_model.model_json_schema = sanitized_method
-                        if hasattr(tool, '_get_input_schema'):
-                            tool._get_input_schema = sanitized_method
-                    else:
-                        # Create new tool with sanitized schema
-                        new_tool = StructuredTool.from_function(
-                            func=original_func,
-                            name=tool.name,
-                            description=tool.description,
-                            args_schema=SanitizedArgsModel,
-                            return_direct=getattr(tool, 'return_direct', False),
-                        )
-                        # Copy other attributes
-                        for attr in ['coroutine', 'verbose', 'callbacks', 'tags', 'metadata']:
-                            if hasattr(tool, attr):
-                                setattr(new_tool, attr, getattr(tool, attr))
-                        
-                        tool = new_tool
-                    
-                    print(f"✓ Tool '{getattr(tool, 'name', 'unknown')}' schema sanitized")
-            
-            sanitized_tools.append(tool)
-        except Exception as e:
-            # If sanitization fails, use original tool
-            import traceback
-            print(f"⚠️  Warning: Failed to sanitize tool {getattr(tool, 'name', 'unknown')}: {e}")
-            print(f"   Traceback: {traceback.format_exc()[:200]}")
-            sanitized_tools.append(tool)
-    
-    return sanitized_tools
-
-
-def suppress_mcp_cleanup_errors(loop, context):
-    """
-    Suppress expected RuntimeError exceptions from MCP client cleanup.
-    These occur when background tasks try to exit cancel scopes in different tasks.
-    """
-    exception = context.get('exception')
-    if exception and isinstance(exception, RuntimeError):
-        error_msg = str(exception).lower()
-        # Suppress expected cancel scope errors from MCP cleanup
-        if "cancel scope" in error_msg and "different task" in error_msg:
-            # These are expected during MCP client cleanup - suppress them silently
-            # The MCP library creates background tasks that can't properly exit
-            # cancel scopes when cleanup happens in a different task context
-            return
-    
-    # For all other exceptions, use the default handler
-    loop.default_exception_handler(context)
-
-
-# Create MCP lifespan context manager
-@contextlib.asynccontextmanager
-async def mcp_lifespan(app: FastAPI):
-    """Lifespan context manager for MCP servers"""
-    # Initialize database on startup
-    try:
-        init_db()
-        print("✓ Database initialized")
-        
-        # Ensure default Gemini config exists (cannot be deleted, always available)
-        try:
-            from src.database import get_db_context, DB_AVAILABLE
-            if DB_AVAILABLE:
-                with get_db_context() as db:
-                    # Check if any active config exists
-                    existing_config = db.query(LLMConfig).filter(LLMConfig.active == True).first()
-                    if not existing_config:
-                        # Check if default gemini-2.0-flash config exists (even if inactive)
-                        import os
-                        google_api_key = os.getenv("GOOGLE_API_KEY")
-                        default_existing = db.query(LLMConfig).filter(
-                            LLMConfig.type == "gemini",
-                            LLMConfig.model == "gemini-2.0-flash"
-                        ).first()
-                        
-                        if default_existing:
-                            # Reactivate the default config
-                            default_existing.active = True
-                            if google_api_key:
-                                default_existing.api_key = google_api_key
-                            db.commit()
-                            print("✓ Reactivated default Gemini LLM configuration (gemini-2.0-flash)")
-                        else:
-                            # Create new default Gemini config
-                            default_config = LLMConfig(
-                                type="gemini",
-                                model="gemini-2.0-flash",
-                                api_key=google_api_key,  # Get from environment (may be None)
-                                active=True
-                            )
-                            db.add(default_config)
-                            db.commit()
-                            if google_api_key:
-                                print("✓ Created default Gemini LLM configuration (gemini-2.0-flash)")
-                            else:
-                                print("⚠️  Created default Gemini LLM configuration, but GOOGLE_API_KEY is not set in environment")
-                                print("   Please set GOOGLE_API_KEY environment variable or configure API key in settings")
-        except Exception as e:
-            print(f"⚠️  Could not ensure default Gemini config exists: {e}")
-    except Exception as e:
-        print(f"⚠️  Failed to initialize database: {e}")
-    
-    # Set up exception handler to suppress MCP cleanup errors
-    try:
-        loop = asyncio.get_running_loop()
-        loop.set_exception_handler(suppress_mcp_cleanup_errors)
-    except Exception:
-        # If we can't set the handler, that's okay - errors will still be logged
-        pass
-    
-    async with contextlib.AsyncExitStack() as stack:
-        # Enter all MCP server session managers
-        for server in MCP_SERVERS.values():
-            if hasattr(server, 'session_manager'):
-                await stack.enter_async_context(server.session_manager.run())
-        yield
-
-
-# Initialize FastAPI app with MCP lifespan
-app = FastAPI(
-    title="AI MCP Agent API",
-    description="Intelligent agent with RAG, MCP tools, and conversation memory",
-    version="1.0.0",
-    lifespan=mcp_lifespan
-)
-
-# Configure CORS origins from environment variable only
-# Format: comma-separated list of origins, e.g., "http://localhost:3000,http://localhost:3001,https://example.com"
-CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS", "")
-if not CORS_ORIGINS_ENV:
-    raise ValueError(
-        "CORS_ORIGINS environment variable is required. "
-        "Set it to a comma-separated list of allowed origins, e.g., "
-        "CORS_ORIGINS='https://agent.dosibridge.com,http://localhost:8086'"
-    )
-
-# Parse comma-separated origins
-cors_origins = [origin.strip() for origin in CORS_ORIGINS_ENV.split(",") if origin.strip()]
-if not cors_origins:
-    raise ValueError("CORS_ORIGINS environment variable is empty or invalid")
-
-print(f"✅ CORS configured with origins: {cors_origins}")
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,  # List of allowed origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods
-    allow_headers=["*"],  # Allow all headers
-    expose_headers=["*"],  # Expose all headers to the client
-)
-
-
-# Request/Response Models
-class ChatRequest(BaseModel):
-    message: str
-    session_id: str = "default"
-    mode: str = "agent"  # "agent" or "rag"
-
-
-class ChatResponse(BaseModel):
-    response: str
-    session_id: str
-    mode: str
-    tools_used: list = []
-
-
-class SessionInfo(BaseModel):
-    session_id: str
-    message_count: int
-    messages: list
-
-
-# Health check
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "name": "AI MCP Agent API",
-        "version": "1.0.0",
-        "status": "running",
-        "docs": "/docs"
-    }
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "version": "1.0.0",
-        "rag_available": True,
-        "mcp_servers": len(Config.load_mcp_servers())
-    }
-
-
-# Chat endpoint (non-streaming)
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    request: ChatRequest,
+    current_user: Optional[User] = Depends(get_current_user)
+):
     """
     Non-streaming chat endpoint
     
@@ -376,10 +41,10 @@ async def chat(request: ChatRequest):
         ChatResponse with answer
     """
     try:
+        user_id = current_user.id if current_user else None
+        
         if request.mode == "rag":
             # RAG-only mode
-            from src.rag import rag_system
-            
             llm_config = Config.load_llm_config()
             try:
                 llm = create_llm_from_config(llm_config, streaming=False, temperature=0)
@@ -404,7 +69,7 @@ async def chat(request: ChatRequest):
             )
         else:
             # Agent mode
-            mcp_servers = Config.load_mcp_servers()
+            mcp_servers = Config.load_mcp_servers(user_id=user_id)
             tools_used = []
             
             async with MCPClientManager(mcp_servers) as mcp_tools:
@@ -427,7 +92,6 @@ async def chat(request: ChatRequest):
                 
                 if is_ollama:
                     # For Ollama, fall back to RAG mode with tool descriptions
-                    from src.rag import rag_system
                     tool_descriptions = []
                     for tool in all_tools:
                         if hasattr(tool, 'name'):
@@ -436,8 +100,8 @@ async def chat(request: ChatRequest):
                     
                     tools_context = "\n".join(tool_descriptions) if tool_descriptions else "No tools available"
                     
-                    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-                    history = history_manager.get_session_messages(request.session_id)
+                    user_id = current_user.id if current_user else None
+                    history = history_manager.get_session_messages(request.session_id, user_id)
                     context = rag_system.retrieve_context(request.message)
                     
                     prompt = ChatPromptTemplate.from_messages([
@@ -459,7 +123,8 @@ async def chat(request: ChatRequest):
                     )).content
                     
                     # Save to history
-                    session_history = history_manager.get_session_history(request.session_id)
+                    user_id = current_user.id if current_user else None
+                    session_history = history_manager.get_session_history(request.session_id, user_id)
                     session_history.add_user_message(request.message)
                     session_history.add_ai_message(answer)
                     
@@ -557,9 +222,11 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Streaming chat endpoint
-@app.post("/api/chat/stream")
-async def chat_stream(request: ChatRequest):
+@router.post("/chat/stream")
+async def chat_stream(
+    request: ChatRequest,
+    current_user: Optional[User] = Depends(get_current_user)
+):
     """
     Streaming chat endpoint - returns chunks as they're generated
     
@@ -571,6 +238,7 @@ async def chat_stream(request: ChatRequest):
     """
     async def generate() -> AsyncGenerator[str, None]:
         stream_completed = False
+        user_id = current_user.id if current_user else None
         try:
             # Send initial connection message to verify stream is working
             yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connected'})}\n\n"
@@ -580,8 +248,6 @@ async def chat_stream(request: ChatRequest):
             
             if request.mode == "rag":
                 # For RAG mode, we'll stream the response
-                from src.rag import rag_system
-                
                 llm_config = Config.load_llm_config()
                 try:
                     llm = create_llm_from_config(llm_config, streaming=True, temperature=0)
@@ -605,7 +271,6 @@ async def chat_stream(request: ChatRequest):
                 history = history_manager.get_session_messages(request.session_id)
                 
                 # Build context
-                from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", "You are a helpful AI assistant. Use the following context to answer questions.\nContext: {context}"),
                     MessagesPlaceholder("chat_history"),
@@ -692,7 +357,8 @@ async def chat_stream(request: ChatRequest):
                 
                 # Save to history
                 if full_response:
-                    session_history = history_manager.get_session_history(request.session_id)
+                    user_id = current_user.id if current_user else None
+                    session_history = history_manager.get_session_history(request.session_id, user_id)
                     session_history.add_user_message(request.message)
                     session_history.add_ai_message(full_response)
                 
@@ -703,7 +369,7 @@ async def chat_stream(request: ChatRequest):
                 # Agent mode with streaming
                 yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_agent'})}\n\n"
                 
-                mcp_servers = Config.load_mcp_servers()
+                mcp_servers = Config.load_mcp_servers(user_id=user_id)
                 yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connecting_mcp_servers', 'server_count': len(mcp_servers)})}\n\n"
                 
                 try:
@@ -751,10 +417,8 @@ async def chat_stream(request: ChatRequest):
                             tools_context = "\n".join(tool_descriptions) if tool_descriptions else "No tools available"
                             
                             # Build enhanced prompt with tool information
-                            from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-                            from src.rag import rag_system
-                            
-                            history = history_manager.get_session_messages(request.session_id)
+                            user_id = current_user.id if current_user else None
+                            history = history_manager.get_session_messages(request.session_id, user_id)
                             context = rag_system.retrieve_context(request.message)
                             
                             prompt = ChatPromptTemplate.from_messages([
@@ -839,7 +503,8 @@ async def chat_stream(request: ChatRequest):
                             
                             # Save to history
                             if full_response:
-                                session_history = history_manager.get_session_history(request.session_id)
+                                user_id = current_user.id if current_user else None
+                                session_history = history_manager.get_session_history(request.session_id, user_id)
                                 session_history.add_user_message(request.message)
                                 session_history.add_ai_message(full_response)
                             
@@ -885,7 +550,6 @@ async def chat_stream(request: ChatRequest):
                             )
                             
                             # Ensure tools are properly formatted for LangChain
-                            from langchain_core.tools import BaseTool
                             formatted_tools = []
                             for tool in all_tools:
                                 if isinstance(tool, BaseTool):
@@ -913,7 +577,8 @@ async def chat_stream(request: ChatRequest):
                             return
                         
                         # Get history
-                        history = history_manager.get_session_messages(request.session_id)
+                        user_id = current_user.id if current_user else None
+                        history = history_manager.get_session_messages(request.session_id, user_id)
                         messages = list(history) + [HumanMessage(content=request.message)]
                         yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'starting_agent_execution', 'message_count': len(messages)})}\n\n"
                         
@@ -1032,7 +697,8 @@ async def chat_stream(request: ChatRequest):
                         
                         # Save to history
                         if full_response:
-                            session_history = history_manager.get_session_history(request.session_id)
+                            user_id = current_user.id if current_user else None
+                            session_history = history_manager.get_session_history(request.session_id, user_id)
                             session_history.add_user_message(request.message)
                             session_history.add_ai_message(full_response)
                         
@@ -1096,525 +762,4 @@ async def chat_stream(request: ChatRequest):
             "Content-Type": "text/event-stream; charset=utf-8"
         }
     )
-
-
-# Session management endpoints
-@app.get("/api/session/{session_id}", response_model=SessionInfo)
-async def get_session(session_id: str):
-    """Get session information"""
-    messages = history_manager.get_session_messages(session_id)
-    
-    return SessionInfo(
-        session_id=session_id,
-        message_count=len(messages),
-        messages=[
-            {
-                "role": "user" if isinstance(msg, HumanMessage) else "assistant",
-                "content": msg.content
-            }
-            for msg in messages
-        ]
-    )
-
-
-@app.delete("/api/session/{session_id}")
-async def clear_session(session_id: str):
-    """Clear session history"""
-    history_manager.clear_session(session_id)
-    return {"status": "success", "message": f"Session {session_id} cleared"}
-
-
-@app.get("/api/sessions")
-async def list_sessions():
-    """List all active sessions"""
-    sessions = history_manager.list_sessions()
-    return {
-        "sessions": [
-            {
-                "session_id": sid,
-                "message_count": len(history_manager.get_session_messages(sid))
-            }
-            for sid in sessions
-        ]
-    }
-
-
-# MCP tools info
-@app.get("/api/tools")
-async def get_tools_info():
-    """Get information about available tools"""
-    mcp_servers = Config.load_mcp_servers()
-    
-    tools_info = {
-        "local_tools": [
-            {
-                "name": "retrieve_dosiblog_context",
-                "description": "Retrieves information about DosiBlog project",
-                "type": "rag"
-            }
-        ],
-        "mcp_servers": []
-    }
-    
-    # We can't easily get MCP tools without connecting, so just return server info
-    for server in mcp_servers:
-        tools_info["mcp_servers"].append({
-            "name": server.get("name"),
-            "url": server.get("url"),
-            "status": "configured"
-        })
-    
-    return tools_info
-
-
-# MCP Server Management Endpoints
-class MCPServerRequest(BaseModel):
-    name: str
-    url: str
-    api_key: Optional[str] = None  # Optional API key/auth key for MCP server
-    enabled: Optional[bool] = True  # Whether the server is enabled
-
-
-@app.get("/api/mcp-servers")
-async def list_mcp_servers(db: Session = Depends(get_db)):
-    """List all configured MCP servers"""
-    try:
-        servers = Config.load_mcp_servers(db=db)
-        # Don't send api_key in response for security
-        safe_servers = []
-        for server in servers:
-            safe_server = {k: v for k, v in server.items() if k != "api_key"}
-            safe_server["has_api_key"] = bool(server.get("api_key"))
-            # Ensure enabled field exists (default to True if not present)
-            if "enabled" not in safe_server:
-                safe_server["enabled"] = True
-            safe_servers.append(safe_server)
-        
-        return {
-            "status": "success",
-            "count": len(servers),
-            "servers": safe_servers
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/mcp-servers")
-async def add_mcp_server(server: MCPServerRequest, db: Session = Depends(get_db)):
-    """Add a new MCP server to the configuration"""
-    try:
-        # Normalize URL: remove /sse and ensure /mcp endpoint
-        normalized_url = server.url.rstrip('/')
-        if normalized_url.endswith('/sse'):
-            normalized_url = normalized_url[:-4]  # Remove /sse
-        if not normalized_url.endswith('/mcp'):
-            # If URL doesn't end with /mcp, append it
-            normalized_url = normalized_url.rstrip('/') + '/mcp'
-        
-        # Check if server already exists
-        existing = db.query(MCPServer).filter(
-            (MCPServer.name == server.name) | (MCPServer.url == normalized_url)
-        ).first()
-        
-        if existing:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"MCP server with name '{server.name}' or URL '{normalized_url}' already exists"
-            )
-        
-        # Create new server
-        mcp_server = MCPServer(
-            name=server.name,
-            url=normalized_url,
-            api_key=server.api_key if server.api_key else None,
-            enabled=server.enabled if server.enabled is not None else True
-        )
-        db.add(mcp_server)
-        db.commit()
-        db.refresh(mcp_server)
-        
-        # Get total count
-        total_servers = db.query(MCPServer).count()
-        
-        return {
-            "status": "success",
-            "message": f"MCP server '{server.name}' added successfully",
-            "server": mcp_server.to_dict(),
-            "total_servers": total_servers
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/api/mcp-servers/{server_name}")
-async def delete_mcp_server(server_name: str, db: Session = Depends(get_db)):
-    """Delete an MCP server from the configuration"""
-    if not server_name or not server_name.strip():
-        raise HTTPException(status_code=400, detail="Server name is required")
-    
-    try:
-        # Find server
-        mcp_server = db.query(MCPServer).filter(MCPServer.name == server_name).first()
-        
-        if not mcp_server:
-            raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
-        
-        # Delete server
-        db.delete(mcp_server)
-        db.commit()
-        
-        # Get remaining count
-        remaining_count = db.query(MCPServer).count()
-        
-        return {
-            "status": "success",
-            "message": f"MCP server '{server_name}' deleted successfully",
-            "remaining_servers": remaining_count
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.put("/api/mcp-servers/{server_name}")
-async def update_mcp_server(server_name: str, server: MCPServerRequest, db: Session = Depends(get_db)):
-    """Update an existing MCP server"""
-    if not server_name or not server_name.strip():
-        raise HTTPException(status_code=400, detail="Server name is required")
-    if not server.name or not server.name.strip():
-        raise HTTPException(status_code=400, detail="Server name in request body is required")
-    
-    try:
-        # Find server
-        mcp_server = db.query(MCPServer).filter(MCPServer.name == server_name).first()
-        
-        if not mcp_server:
-            raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
-        
-        # Normalize URL: remove /sse and ensure /mcp endpoint
-        normalized_url = server.url.rstrip('/')
-        if normalized_url.endswith('/sse'):
-            normalized_url = normalized_url[:-4]  # Remove /sse
-        if not normalized_url.endswith('/mcp'):
-            # If URL doesn't end with /mcp, append it
-            normalized_url = normalized_url.rstrip('/') + '/mcp'
-        
-        # Update server
-        mcp_server.name = server.name
-        mcp_server.url = normalized_url
-        mcp_server.enabled = server.enabled if server.enabled is not None else True
-        if server.api_key:
-            mcp_server.api_key = server.api_key
-        
-        db.commit()
-        db.refresh(mcp_server)
-        
-        return {
-            "status": "success",
-            "message": f"MCP server '{server_name}' updated successfully",
-            "server": mcp_server.to_dict()
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.patch("/api/mcp-servers/{server_name}/toggle")
-async def toggle_mcp_server(server_name: str, db: Session = Depends(get_db)):
-    """Toggle enabled/disabled status of an MCP server"""
-    if not server_name or not server_name.strip():
-        raise HTTPException(status_code=400, detail="Server name is required")
-    
-    try:
-        # Find server
-        mcp_server = db.query(MCPServer).filter(MCPServer.name == server_name).first()
-        
-        if not mcp_server:
-            raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
-        
-        # Toggle enabled status
-        mcp_server.enabled = not mcp_server.enabled
-        db.commit()
-        db.refresh(mcp_server)
-        
-        return {
-            "status": "success",
-            "message": f"MCP server '{server_name}' {'enabled' if mcp_server.enabled else 'disabled'}",
-            "server": mcp_server.to_dict()
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# LLM Model Management Endpoints
-class LLMConfigRequest(BaseModel):
-    type: str  # "openai", "groq", "ollama", or "gemini"
-    model: str
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None  # For Ollama
-    api_base: Optional[str] = None  # Custom API base for OpenAI/Groq
-
-
-@app.get("/api/llm-config")
-async def get_llm_config(db: Session = Depends(get_db)):
-    """Get current LLM configuration"""
-    try:
-        config = Config.load_llm_config(db=db)
-        # Don't send API key in response for security
-        safe_config = {k: v for k, v in config.items() if k != "api_key" or not v}
-        # Include has_api_key in the config object for frontend compatibility
-        safe_config["has_api_key"] = bool(config.get("api_key"))
-        return {
-            "status": "success",
-            "config": safe_config
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/llm-config")
-async def set_llm_config(config: LLMConfigRequest, db: Session = Depends(get_db)):
-    """
-    Set LLM configuration - allows switching to any model/LLM.
-    The default gemini-2.0-flash config is preserved (deactivated) and can be restored via reset.
-    """
-    try:
-        # Validate required fields based on type
-        if config.type.lower() == "ollama":
-            if not config.model:
-                raise HTTPException(status_code=400, detail="Model name is required for Ollama")
-            config_dict = {
-                "type": "ollama",
-                "model": config.model,
-                "base_url": config.base_url or "http://localhost:11434",
-                "active": True
-            }
-        elif config.type.lower() == "gemini":
-            if not config.model:
-                raise HTTPException(status_code=400, detail="Model name is required for Gemini")
-            if not config.api_key:
-                raise HTTPException(status_code=400, detail="API key is required for Gemini")
-            config_dict = {
-                "type": "gemini",
-                "model": config.model,
-                "api_key": config.api_key,
-                "active": True
-            }
-        elif config.type.lower() == "groq":
-            if not config.model:
-                raise HTTPException(status_code=400, detail="Model name is required for Groq")
-            if not config.api_key:
-                raise HTTPException(status_code=400, detail="API key is required for Groq")
-            config_dict = {
-                "type": "groq",
-                "model": config.model,
-                "api_key": config.api_key,
-                "active": True
-            }
-        else:  # OpenAI or default
-            if not config.model:
-                raise HTTPException(status_code=400, detail="Model name is required for OpenAI")
-            if not config.api_key:
-                raise HTTPException(status_code=400, detail="API key is required for OpenAI")
-            config_dict = {
-                "type": "openai",
-                "model": config.model,
-                "api_key": config.api_key,
-                "active": True
-            }
-            if config.api_base:
-                config_dict["api_base"] = config.api_base
-        
-        # Trim model name before saving
-        if config_dict.get("model"):
-            config_dict["model"] = config_dict["model"].strip()
-        
-        # Save configuration (will use database if available)
-        try:
-            if Config.save_llm_config(config_dict, db=db):
-                # Commit the transaction if using database
-                db.commit()
-        except Exception as e:
-            db.rollback()
-            raise HTTPException(status_code=500, detail=f"Failed to save LLM configuration: {str(e)}")
-        
-        # Test the configuration by creating an LLM instance
-        try:
-            test_llm = create_llm_from_config(config_dict, streaming=False, temperature=0)
-            return {
-                "status": "success",
-                "message": f"LLM configuration saved and validated successfully. Model: {config_dict['model']}",
-                "config": {
-                    "type": config_dict["type"],
-                    "model": config_dict["model"],
-                    "has_api_key": bool(config_dict.get("api_key"))
-                }
-            }
-        except ImportError as e:
-            # Missing package - but still save the config
-            error_msg = str(e)
-            return {
-                "status": "warning",
-                "message": f"Configuration saved, but package is missing: {error_msg}",
-                "config": {
-                    "type": config_dict["type"],
-                    "model": config_dict["model"],
-                    "has_api_key": bool(config_dict.get("api_key"))
-                }
-            }
-        except Exception as e:
-            # Configuration saved but test failed
-            error_msg = str(e)
-            # Don't fail the save, but warn the user
-            return {
-                "status": "warning",
-                "message": f"Configuration saved, but validation failed: {error_msg}",
-                "config": {
-                    "type": config_dict["type"],
-                    "model": config_dict["model"],
-                    "has_api_key": bool(config_dict.get("api_key"))
-                }
-            }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/llm-config/reset")
-async def reset_llm_config(db: Session = Depends(get_db)):
-    """
-    Reset LLM configuration to default Gemini settings (gemini-2.0-flash).
-    This always restores the default config with API key from environment.
-    Previous configs are preserved but deactivated.
-    """
-    try:
-        import os
-        
-        # Deactivate all existing configs (they are preserved, just not active)
-        # This ensures the default gemini-2.0-flash config cannot be deleted
-        db.query(LLMConfig).update({LLMConfig.active: False})
-        
-        # Check if default gemini-2.0-flash config already exists
-        existing_default = db.query(LLMConfig).filter(
-            LLMConfig.type == "gemini",
-            LLMConfig.model == "gemini-2.0-flash"
-        ).first()
-        
-        if existing_default:
-            # Reactivate the existing default config and update API key from env
-            google_api_key = os.getenv("GOOGLE_API_KEY")
-            existing_default.active = True
-            if google_api_key:
-                existing_default.api_key = google_api_key
-            db.commit()
-            db.refresh(existing_default)
-            default_config = existing_default
-        else:
-            # Create new default Gemini config with API key from environment
-            google_api_key = os.getenv("GOOGLE_API_KEY")
-            default_config = LLMConfig(
-                type="gemini",
-                model="gemini-2.0-flash",
-                api_key=google_api_key,  # Get from environment
-                active=True
-            )
-            db.add(default_config)
-            db.commit()
-            db.refresh(default_config)
-        
-        return {
-            "status": "success",
-            "message": "LLM configuration reset to default Gemini settings (gemini-2.0-flash)",
-            "config": default_config.to_dict()
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to reset LLM configuration: {str(e)}")
-
-
-# MCP Server endpoints
-@app.get("/api/mcp-servers/available")
-async def list_local_mcp_servers():
-    """List all locally available MCP servers"""
-    try:
-        servers = list_available_servers()
-        return {
-            "status": "success",
-            "servers": servers,
-            "count": len(servers)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/mcp/{server_name}/info")
-async def get_mcp_server_info(server_name: str):
-    """Get information about a specific MCP server"""
-    try:
-        server = get_mcp_server(server_name)
-        if not server:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"MCP server '{server_name}' not found. Available servers: {', '.join(list_available_servers())}"
-            )
-        
-        # Try to get server info
-        info = {
-            "name": server_name,
-            "available": True,
-        }
-        
-        # Try to get tools if available
-        if hasattr(server, 'list_tools'):
-            try:
-                tools = server.list_tools()
-                info["tools"] = [{"name": tool.get("name"), "description": tool.get("description")} for tool in tools]
-            except:
-                pass
-        
-        return {
-            "status": "success",
-            "server": info
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Mount MCP servers at /api/mcp/{server_name}
-# This creates dynamic routes for each MCP server
-def setup_mcp_routes():
-    """Setup dynamic routes for MCP servers"""
-    from mcp_servers.registry import MCP_SERVERS
-    
-    for server_name, server_instance in MCP_SERVERS.items():
-        # Create a mount point for each server
-        if hasattr(server_instance, 'streamable_http_app'):
-            http_app = server_instance.streamable_http_app()
-            app.mount(f"/api/mcp/{server_name}", http_app, name=f"mcp_{server_name}")
-
-# Setup MCP routes
-setup_mcp_routes()
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
 

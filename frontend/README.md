@@ -37,29 +37,35 @@ pnpm install
 
 ### Environment Variables
 
-#### Local Development
+#### Quick Setup
 
-Create a `.env.local` file in the project root (copy from `.env.local.example`):
+1. **Local Development**: Copy `.env.local.example` to `.env.local`:
+   ```bash
+   cp .env.local.example .env.local
+   # Edit .env.local with your values
+   ```
 
-```env
-# Backend API Base URL
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8085
-```
+2. **Production**: Copy `.env.production.example` to `.env.production`:
+   ```bash
+   cp .env.production.example .env.production
+   # Edit .env.production with your values
+   ```
 
-#### Production Build
+3. **Docker**: Set environment variables in `docker-compose.yml`:
+   ```yaml
+   agent-frontend:
+     environment:
+       NEXT_PUBLIC_API_BASE_URL: "http://localhost:8085"
+   ```
 
-For production builds, use `.env.production` (copy from `.env.production.example`):
+#### Available Variables
 
-```env
-# Backend API Base URL
-NEXT_PUBLIC_API_BASE_URL=https://agentapi.dosibridge.com
-```
+- `NEXT_PUBLIC_API_BASE_URL` - Backend API URL (required)
 
 **Note**: 
-- `.env.local` and `.env.production` are gitignored (not committed to version control)
-- `.env.local.example` and `.env.production.example` are committed as templates
-- For Docker builds, environment variables are set via `docker-compose.yml` or GitHub Actions secrets
-- The runtime config API route (`/api/runtime-config`) reads from environment variables at container startup
+- Only variables prefixed with `NEXT_PUBLIC_` are available in the browser
+- `.env.local` and `.env.production` are gitignored (not committed)
+- For detailed information, see [ENV-GUIDE.md](./ENV-GUIDE.md)
 
 ### Development
 

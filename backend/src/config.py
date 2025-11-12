@@ -1,9 +1,12 @@
 """
 Configuration and environment management
+Now uses PostgreSQL database instead of JSON files
 """
 import os
 import json
 from pathlib import Path
+from typing import Optional
+from sqlalchemy.orm import Session
 
 # Load environment variables
 try:
@@ -11,6 +14,24 @@ try:
     load_dotenv()
 except ImportError:
     print("⚠️  python-dotenv not available, using environment variables directly")
+
+# Import database models
+try:
+    from .database import get_db_context, DB_AVAILABLE as DB_AVAILABLE_FLAG
+    if DB_AVAILABLE_FLAG:
+        from .models import LLMConfig, MCPServer
+        DB_AVAILABLE = True
+    else:
+        DB_AVAILABLE = False
+        LLMConfig = None  # type: ignore
+        MCPServer = None  # type: ignore
+        print("⚠️  Database not available, falling back to JSON files")
+except ImportError as e:
+    print(f"⚠️  Database not available: {e}, falling back to JSON files")
+    DB_AVAILABLE = False
+    get_db_context = None  # type: ignore
+    LLMConfig = None  # type: ignore
+    MCPServer = None  # type: ignore
 
 
 class Config:
@@ -31,17 +52,43 @@ class Config:
     ROOT_DIR = Path(__file__).parent.parent
     
     @classmethod
-    def load_mcp_servers(cls, additional_servers: list = None) -> list[dict]:
+    def load_mcp_servers(cls, additional_servers: list = None, db: Optional[Session] = None, user_id: Optional[int] = None) -> list[dict]:
         """
-        Load MCP servers from multiple sources:
-        1. Environment variable MCP_SERVERS (JSON array)
-        2. Config file mcp_servers.json
-        3. Additional servers passed as argument
+        Load MCP servers from database.
+        Args:
+            additional_servers: Optional list of additional servers to add
+            db: Optional database session (if None, creates a new one)
+            user_id: Optional user ID to filter servers (required for user-specific servers)
         """
         servers = []
         
-        # Method 1: From environment variable
-        if cls.MCP_SERVERS_ENV:
+        # Load from database
+        if DB_AVAILABLE:
+            try:
+                if db:
+                    # Use provided session
+                    query = db.query(MCPServer).filter(MCPServer.enabled == True)
+                    if user_id is not None:
+                        query = query.filter(MCPServer.user_id == user_id)
+                    db_servers = query.all()
+                    servers = [s.to_dict() for s in db_servers]
+                else:
+                    # Create new session
+                    with get_db_context() as session:
+                        query = session.query(MCPServer).filter(MCPServer.enabled == True)
+                        if user_id is not None:
+                            query = query.filter(MCPServer.user_id == user_id)
+                        db_servers = query.all()
+                        servers = [s.to_dict() for s in db_servers]
+                
+                if servers:
+                    print(f"📝 Loaded {len(servers)} server(s) from database" + (f" for user {user_id}" if user_id else ""))
+            except Exception as e:
+                print(f"⚠️  Failed to load MCP servers from database: {e}")
+                servers = []
+        
+        # Check environment variable as fallback
+        if not servers and cls.MCP_SERVERS_ENV:
             try:
                 env_servers = json.loads(cls.MCP_SERVERS_ENV)
                 servers.extend(env_servers)
@@ -49,18 +96,7 @@ class Config:
             except json.JSONDecodeError as e:
                 print(f"⚠️  Failed to parse MCP_SERVERS env variable: {e}")
         
-        # Method 2: From config file
-        config_file = cls.ROOT_DIR / cls.MCP_SERVERS_FILE
-        if config_file.exists():
-            try:
-                with open(config_file, 'r') as f:
-                    file_servers = json.load(f)
-                    servers.extend(file_servers)
-                    print(f"📝 Loaded {len(file_servers)} server(s) from {cls.MCP_SERVERS_FILE}")
-            except Exception as e:
-                print(f"⚠️  Failed to load {cls.MCP_SERVERS_FILE}: {e}")
-        
-        # Method 3: No servers configured
+        # No servers configured
         if not servers:
             print("📝 No MCP servers configured - agent will use local tools only")
         
@@ -72,66 +108,144 @@ class Config:
         return servers
     
     @classmethod
-    def load_llm_config(cls) -> dict:
+    def load_llm_config(cls, db: Optional[Session] = None) -> dict:
         """
-        Load LLM configuration from file.
-        Returns default OpenAI config if file doesn't exist.
+        Load LLM configuration - always returns fixed default OpenAI GPT config.
+        LLM model configuration is fixed and cannot be changed.
+        The system always uses OpenAI GPT (gpt-4o) with API key from environment.
+        Note: OPENAI_API_KEY from env is used for both embeddings (RAG) and LLM model.
+        Args:
+            db: Optional database session (ignored - config is fixed)
         """
-        config_file = cls.ROOT_DIR / cls.LLM_CONFIG_FILE
-        if config_file.exists():
-            try:
-                with open(config_file, 'r') as f:
-                    config = json.load(f)
-                    # Validate and clean the config
-                    if not config.get('model') or not config['model'].strip():
-                        # If model is empty, set default based on type
-                        llm_type = config.get('type', 'openai').lower()
-                        if llm_type == 'gemini':
-                            config['model'] = 'gemini-1.5-flash'
-                        elif llm_type == 'ollama':
-                            config['model'] = 'llama3.2'
-                        else:
-                            config['model'] = cls.OPENAI_MODEL
-                    else:
-                        config['model'] = config['model'].strip()
-                    
-                    # Ensure API key is loaded from environment if not in config
-                    if not config.get('api_key') and config.get('type', '').lower() == 'openai':
-                        config['api_key'] = cls.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
-                    elif not config.get('api_key') and config.get('type', '').lower() == 'gemini':
-                        config['api_key'] = os.getenv("GOOGLE_API_KEY")
-                    
-                    print(f"📝 Loaded LLM config: {config.get('type', 'openai')} - {config.get('model', 'unknown')}")
-                    return config
-            except Exception as e:
-                print(f"⚠️  Failed to load {cls.LLM_CONFIG_FILE}: {e}")
-        
-        # Default to OpenAI
+        # Always return the fixed default OpenAI GPT config
+        # Database configs are ignored - model cannot be changed
+        openai_api_key = os.getenv("OPENAI_API_KEY")
         default_config = {
             "type": "openai",
-            "model": cls.OPENAI_MODEL,
-            "api_key": cls.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY"),
+            "model": "gpt-4o",
+            "api_key": openai_api_key,  # Get from environment (may be None)
             "active": True
         }
         
         # Warn if API key is missing
         if not default_config["api_key"]:
-            print("⚠️  Warning: OPENAI_API_KEY not set. Please set it as an environment variable or in config/llm_config.json")
+            print("⚠️  Warning: OPENAI_API_KEY not set. Please set it as an environment variable")
+            print("   Set it with: export OPENAI_API_KEY='your-api-key'")
+        else:
+            print(f"📝 Using fixed LLM config: OpenAI GPT (gpt-4o)")
+        
+        return default_config
+        
+        # Database loading code below is disabled - kept for reference
+        # Load from database
+        if False and DB_AVAILABLE:
+            try:
+                session_to_use = db
+                if not session_to_use:
+                    # Create new session if none provided
+                    session_to_use = get_db_context().__enter__()
+                    should_close = True
+                else:
+                    should_close = False
+                
+                try:
+                    llm_config = session_to_use.query(LLMConfig).filter(LLMConfig.active == True).first()
+                    if llm_config:
+                        # Extract data while session is active
+                        config = llm_config.to_dict(include_api_key=True)
+                        # Ensure API key is loaded from environment if not in database
+                        if not config.get('api_key'):
+                            if config.get('type', '').lower() == 'gemini':
+                                config['api_key'] = os.getenv("GOOGLE_API_KEY")
+                            elif config.get('type', '').lower() == 'openai':
+                                # For OpenAI, use a separate key if available, otherwise use embeddings key
+                                config['api_key'] = os.getenv("OPENAI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+                            elif config.get('type', '').lower() == 'groq':
+                                config['api_key'] = os.getenv("GROQ_API_KEY")
+                        
+                        print(f"📝 Loaded LLM config from database: {config.get('type', 'gemini')} - {config.get('model', 'unknown')}")
+                        return config
+                finally:
+                    if should_close:
+                        get_db_context().__exit__(None, None, None)
+            except Exception as e:
+                print(f"⚠️  Failed to load LLM config from database: {e}")
+        
+        # Default to OpenAI GPT
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        default_config = {
+            "type": "openai",
+            "model": "gpt-4o",
+            "api_key": openai_api_key,  # Get from environment (may be None)
+            "active": True
+        }
+        
+        # Warn if API key is missing
+        if not default_config["api_key"]:
+            print("⚠️  Warning: OPENAI_API_KEY not set. Please set it as an environment variable or configure in database")
+            print("   Set it with: export OPENAI_API_KEY='your-api-key'")
+            print("   Or configure it in the frontend Settings panel")
         
         return default_config
     
     @classmethod
-    def save_llm_config(cls, config: dict) -> bool:
+    def save_llm_config(cls, config: dict, db: Optional[Session] = None) -> bool:
         """
-        Save LLM configuration to file.
+        Save LLM configuration to database.
+        Users can switch to any model/LLM, but the default OpenAI GPT config
+        will always be preserved (just deactivated when switching).
+        Args:
+            config: Configuration dictionary
+            db: Optional database session (if None, creates a new one)
         """
+        if not DB_AVAILABLE:
+            raise Exception("Database not available. Cannot save LLM config.")
+        
         try:
-            config_file = cls.ROOT_DIR / cls.LLM_CONFIG_FILE
-            with open(config_file, 'w') as f:
-                json.dump(config, f, indent=2)
-            print(f"✓ LLM config saved: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
+            if db:
+                # Use provided session (caller will commit)
+                session = db
+            else:
+                # Create new session using context manager
+                with get_db_context() as session:
+                    # Deactivate all existing configs (they are preserved, just not active)
+                    # This allows users to switch models while keeping history
+                    session.query(LLMConfig).update({LLMConfig.active: False})
+                    
+                    # Create new active config with user's chosen model/LLM
+                    llm_config = LLMConfig(
+                        type=config.get('type', 'gemini'),
+                        model=config.get('model', 'gpt-4o'),
+                        api_key=config.get('api_key'),
+                        base_url=config.get('base_url'),
+                        api_base=config.get('api_base'),
+                        active=True
+                    )
+                    session.add(llm_config)
+                    # Context manager will commit automatically
+                
+                print(f"✓ LLM config saved to database: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
+                return True
+            
+            # If using provided session, update here (caller will commit)
+            # Deactivate all existing configs (they are preserved, just not active)
+            session.query(LLMConfig).update({LLMConfig.active: False})
+            
+            # Create new active config with user's chosen model/LLM
+            llm_config = LLMConfig(
+                type=config.get('type', 'gemini'),
+                model=config.get('model', 'gemini-2.0-flash'),
+                api_key=config.get('api_key'),
+                base_url=config.get('base_url'),
+                api_base=config.get('api_base'),
+                active=True
+            )
+            session.add(llm_config)
+            # Don't commit - caller handles it
+            
+            print(f"✓ LLM config saved to database: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
             return True
         except Exception as e:
-            print(f"⚠️  Failed to save {cls.LLM_CONFIG_FILE}: {e}")
-            return False
+            print(f"⚠️  Failed to save LLM config to database: {e}")
+            raise
 

@@ -111,13 +111,17 @@ def create_llm_from_config(config: dict, streaming: bool = False, temperature: f
         
         api_key = config.get("api_key") or os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            raise ValueError("Google API key is required for Gemini. Get one from https://aistudio.google.com/app/apikey")
+            raise ValueError(
+                "Google API key is required for Gemini. "
+                "Please set GOOGLE_API_KEY environment variable or configure it in the database. "
+                "Get an API key from: https://aistudio.google.com/app/apikey"
+            )
         
         try:
             # Common Gemini model names for validation hints
             common_models = [
                 "gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro",
-                "gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+                "gemini-2.0-flash", "gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-flash-lite",
                 "gemini-2.5-pro"
             ]
             
@@ -140,11 +144,21 @@ def create_llm_from_config(config: dict, streaming: bool = False, temperature: f
                     f"{', '.join(common_models)}. "
                     f"Error details: {error_msg}"
                 )
-            elif "API_KEY" in error_msg or "authentication" in error_msg.lower():
+            elif "API_KEY" in error_msg or "authentication" in error_msg.lower() or "API key not valid" in error_msg:
                 raise ValueError(
                     f"Invalid Google API key. Please check your API key. "
                     f"Get a new one from: https://aistudio.google.com/app/apikey. "
                     f"Error: {error_msg}"
+                )
+            elif "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower() or "429" in error_msg:
+                raise ValueError(
+                    f"Gemini API quota exceeded. Your API key has reached its rate limit or quota. "
+                    f"Solutions:\n"
+                    f"1. Wait a few minutes and try again\n"
+                    f"2. Enable billing in Google Cloud Console: https://console.cloud.google.com/billing\n"
+                    f"3. Check your quota limits: https://ai.dev/usage?tab=rate-limit\n"
+                    f"4. Try a different model (e.g., gemini-1.5-flash instead of gemini-2.0-flash)\n"
+                    f"Error details: {error_msg[:200]}"
                 )
             else:
                 raise ValueError(
@@ -157,9 +171,15 @@ def create_llm_from_config(config: dict, streaming: bool = False, temperature: f
     
     else:  # Default to OpenAI
         # OpenAI API
-        api_key = config.get("api_key") or os.getenv("OPENAI_API_KEY")
+        # Note: OPENAI_API_KEY from env is ONLY for embeddings (RAG), not for LLM model
+        # The LLM model API key must be set in the database config
+        api_key = config.get("api_key")
         if not api_key:
-            raise ValueError("OpenAI API key is required")
+            raise ValueError(
+                "OpenAI API key is required for the LLM model. "
+                "Please set it in the LLM configuration. "
+                "Note: OPENAI_API_KEY environment variable is only used for embeddings (RAG), not for the LLM model."
+            )
         
         api_base = config.get("api_base")
         kwargs = {

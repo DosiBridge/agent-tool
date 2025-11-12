@@ -134,15 +134,121 @@ export interface ToolsInfo {
   }>;
 }
 
+// Token management
+const TOKEN_KEY = "auth_token";
+
+export function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function removeAuthToken(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+// Helper function to get auth headers
+function getAuthHeaders(): HeadersInit {
+  const token = getAuthToken();
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 // Helper function to handle API errors
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
+    // Handle 401 Unauthorized - token expired or invalid
+    if (response.status === 401) {
+      removeAuthToken();
+      // Redirect to login will be handled by the auth guard
+      throw new Error("Unauthorized - Please login again");
+    }
     const error = await response
       .json()
       .catch(() => ({ detail: response.statusText }));
     throw new Error(error.detail || error.message || `HTTP ${response.status}`);
   }
   return response.json();
+}
+
+// Auth API
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  is_active: boolean;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  name: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+}
+
+export async function register(data: RegisterRequest): Promise<AuthResponse> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  const result = await handleResponse<AuthResponse>(response);
+  setAuthToken(result.access_token);
+  return result;
+}
+
+export async function login(data: LoginRequest): Promise<AuthResponse> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  const result = await handleResponse<AuthResponse>(response);
+  setAuthToken(result.access_token);
+  return result;
+}
+
+export async function logout(): Promise<void> {
+  const apiBaseUrl = await getApiBaseUrl();
+  try {
+    await fetch(`${apiBaseUrl}/api/auth/logout`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
+  } catch (error) {
+    // Ignore errors on logout
+    console.error("Logout error:", error);
+  } finally {
+    removeAuthToken();
+  }
+}
+
+export async function getCurrentUser(): Promise<User> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/auth/me`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse<User>(response);
 }
 
 // Chat API
@@ -152,7 +258,7 @@ export async function sendChatMessage(
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   return handleResponse<ChatResponse>(response);
@@ -172,7 +278,7 @@ export function createStreamReader(
     const apiBaseUrl = await getApiBaseUrl();
     return fetch(`${apiBaseUrl}/api/chat/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(request),
       signal: abortController.signal,
     })
@@ -285,7 +391,9 @@ export function createStreamReader(
 // Session API
 export async function getSession(sessionId: string): Promise<SessionInfo> {
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/session/${sessionId}`);
+  const response = await fetch(`${apiBaseUrl}/api/session/${sessionId}`, {
+    headers: getAuthHeaders(),
+  });
   return handleResponse<SessionInfo>(response);
 }
 
@@ -293,13 +401,16 @@ export async function deleteSession(sessionId: string): Promise<void> {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/session/${sessionId}`, {
     method: "DELETE",
+    headers: getAuthHeaders(),
   });
   await handleResponse(response);
 }
 
 export async function listSessions(): Promise<{ sessions: Session[] }> {
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/sessions`);
+  const response = await fetch(`${apiBaseUrl}/api/sessions`, {
+    headers: getAuthHeaders(),
+  });
   return handleResponse<{ sessions: Session[] }>(response);
 }
 
@@ -309,7 +420,9 @@ export async function listMCPServers(): Promise<{
   count: number;
 }> {
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/mcp-servers`);
+  const response = await fetch(`${apiBaseUrl}/api/mcp-servers`, {
+    headers: getAuthHeaders(),
+  });
   const data = await handleResponse<{
     status?: string;
     servers: MCPServer[];
@@ -325,7 +438,7 @@ export async function addMCPServer(
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/mcp-servers`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(server),
   });
   return handleResponse(response);
@@ -345,7 +458,7 @@ export async function updateMCPServer(
     `${apiBaseUrl}/api/mcp-servers/${encodedName}`,
     {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(server),
     }
   );
@@ -363,6 +476,7 @@ export async function deleteMCPServer(name: string): Promise<void> {
     `${apiBaseUrl}/api/mcp-servers/${encodedName}`,
     {
       method: "DELETE",
+      headers: getAuthHeaders(),
     }
   );
   await handleResponse(response);
@@ -381,6 +495,7 @@ export async function toggleMCPServer(
     `${apiBaseUrl}/api/mcp-servers/${encodedName}/toggle`,
     {
       method: "PATCH",
+      headers: getAuthHeaders(),
     }
   );
   return handleResponse(response);
@@ -389,7 +504,9 @@ export async function toggleMCPServer(
 // LLM Config API
 export async function getLLMConfig(): Promise<{ config: LLMConfigResponse }> {
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/llm-config`);
+  const response = await fetch(`${apiBaseUrl}/api/llm-config`, {
+    headers: getAuthHeaders(),
+  });
   const data = await handleResponse<{
     status: string;
     config: LLMConfigResponse;
@@ -409,8 +526,17 @@ export async function setLLMConfig(
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/llm-config`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(config),
+  });
+  return handleResponse(response);
+}
+
+export async function resetLLMConfig(): Promise<{ message: string; config: LLMConfigResponse }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/llm-config/reset`, {
+    method: "POST",
+    headers: getAuthHeaders(),
   });
   return handleResponse(response);
 }

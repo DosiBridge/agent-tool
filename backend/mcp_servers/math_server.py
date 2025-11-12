@@ -78,14 +78,22 @@ def _evaluate_expression(expr: str) -> Union[int, float, complex]:
 
 @mcp.tool()
 def calculate(expression: str) -> dict:
-    """Evaluate any mathematical expression. Supports all standard operations, functions (sin, cos, log, sqrt, etc.), and constants (pi, e). Handles integers, floats, and large numbers.
+    """PRIMARY MATH TOOL: Evaluate ANY mathematical expression with multiple numbers and operations. Use this for ALL calculations including adding/subtracting/multiplying multiple numbers, complex expressions, and any math operations.
+    
+    Supports: multiple numbers (e.g., "2 + 3 + 4 + 5"), all standard operations, functions (sin, cos, log, sqrt, etc.), and constants (pi, e). Handles integers, floats, and large numbers.
     
     Examples:
+    - "2 + 3 + 4 + 5" (adding multiple numbers)
+    - "10 - 3 - 2" (subtracting multiple numbers)
+    - "2 * 3 * 4" (multiplying multiple numbers)
+    - "100 / 2 / 5" (dividing multiple numbers)
     - "2 + 2"
     - "sqrt(16) + pow(2, 3)"
     - "sin(pi/2) * cos(0)"
     - "factorial(5)"
     - "2**1000" (supports very large numbers)
+    
+    IMPORTANT: Always use this tool for any calculation, especially when dealing with more than two numbers. The other tools (add, subtract, etc.) are only for simple two-number operations.
     """
     try:
         if not expression or not expression.strip():
@@ -99,11 +107,51 @@ def calculate(expression: str) -> dict:
 
 @mcp.tool()
 def add(a: Union[str, int, float], b: Union[str, int, float]) -> dict:
-    """Add two numbers. Supports any numeric value regardless of size."""
+    """Add exactly two numbers. For adding more than two numbers or complex expressions, use the 'calculate' tool instead. Example: use calculate("2 + 3 + 4") instead of multiple add calls."""
     try:
         num_a = _safe_convert_number(a)
         num_b = _safe_convert_number(b)
         result = num_a + num_b
+        return _ok(result)
+    except ValueError as e:
+        return _err(str(e), "VALIDATION_ERROR")
+    except Exception as e:
+        return _err(f"Addition error: {str(e)}", "MATH_ERROR")
+
+@mcp.tool()
+def add_multiple(numbers: str) -> dict:
+    """Add multiple numbers together. Provide numbers as a comma-separated string or space-separated string.
+    
+    Examples:
+    - "2,2,2,2,2,2,2,2" (comma-separated)
+    - "2 2 2 2 2 2 2 2" (space-separated)
+    - "10, 20, 30, 40" (with spaces)
+    
+    This is a convenience function for adding multiple numbers. For complex expressions, use 'calculate' instead.
+    """
+    try:
+        if not numbers or not numbers.strip():
+            return _err("Numbers cannot be empty", "VALIDATION_ERROR")
+        
+        # Try comma-separated first, then space-separated
+        if ',' in numbers:
+            num_strs = [n.strip() for n in numbers.split(',') if n.strip()]
+        else:
+            num_strs = [n.strip() for n in numbers.split() if n.strip()]
+        
+        if len(num_strs) < 2:
+            return _err("Please provide at least two numbers to add", "VALIDATION_ERROR")
+        
+        # Convert all to numbers
+        nums = []
+        for num_str in num_strs:
+            try:
+                nums.append(_safe_convert_number(num_str))
+            except ValueError as e:
+                return _err(f"Invalid number '{num_str}': {str(e)}", "VALIDATION_ERROR")
+        
+        # Sum all numbers
+        result = sum(nums)
         return _ok(result)
     except ValueError as e:
         return _err(str(e), "VALIDATION_ERROR")

@@ -28,25 +28,16 @@ class EnhancedRAGSystem:
         ]
         
         try:
-            # Use OpenAI API key from config or environment (default for embeddings)
+            # OPENAI_API_KEY from environment is ONLY for embeddings (RAG)
+            # This is separate from the LLM model API key stored in database
             # This allows RAG to work even if the main LLM is Gemini/Ollama
-            # Priority: 1) Environment variable, 2) Config file (if OpenAI), 3) Config.OPENAI_API_KEY
             openai_api_key = os.getenv("OPENAI_API_KEY")
-            
-            # If not in env, try to get from LLM config if it's OpenAI
-            if not openai_api_key:
-                llm_config = Config.load_llm_config()
-                if llm_config.get("type", "").lower() == "openai":
-                    openai_api_key = llm_config.get("api_key")
-            
-            # Fallback to Config class
-            if not openai_api_key:
-                openai_api_key = Config.OPENAI_API_KEY
             
             if not openai_api_key:
                 raise ValueError(
                     "OpenAI API key is required for FAISS embeddings. "
-                    "Please set OPENAI_API_KEY environment variable or configure it in config/llm_config.json"
+                    "Please set OPENAI_API_KEY environment variable. "
+                    "Note: This is ONLY for embeddings, not for the LLM model."
                 )
             
             self.embeddings = OpenAIEmbeddings(api_key=openai_api_key)

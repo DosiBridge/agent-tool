@@ -11,6 +11,12 @@ fi
 # Set PYTHONPATH
 export PYTHONPATH="$(pwd):$PYTHONPATH"
 
+# Set default CORS_ORIGINS for local development if not already set
+if [ -z "$CORS_ORIGINS" ]; then
+    export CORS_ORIGINS="http://localhost:3000,http://127.0.0.1:3000,http://localhost:8086,http://127.0.0.1:8086"
+    echo "🌐 CORS_ORIGINS not set, using default for local development: $CORS_ORIGINS"
+fi
+
 # Create virtual environment if it doesn't exist
 if [ ! -d "venv" ]; then
     echo "📦 Creating virtual environment..."
