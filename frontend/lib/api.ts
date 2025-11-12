@@ -29,16 +29,21 @@ async function getApiBaseUrl(): Promise<string> {
       if (response.ok) {
         runtimeConfig = await response.json();
         if (runtimeConfig?.API_BASE_URL) {
+          console.log('Using runtime API URL:', runtimeConfig.API_BASE_URL);
           return runtimeConfig.API_BASE_URL;
         }
+      } else {
+        console.warn('Runtime config file not found (status:', response.status, '), using fallback');
       }
     } catch (error) {
-      // Silently fail and use build-time config
-      console.debug('Runtime config not available, using build-time config');
+      // Log error for debugging
+      console.warn('Failed to load runtime config:', error, '- using fallback');
     }
     
-    // Fall back to build-time env var
-    return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8085';
+    // Fall back to build-time env var or default
+    const fallbackUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8085';
+    console.log('Using fallback API URL:', fallbackUrl);
+    return fallbackUrl;
   })();
   
   return configLoadPromise;

@@ -57,7 +57,10 @@ RUN chmod -R u+w ./public || true
 # Create startup script that generates config and starts server
 # Note: We create this as root, then chown it, since we switch users after
 RUN echo '#!/bin/sh' > /tmp/start.sh && \
+    echo 'set -e' >> /tmp/start.sh && \
+    echo 'echo "Generating runtime config..."' >> /tmp/start.sh && \
     echo 'node scripts/generate-runtime-config.js' >> /tmp/start.sh && \
+    echo 'echo "Starting Next.js server..."' >> /tmp/start.sh && \
     echo 'exec node server.js' >> /tmp/start.sh && \
     chmod +x /tmp/start.sh && \
     mv /tmp/start.sh /app/start.sh && \

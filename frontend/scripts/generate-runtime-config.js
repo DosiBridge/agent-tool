@@ -16,16 +16,41 @@ const config = {
   // Add other runtime config here if needed
 };
 
-// Ensure public directory exists
-const publicDir = path.join(__dirname, '..', 'public');
+// Determine public directory path
+// In standalone build, public is at /app/public
+// Try multiple possible locations
+let publicDir = path.join(__dirname, '..', 'public');
 if (!fs.existsSync(publicDir)) {
-  fs.mkdirSync(publicDir, { recursive: true });
+  // Try absolute path (standalone build)
+  const altPath = '/app/public';
+  if (fs.existsSync(altPath)) {
+    publicDir = altPath;
+    console.log(`Using alternate public directory: ${publicDir}`);
+  } else {
+    console.log(`Creating public directory: ${publicDir}`);
+    fs.mkdirSync(publicDir, { recursive: true });
+  }
+} else {
+  console.log(`Using public directory: ${publicDir}`);
 }
 
 // Write config file to public directory
 const configPath = path.join(publicDir, 'runtime-config.json');
-fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-
-console.log(`Runtime config generated: ${configPath}`);
-console.log(`API_BASE_URL: ${API_BASE_URL}`);
+try {
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  console.log(`✓ Runtime config generated: ${configPath}`);
+  console.log(`✓ API_BASE_URL: ${API_BASE_URL}`);
+  
+  // Verify the file was written
+  if (fs.existsSync(configPath)) {
+    const written = fs.readFileSync(configPath, 'utf8');
+    console.log(`✓ Config file verified. Contents: ${written}`);
+  } else {
+    console.error(`✗ ERROR: Config file was not created at ${configPath}`);
+    process.exit(1);
+  }
+} catch (error) {
+  console.error(`✗ ERROR: Failed to write config file:`, error);
+  process.exit(1);
+}
 
