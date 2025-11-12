@@ -41,6 +41,8 @@ async def chat(
         ChatResponse with answer
     """
     try:
+        user_id = current_user.id if current_user else None
+        
         if request.mode == "rag":
             # RAG-only mode
             llm_config = Config.load_llm_config()
@@ -67,7 +69,7 @@ async def chat(
             )
         else:
             # Agent mode
-            mcp_servers = Config.load_mcp_servers()
+            mcp_servers = Config.load_mcp_servers(user_id=user_id)
             tools_used = []
             
             async with MCPClientManager(mcp_servers) as mcp_tools:
@@ -236,6 +238,7 @@ async def chat_stream(
     """
     async def generate() -> AsyncGenerator[str, None]:
         stream_completed = False
+        user_id = current_user.id if current_user else None
         try:
             # Send initial connection message to verify stream is working
             yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connected'})}\n\n"
@@ -366,7 +369,7 @@ async def chat_stream(
                 # Agent mode with streaming
                 yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_agent'})}\n\n"
                 
-                mcp_servers = Config.load_mcp_servers()
+                mcp_servers = Config.load_mcp_servers(user_id=user_id)
                 yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connecting_mcp_servers', 'server_count': len(mcp_servers)})}\n\n"
                 
                 try:

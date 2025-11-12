@@ -18,7 +18,7 @@ import {
     updateMCPServer,
 } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { AlertTriangle, Cpu, Edit2, Loader2, Lock, Plus, RotateCcw, Save, Server, Trash2, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Edit2, Loader2, Lock, Plus, RotateCcw, Save, Server, Trash2, Wrench, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 
@@ -182,17 +182,17 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     };
 
     const handleResetLLMConfig = async () => {
-        if (!confirm('Reset LLM configuration to default Gemini settings? This will replace your current configuration.')) {
+        if (!confirm('Reset LLM configuration to default OpenAI GPT settings? This will replace your current configuration.')) {
             return;
         }
         try {
             await resetLLMConfig();
-            toast.success('LLM configuration reset to default Gemini');
+            toast.success('LLM configuration reset to default OpenAI GPT');
             loadLLMConfig();
             // Update form to show default values
             setLlmForm({
-                type: 'gemini',
-                model: 'gemini-2.0-flash',
+                type: 'openai',
+                model: 'gpt-4o',
                 api_key: '',
                 base_url: '',
             });
@@ -300,7 +300,8 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                             <Server className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                             <span className="truncate">MCP Servers</span>
                         </button>
-                        <button
+                        {/* LLM Config tab disabled */}
+                        {/* <button
                             onClick={() => setActiveTab('llm')}
                             className={`flex-1 min-w-0 px-3 sm:px-4 md:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-colors flex items-center justify-center gap-1.5 sm:gap-2 touch-manipulation ${activeTab === 'llm'
                                 ? 'border-b-2 border-[#10a37f] text-[#10a37f] bg-[#343541]'
@@ -309,7 +310,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                         >
                             <Cpu className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                             <span className="truncate">LLM Config</span>
-                        </button>
+                        </button> */}
                         <button
                             onClick={() => setActiveTab('tools')}
                             className={`flex-1 min-w-0 px-3 sm:px-4 md:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-colors flex items-center justify-center gap-1.5 sm:gap-2 touch-manipulation ${activeTab === 'tools'
@@ -451,7 +452,8 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                             </div>
                         )}
 
-                        {activeTab === 'llm' && (
+                        {/* LLM Config tab disabled */}
+                        {false && activeTab === 'llm' && (
                             <div className="space-y-4 sm:space-y-5 md:space-y-6">
                                 {/* LLM Configuration Form */}
                                 <div className="bg-[#40414f] rounded-lg p-4 sm:p-5 border border-gray-700">
@@ -529,7 +531,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                                             <button
                                                 onClick={handleResetLLMConfig}
                                                 className="w-full sm:w-auto px-4 py-2.5 bg-[#40414f] hover:bg-[#2d2d2f] text-gray-300 rounded-lg transition-colors flex items-center justify-center gap-2 font-medium border border-gray-600 text-sm sm:text-base touch-manipulation"
-                                                title="Reset to default Gemini configuration"
+                                                title="Reset to default OpenAI GPT configuration"
                                             >
                                                 <RotateCcw className="w-4 h-4 shrink-0" />
                                                 <span>Reset</span>

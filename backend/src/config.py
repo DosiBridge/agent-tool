@@ -52,12 +52,13 @@ class Config:
     ROOT_DIR = Path(__file__).parent.parent
     
     @classmethod
-    def load_mcp_servers(cls, additional_servers: list = None, db: Optional[Session] = None) -> list[dict]:
+    def load_mcp_servers(cls, additional_servers: list = None, db: Optional[Session] = None, user_id: Optional[int] = None) -> list[dict]:
         """
         Load MCP servers from database.
         Args:
             additional_servers: Optional list of additional servers to add
             db: Optional database session (if None, creates a new one)
+            user_id: Optional user ID to filter servers (required for user-specific servers)
         """
         servers = []
         
@@ -66,16 +67,22 @@ class Config:
             try:
                 if db:
                     # Use provided session
-                    db_servers = db.query(MCPServer).filter(MCPServer.enabled == True).all()
+                    query = db.query(MCPServer).filter(MCPServer.enabled == True)
+                    if user_id is not None:
+                        query = query.filter(MCPServer.user_id == user_id)
+                    db_servers = query.all()
                     servers = [s.to_dict() for s in db_servers]
                 else:
                     # Create new session
                     with get_db_context() as session:
-                        db_servers = session.query(MCPServer).filter(MCPServer.enabled == True).all()
+                        query = session.query(MCPServer).filter(MCPServer.enabled == True)
+                        if user_id is not None:
+                            query = query.filter(MCPServer.user_id == user_id)
+                        db_servers = query.all()
                         servers = [s.to_dict() for s in db_servers]
                 
                 if servers:
-                    print(f"📝 Loaded {len(servers)} server(s) from database")
+                    print(f"📝 Loaded {len(servers)} server(s) from database" + (f" for user {user_id}" if user_id else ""))
             except Exception as e:
                 print(f"⚠️  Failed to load MCP servers from database: {e}")
                 servers = []
@@ -103,15 +110,35 @@ class Config:
     @classmethod
     def load_llm_config(cls, db: Optional[Session] = None) -> dict:
         """
-        Load LLM configuration from database.
-        Returns default Gemini config (gemini-2.0-flash) if nothing is found.
-        Note: OPENAI_API_KEY from env is ONLY for embeddings (RAG), not for LLM model.
-        The default gemini-2.0-flash config cannot be deleted - it's always available via reset.
+        Load LLM configuration - always returns fixed default OpenAI GPT config.
+        LLM model configuration is fixed and cannot be changed.
+        The system always uses OpenAI GPT (gpt-4o) with API key from environment.
+        Note: OPENAI_API_KEY from env is used for both embeddings (RAG) and LLM model.
         Args:
-            db: Optional database session (if None, creates a new one)
+            db: Optional database session (ignored - config is fixed)
         """
+        # Always return the fixed default OpenAI GPT config
+        # Database configs are ignored - model cannot be changed
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        default_config = {
+            "type": "openai",
+            "model": "gpt-4o",
+            "api_key": openai_api_key,  # Get from environment (may be None)
+            "active": True
+        }
+        
+        # Warn if API key is missing
+        if not default_config["api_key"]:
+            print("⚠️  Warning: OPENAI_API_KEY not set. Please set it as an environment variable")
+            print("   Set it with: export OPENAI_API_KEY='your-api-key'")
+        else:
+            print(f"📝 Using fixed LLM config: OpenAI GPT (gpt-4o)")
+        
+        return default_config
+        
+        # Database loading code below is disabled - kept for reference
         # Load from database
-        if DB_AVAILABLE:
+        if False and DB_AVAILABLE:
             try:
                 session_to_use = db
                 if not session_to_use:
@@ -144,19 +171,19 @@ class Config:
             except Exception as e:
                 print(f"⚠️  Failed to load LLM config from database: {e}")
         
-        # Default to Gemini (not OpenAI)
-        google_api_key = os.getenv("GOOGLE_API_KEY")
+        # Default to OpenAI GPT
+        openai_api_key = os.getenv("OPENAI_API_KEY")
         default_config = {
-            "type": "gemini",
-            "model": "gemini-2.0-flash",
-            "api_key": google_api_key,  # Get from environment (may be None)
+            "type": "openai",
+            "model": "gpt-4o",
+            "api_key": openai_api_key,  # Get from environment (may be None)
             "active": True
         }
         
         # Warn if API key is missing
         if not default_config["api_key"]:
-            print("⚠️  Warning: GOOGLE_API_KEY not set. Please set it as an environment variable or configure in database")
-            print("   Set it with: export GOOGLE_API_KEY='your-api-key'")
+            print("⚠️  Warning: OPENAI_API_KEY not set. Please set it as an environment variable or configure in database")
+            print("   Set it with: export OPENAI_API_KEY='your-api-key'")
             print("   Or configure it in the frontend Settings panel")
         
         return default_config
@@ -165,7 +192,7 @@ class Config:
     def save_llm_config(cls, config: dict, db: Optional[Session] = None) -> bool:
         """
         Save LLM configuration to database.
-        Users can switch to any model/LLM, but the default gemini-2.0-flash config
+        Users can switch to any model/LLM, but the default OpenAI GPT config
         will always be preserved (just deactivated when switching).
         Args:
             config: Configuration dictionary
@@ -188,7 +215,7 @@ class Config:
                     # Create new active config with user's chosen model/LLM
                     llm_config = LLMConfig(
                         type=config.get('type', 'gemini'),
-                        model=config.get('model', 'gemini-2.0-flash'),
+                        model=config.get('model', 'gpt-4o'),
                         api_key=config.get('api_key'),
                         base_url=config.get('base_url'),
                         api_base=config.get('api_base'),

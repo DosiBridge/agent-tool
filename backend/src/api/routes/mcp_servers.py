@@ -3,19 +3,28 @@ MCP Server Management Endpoints
 """
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
+from typing import Optional
 from src.config import Config
 from src.database import get_db
-from src.models import MCPServer
+from src.models import MCPServer, User
+from src.auth import get_current_active_user, get_current_user
 from ..models import MCPServerRequest
 
 router = APIRouter()
 
 
 @router.get("/mcp-servers")
-async def list_mcp_servers(db: Session = Depends(get_db)):
-    """List all configured MCP servers"""
+async def list_mcp_servers(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """List all configured MCP servers for the authenticated user"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     try:
-        servers = Config.load_mcp_servers(db=db)
+        # Load servers for the current user
+        servers = Config.load_mcp_servers(db=db, user_id=current_user.id)
         # Don't send api_key in response for security
         safe_servers = []
         for server in servers:
@@ -36,8 +45,12 @@ async def list_mcp_servers(db: Session = Depends(get_db)):
 
 
 @router.post("/mcp-servers")
-async def add_mcp_server(server: MCPServerRequest, db: Session = Depends(get_db)):
-    """Add a new MCP server to the configuration"""
+async def add_mcp_server(
+    server: MCPServerRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Add a new MCP server to the configuration. Requires authentication - servers are user-specific."""
     try:
         # Normalize URL: remove /sse and ensure /mcp endpoint
         normalized_url = server.url.rstrip('/')
@@ -47,8 +60,9 @@ async def add_mcp_server(server: MCPServerRequest, db: Session = Depends(get_db)
             # If URL doesn't end with /mcp, append it
             normalized_url = normalized_url.rstrip('/') + '/mcp'
         
-        # Check if server already exists
+        # Check if server already exists for this user
         existing = db.query(MCPServer).filter(
+            MCPServer.user_id == current_user.id,
             (MCPServer.name == server.name) | (MCPServer.url == normalized_url)
         ).first()
         
@@ -58,8 +72,9 @@ async def add_mcp_server(server: MCPServerRequest, db: Session = Depends(get_db)
                 detail=f"MCP server with name '{server.name}' or URL '{normalized_url}' already exists"
             )
         
-        # Create new server
+        # Create new server with user_id
         mcp_server = MCPServer(
+            user_id=current_user.id,
             name=server.name,
             url=normalized_url,
             api_key=server.api_key if server.api_key else None,
@@ -69,8 +84,8 @@ async def add_mcp_server(server: MCPServerRequest, db: Session = Depends(get_db)
         db.commit()
         db.refresh(mcp_server)
         
-        # Get total count
-        total_servers = db.query(MCPServer).count()
+        # Get total count for this user
+        total_servers = db.query(MCPServer).filter(MCPServer.user_id == current_user.id).count()
         
         return {
             "status": "success",
@@ -87,14 +102,21 @@ async def add_mcp_server(server: MCPServerRequest, db: Session = Depends(get_db)
 
 
 @router.delete("/mcp-servers/{server_name}")
-async def delete_mcp_server(server_name: str, db: Session = Depends(get_db)):
-    """Delete an MCP server from the configuration"""
+async def delete_mcp_server(
+    server_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Delete an MCP server from the configuration. Requires authentication - users can only delete their own servers."""
     if not server_name or not server_name.strip():
         raise HTTPException(status_code=400, detail="Server name is required")
     
     try:
-        # Find server
-        mcp_server = db.query(MCPServer).filter(MCPServer.name == server_name).first()
+        # Find server owned by this user
+        mcp_server = db.query(MCPServer).filter(
+            MCPServer.user_id == current_user.id,
+            MCPServer.name == server_name
+        ).first()
         
         if not mcp_server:
             raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
@@ -103,8 +125,8 @@ async def delete_mcp_server(server_name: str, db: Session = Depends(get_db)):
         db.delete(mcp_server)
         db.commit()
         
-        # Get remaining count
-        remaining_count = db.query(MCPServer).count()
+        # Get remaining count for this user
+        remaining_count = db.query(MCPServer).filter(MCPServer.user_id == current_user.id).count()
         
         return {
             "status": "success",
@@ -120,16 +142,24 @@ async def delete_mcp_server(server_name: str, db: Session = Depends(get_db)):
 
 
 @router.put("/mcp-servers/{server_name}")
-async def update_mcp_server(server_name: str, server: MCPServerRequest, db: Session = Depends(get_db)):
-    """Update an existing MCP server"""
+async def update_mcp_server(
+    server_name: str,
+    server: MCPServerRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Update an existing MCP server. Requires authentication - users can only update their own servers."""
     if not server_name or not server_name.strip():
         raise HTTPException(status_code=400, detail="Server name is required")
     if not server.name or not server.name.strip():
         raise HTTPException(status_code=400, detail="Server name in request body is required")
     
     try:
-        # Find server
-        mcp_server = db.query(MCPServer).filter(MCPServer.name == server_name).first()
+        # Find server owned by this user
+        mcp_server = db.query(MCPServer).filter(
+            MCPServer.user_id == current_user.id,
+            MCPServer.name == server_name
+        ).first()
         
         if not mcp_server:
             raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
@@ -166,14 +196,21 @@ async def update_mcp_server(server_name: str, server: MCPServerRequest, db: Sess
 
 
 @router.patch("/mcp-servers/{server_name}/toggle")
-async def toggle_mcp_server(server_name: str, db: Session = Depends(get_db)):
-    """Toggle enabled/disabled status of an MCP server"""
+async def toggle_mcp_server(
+    server_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Toggle enabled/disabled status of an MCP server. Requires authentication - users can only toggle their own servers."""
     if not server_name or not server_name.strip():
         raise HTTPException(status_code=400, detail="Server name is required")
     
     try:
-        # Find server
-        mcp_server = db.query(MCPServer).filter(MCPServer.name == server_name).first()
+        # Find server owned by this user
+        mcp_server = db.query(MCPServer).filter(
+            MCPServer.user_id == current_user.id,
+            MCPServer.name == server_name
+        ).first()
         
         if not mcp_server:
             raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")

@@ -1,7 +1,7 @@
 """
 Database models for LLM config, MCP servers, and Users
 """
-from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -21,6 +21,7 @@ if Base is not None:
         __tablename__ = "llm_config"
         
         id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
         type = Column(String(50), nullable=False, default="openai")  # openai, gemini, ollama, groq
         model = Column(String(200), nullable=False)
         api_key = Column(Text, nullable=True)  # Encrypted or stored securely
@@ -29,6 +30,9 @@ if Base is not None:
         active = Column(Boolean, default=True, nullable=False)
         created_at = Column(DateTime(timezone=True), server_default=func.now())
         updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+        
+        # Relationship
+        user = relationship("User", backref="llm_configs")
         
         def to_dict(self, include_api_key: bool = False) -> dict:
             """Convert model to dictionary"""
@@ -49,12 +53,21 @@ if Base is not None:
         __tablename__ = "mcp_servers"
         
         id = Column(Integer, primary_key=True, index=True)
-        name = Column(String(100), unique=True, nullable=False, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+        name = Column(String(100), nullable=False, index=True)  # Removed unique constraint - now per-user
         url = Column(String(500), nullable=False)
         api_key = Column(Text, nullable=True)  # Optional API key for the MCP server
         enabled = Column(Boolean, default=True, nullable=False)
         created_at = Column(DateTime(timezone=True), server_default=func.now())
         updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+        
+        # Relationship
+        user = relationship("User", backref="mcp_servers")
+        
+        # Unique constraint on user_id + name combination
+        __table_args__ = (
+            UniqueConstraint('user_id', 'name', name='uq_mcp_server_user_name'),
+        )
         
         def to_dict(self, include_api_key: bool = False) -> dict:
             """Convert model to dictionary"""

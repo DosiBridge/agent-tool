@@ -33,9 +33,16 @@ async def get_llm_config(db: Session = Depends(get_db)):
 @router.post("/llm-config")
 async def set_llm_config(config: LLMConfigRequest, db: Session = Depends(get_db)):
     """
-    Set LLM configuration - allows switching to any model/LLM.
-    The default gemini-2.0-flash config is preserved (deactivated) and can be restored via reset.
+    Set LLM configuration - DISABLED.
+    LLM model configuration is fixed and cannot be changed.
+    The system always uses the default OpenAI GPT (gpt-4o) configuration.
     """
+    raise HTTPException(
+        status_code=403,
+        detail="LLM configuration changes are not allowed. The system uses a fixed OpenAI GPT (gpt-4o) configuration that cannot be modified."
+    )
+    
+    # Original code below is disabled - kept for reference
     try:
         # Validate required fields based on type
         if config.type.lower() == "ollama":
@@ -143,37 +150,38 @@ async def set_llm_config(config: LLMConfigRequest, db: Session = Depends(get_db)
 @router.post("/llm-config/reset")
 async def reset_llm_config(db: Session = Depends(get_db)):
     """
-    Reset LLM configuration to default Gemini settings (gemini-2.0-flash).
+    Reset LLM configuration to default OpenAI GPT settings (gpt-4o).
     This always restores the default config with API key from environment.
     Previous configs are preserved but deactivated.
+    Note: This is the only way to restore the default config, but changing models is disabled.
     """
     try:
         # Deactivate all existing configs (they are preserved, just not active)
-        # This ensures the default gemini-2.0-flash config cannot be deleted
+        # This ensures the default OpenAI GPT config cannot be deleted
         db.query(LLMConfig).update({LLMConfig.active: False})
         
-        # Check if default gemini-2.0-flash config already exists
+        # Check if default OpenAI GPT config already exists
         existing_default = db.query(LLMConfig).filter(
-            LLMConfig.type == "gemini",
-            LLMConfig.model == "gemini-2.0-flash"
+            LLMConfig.type == "openai",
+            LLMConfig.model == "gpt-4o"
         ).first()
         
         if existing_default:
             # Reactivate the existing default config and update API key from env
-            google_api_key = os.getenv("GOOGLE_API_KEY")
+            openai_api_key = os.getenv("OPENAI_API_KEY")
             existing_default.active = True
-            if google_api_key:
-                existing_default.api_key = google_api_key
+            if openai_api_key:
+                existing_default.api_key = openai_api_key
             db.commit()
             db.refresh(existing_default)
             default_config = existing_default
         else:
-            # Create new default Gemini config with API key from environment
-            google_api_key = os.getenv("GOOGLE_API_KEY")
+            # Create new default OpenAI GPT config with API key from environment
+            openai_api_key = os.getenv("OPENAI_API_KEY")
             default_config = LLMConfig(
-                type="gemini",
-                model="gemini-2.0-flash",
-                api_key=google_api_key,  # Get from environment
+                type="openai",
+                model="gpt-4o",
+                api_key=openai_api_key,  # Get from environment
                 active=True
             )
             db.add(default_config)
@@ -182,7 +190,7 @@ async def reset_llm_config(db: Session = Depends(get_db)):
         
         return {
             "status": "success",
-            "message": "LLM configuration reset to default Gemini settings (gemini-2.0-flash)",
+            "message": "LLM configuration reset to default OpenAI GPT settings (gpt-4o)",
             "config": default_config.to_dict()
         }
     except Exception as e:

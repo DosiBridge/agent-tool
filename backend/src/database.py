@@ -7,7 +7,7 @@ from typing import Optional
 
 # Try to import database dependencies
 try:
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, text
     from sqlalchemy.ext.declarative import declarative_base
     from sqlalchemy.orm import sessionmaker, Session
     DB_AVAILABLE = True
@@ -111,6 +111,53 @@ def init_db():
     try:
         Base.metadata.create_all(bind=engine)
         print("✓ Database tables initialized")
+        
+        # Add user_id columns if they don't exist (migration)
+        try:
+            with engine.connect() as conn:
+                # Check and add user_id to mcp_servers table
+                result = conn.execute(
+                    text("SELECT column_name FROM information_schema.columns "
+                         "WHERE table_name='mcp_servers' AND column_name='user_id'")
+                )
+                if not result.fetchone():
+                    print("📝 Adding user_id column to mcp_servers table...")
+                    conn.execute(
+                        text("ALTER TABLE mcp_servers "
+                             "ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
+                    )
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_mcp_servers_user_id ON mcp_servers(user_id)"))
+                    # Drop existing unique constraint on name if it exists, then add new one
+                    try:
+                        conn.execute(text("ALTER TABLE mcp_servers DROP CONSTRAINT IF EXISTS mcp_servers_name_key"))
+                    except:
+                        pass
+                    try:
+                        conn.execute(
+                            text("ALTER TABLE mcp_servers "
+                                 "ADD CONSTRAINT uq_mcp_server_user_name UNIQUE (user_id, name)")
+                        )
+                    except:
+                        pass  # Constraint might already exist
+                    conn.commit()
+                    print("✓ Added user_id column to mcp_servers table")
+                
+                # Check and add user_id to llm_config table
+                result = conn.execute(
+                    text("SELECT column_name FROM information_schema.columns "
+                         "WHERE table_name='llm_config' AND column_name='user_id'")
+                )
+                if not result.fetchone():
+                    print("📝 Adding user_id column to llm_config table...")
+                    conn.execute(
+                        text("ALTER TABLE llm_config "
+                             "ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
+                    )
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_config_user_id ON llm_config(user_id)"))
+                    conn.commit()
+                    print("✓ Added user_id column to llm_config table")
+        except Exception as e:
+            print(f"⚠️  Migration check failed (this is okay if columns already exist): {e}")
     except Exception as e:
         print(f"⚠️  Failed to initialize database tables: {e}")
 
