@@ -18,18 +18,20 @@ async def list_mcp_servers(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user)
 ):
-    """List all configured MCP servers for the authenticated user"""
+    """List all configured MCP servers for the authenticated user (including disabled ones)"""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
     try:
-        # Load servers for the current user
-        servers = Config.load_mcp_servers(db=db, user_id=current_user.id)
+        # Load ALL servers for the current user (including disabled ones) for management UI
+        # This is different from Config.load_mcp_servers which filters by enabled=True
+        db_servers = db.query(MCPServer).filter(MCPServer.user_id == current_user.id).all()
+        
         # Don't send api_key in response for security
         safe_servers = []
-        for server in servers:
-            safe_server = {k: v for k, v in server.items() if k != "api_key"}
-            safe_server["has_api_key"] = bool(server.get("api_key"))
+        for server in db_servers:
+            safe_server = server.to_dict(include_api_key=False)
+            safe_server["has_api_key"] = bool(server.api_key)
             # Ensure enabled field exists (default to True if not present)
             if "enabled" not in safe_server:
                 safe_server["enabled"] = True
@@ -37,7 +39,7 @@ async def list_mcp_servers(
         
         return {
             "status": "success",
-            "count": len(servers),
+            "count": len(safe_servers),
             "servers": safe_servers
         }
     except Exception as e:
