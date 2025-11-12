@@ -24,31 +24,37 @@ app = FastAPI(
     lifespan=mcp_lifespan
 )
 
-# Configure CORS origins from environment variable only
+# Configure CORS origins from environment variable
 # Format: comma-separated list of origins, e.g., "http://localhost:3000,http://localhost:3001,https://example.com"
 CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS", "")
+
+# Default CORS origins for local development if not set
 if not CORS_ORIGINS_ENV:
-    raise ValueError(
-        "CORS_ORIGINS environment variable is required. "
-        "Set it to a comma-separated list of allowed origins, e.g., "
-        "CORS_ORIGINS='https://agent.dosibridge.com,http://localhost:8086'"
-    )
-
-# Parse comma-separated origins
-cors_origins = [origin.strip() for origin in CORS_ORIGINS_ENV.split(",") if origin.strip()]
-if not cors_origins:
-    raise ValueError("CORS_ORIGINS environment variable is empty or invalid")
-
-print(f"✅ CORS configured with origins: {cors_origins}")
+    default_origins = [
+        "http://localhost:3000",
+        "http://localhost:8086",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8086",
+        "http://localhost:8086",
+    ]
+    cors_origins = default_origins
+    print(f"⚠️  CORS_ORIGINS not set, using defaults: {cors_origins}")
+else:
+    # Parse comma-separated origins
+    cors_origins = [origin.strip() for origin in CORS_ORIGINS_ENV.split(",") if origin.strip()]
+    if not cors_origins:
+        raise ValueError("CORS_ORIGINS environment variable is empty or invalid")
+    print(f"✅ CORS configured with origins: {cors_origins}")
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,  # List of allowed origins
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],  # Explicitly allow all methods
     allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],  # Expose all headers to the client
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # Include routers
