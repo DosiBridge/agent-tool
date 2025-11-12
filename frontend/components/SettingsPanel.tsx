@@ -18,7 +18,7 @@ import {
     updateMCPServer,
 } from '@/lib/api';
 import { useStore } from '@/lib/store';
-import { AlertTriangle, Edit2, Loader2, Lock, Plus, RotateCcw, Save, Server, Trash2, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Edit2, Loader2, Lock, Plus, Save, Server, Trash2, Wrench, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 
@@ -452,124 +452,15 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                             </div>
                         )}
 
-                        {/* LLM Config tab disabled */}
-                        {false && activeTab === 'llm' && (
+                        {/* LLM Config tab disabled - commented out to avoid TypeScript errors */}
+                        {/* {activeTab === 'llm' && (
                             <div className="space-y-4 sm:space-y-5 md:space-y-6">
-                                {/* LLM Configuration Form */}
                                 <div className="bg-[#40414f] rounded-lg p-4 sm:p-5 border border-gray-700">
                                     <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 text-gray-200">LLM Configuration</h3>
-                                    <div className="space-y-3 sm:space-y-4">
-                                        <div>
-                                            <label className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 text-gray-300">Type</label>
-                                            <select
-                                                value={llmForm.type}
-                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setLlmForm({ ...llmForm, type: e.target.value as LLMConfig['type'] })}
-                                                className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#343541] text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f]"
-                                            >
-                                                <option value="openai">OpenAI</option>
-                                                <option value="groq">Groq</option>
-                                                <option value="ollama">Ollama</option>
-                                                <option value="gemini">Gemini</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 text-gray-300">Model</label>
-                                            <input
-                                                type="text"
-                                                value={llmForm.model}
-                                                onChange={(e) => setLlmForm({ ...llmForm, model: e.target.value })}
-                                                className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#343541] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f]"
-                                                placeholder="gpt-4o, llama3.2, etc."
-                                                required
-                                            />
-                                        </div>
-                                        {(llmForm.type === 'openai' || llmForm.type === 'groq' || llmForm.type === 'gemini') && (
-                                            <div>
-                                                <label className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 text-gray-300">API Key</label>
-                                                <input
-                                                    type="password"
-                                                    value={llmForm.api_key}
-                                                    onChange={(e) => setLlmForm({ ...llmForm, api_key: e.target.value })}
-                                                    className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#343541] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f]"
-                                                    placeholder="sk-..."
-                                                    required
-                                                />
-                                            </div>
-                                        )}
-                                        {llmForm.type === 'ollama' && (
-                                            <div>
-                                                <label className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 text-gray-300">Base URL</label>
-                                                <input
-                                                    type="text"
-                                                    value={llmForm.base_url}
-                                                    onChange={(e) => setLlmForm({ ...llmForm, base_url: e.target.value })}
-                                                    className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#343541] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f]"
-                                                    placeholder="http://localhost:11434"
-                                                />
-                                            </div>
-                                        )}
-                                        {llmForm.type === 'openai' && (
-                                            <div>
-                                                <label className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 text-gray-300">API Base (optional)</label>
-                                                <input
-                                                    type="text"
-                                                    value={llmForm.api_base || ''}
-                                                    onChange={(e) => setLlmForm({ ...llmForm, api_base: e.target.value })}
-                                                    className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#343541] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f]"
-                                                    placeholder="https://api.openai.com/v1"
-                                                />
-                                            </div>
-                                        )}
-                                        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-                                            <button
-                                                onClick={handleSaveLLMConfig}
-                                                className="flex-1 px-4 py-2.5 bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-medium text-sm sm:text-base touch-manipulation"
-                                            >
-                                                <Save className="w-4 h-4 shrink-0" />
-                                                <span>Save Configuration</span>
-                                            </button>
-                                            <button
-                                                onClick={handleResetLLMConfig}
-                                                className="w-full sm:w-auto px-4 py-2.5 bg-[#40414f] hover:bg-[#2d2d2f] text-gray-300 rounded-lg transition-colors flex items-center justify-center gap-2 font-medium border border-gray-600 text-sm sm:text-base touch-manipulation"
-                                                title="Reset to default OpenAI GPT configuration"
-                                            >
-                                                <RotateCcw className="w-4 h-4 shrink-0" />
-                                                <span>Reset</span>
-                                            </button>
-                                        </div>
-                                    </div>
+                                    <p className="text-gray-400">LLM configuration is disabled. The system uses a fixed OpenAI GPT (gpt-4o) configuration.</p>
                                 </div>
-
-                                {/* Current Configuration */}
-                                {llmConfig && (
-                                    <div className="bg-[#40414f] rounded-lg p-4 sm:p-5 border border-gray-700">
-                                        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 text-gray-200">Current Configuration</h3>
-                                        <div className="space-y-2 sm:space-y-3">
-                                            <div className="flex items-center justify-between py-2 border-b border-gray-700">
-                                                <span className="text-xs sm:text-sm text-gray-400">Type:</span>
-                                                <span className="text-xs sm:text-sm font-medium text-gray-200">{llmConfig.type}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between py-2 border-b border-gray-700">
-                                                <span className="text-xs sm:text-sm text-gray-400">Model:</span>
-                                                <span className="text-xs sm:text-sm font-medium text-gray-200 truncate ml-2">{llmConfig.model}</span>
-                                            </div>
-                                            {llmConfig.base_url && (
-                                                <div className="flex items-center justify-between py-2 border-b border-gray-700">
-                                                    <span className="text-xs sm:text-sm text-gray-400">Base URL:</span>
-                                                    <span className="text-xs sm:text-sm font-medium text-gray-200 truncate ml-2 sm:ml-4 max-w-[60%]">{llmConfig.base_url}</span>
-                                                </div>
-                                            )}
-                                            {llmConfig.has_api_key && (
-                                                <div className="flex items-center justify-between py-2">
-                                                    <span className="text-xs sm:text-sm text-gray-400">API Key:</span>
-                                                    <span className="text-xs sm:text-sm font-medium text-green-400">✓ Configured</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
                             </div>
-                        )}
+                        )} */}
 
                         {activeTab === 'tools' && (
                             <div className="space-y-4 sm:space-y-5 md:space-y-6">
