@@ -46,11 +46,11 @@ jobs:
           docker build \
             --build-arg NEXT_PUBLIC_API_BASE_URL="${{ secrets.NEXT_PUBLIC_API_BASE_URL }}" \
             -f frontend/Dockerfile \
-            -t agent-frontend:latest \
+            -t agent-frontend-test:latest \
             frontend/
 
       - name: Push Docker image
         run: |
-          docker tag agent-frontend:latest ${{ secrets.DOCKER_USERNAME }}/agent-frontend:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/agent-frontend:latest
+          docker tag agent-frontend-test:latest ${{ secrets.DOCKER_USERNAME }}/agent-frontend-test:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/agent-frontend-test:latest
 
