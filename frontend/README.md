@@ -37,18 +37,29 @@ pnpm install
 
 ### Environment Variables
 
-Create a `.env.local` file in the project root:
+#### Local Development
+
+Create a `.env.local` file in the project root (copy from `.env.local.example`):
 
 ```env
 # Backend API Base URL
-# For local development:
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-
-# For production, use your deployed backend URL:
-# NEXT_PUBLIC_API_BASE_URL=https://your-backend-url.com
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8085
 ```
 
-If not set, defaults to `http://localhost:8000`.
+#### Production Build
+
+For production builds, use `.env.production` (copy from `.env.production.example`):
+
+```env
+# Backend API Base URL
+NEXT_PUBLIC_API_BASE_URL=https://agentapi.dosibridge.com
+```
+
+**Note**: 
+- `.env.local` and `.env.production` are gitignored (not committed to version control)
+- `.env.local.example` and `.env.production.example` are committed as templates
+- For Docker builds, environment variables are set via `docker-compose.yml` or GitHub Actions secrets
+- The runtime config API route (`/api/runtime-config`) reads from environment variables at container startup
 
 ### Development
 

@@ -13,6 +13,12 @@ on:
 jobs:
   docker:
     runs-on: ubuntu-latest
+    # Use GitHub Environment for production-specific secrets
+    # Create an environment named "production" in GitHub and set secrets there
+    environment: production
+    # Set environment variables for the job (can be overridden by step-level env)
+    env:
+      NEXT_PUBLIC_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
 
     steps:
       - name: Checkout code
@@ -34,6 +40,8 @@ jobs:
           ls -la frontend/Dockerfile || echo "Dockerfile NOT FOUND"
 
       - name: Build Docker image
+        env:
+          NEXT_PUBLIC_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
         run: |
           docker build \
             --build-arg NEXT_PUBLIC_API_BASE_URL="${{ secrets.NEXT_PUBLIC_API_BASE_URL }}" \

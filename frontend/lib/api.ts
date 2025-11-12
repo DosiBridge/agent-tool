@@ -22,8 +22,8 @@ async function getApiBaseUrl(): Promise<string> {
   // Start loading config
   configLoadPromise = (async () => {
     try {
-      // Try to fetch runtime config from public directory
-      const response = await fetch('/runtime-config.json', {
+      // Try to fetch runtime config from API route (more reliable than static file)
+      const response = await fetch('/api/runtime-config', {
         cache: 'no-store', // Always fetch fresh config
       });
       if (response.ok) {
@@ -33,7 +33,7 @@ async function getApiBaseUrl(): Promise<string> {
           return runtimeConfig.API_BASE_URL;
         }
       } else {
-        console.warn('Runtime config file not found (status:', response.status, '), using fallback');
+        console.warn('Runtime config API not available (status:', response.status, '), using fallback');
       }
     } catch (error) {
       // Log error for debugging

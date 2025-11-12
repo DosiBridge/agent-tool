@@ -32,10 +32,15 @@ RUN npm run build
 FROM node:20-alpine AS production
 WORKDIR /app
 
+# Accept build argument for runtime API URL (can be overridden at container startup)
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8085
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME="0.0.0.0"
 ENV PORT=3000
+# Set default API URL (can be overridden via docker-compose or runtime env)
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs && \
