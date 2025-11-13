@@ -192,6 +192,55 @@ def init_db():
                     )
                     conn.commit()
                     print("✓ Added connection_type column to mcp_servers table")
+                
+                # Check if conversations table exists
+                result = conn.execute(
+                    text("SELECT table_name FROM information_schema.tables "
+                         "WHERE table_name='conversations'")
+                )
+                if not result.fetchone():
+                    print("📝 Creating conversations table...")
+                    conn.execute(
+                        text("""
+                            CREATE TABLE conversations (
+                                id SERIAL PRIMARY KEY,
+                                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                session_id VARCHAR(255) NOT NULL,
+                                title VARCHAR(500),
+                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP WITH TIME ZONE,
+                                UNIQUE(user_id, session_id)
+                            )
+                        """)
+                    )
+                    conn.execute(text("CREATE INDEX idx_conversations_user_id ON conversations(user_id)"))
+                    conn.execute(text("CREATE INDEX idx_conversations_session_id ON conversations(session_id)"))
+                    conn.commit()
+                    print("✓ Created conversations table")
+                
+                # Check if messages table exists
+                result = conn.execute(
+                    text("SELECT table_name FROM information_schema.tables "
+                         "WHERE table_name='messages'")
+                )
+                if not result.fetchone():
+                    print("📝 Creating messages table...")
+                    conn.execute(
+                        text("""
+                            CREATE TABLE messages (
+                                id SERIAL PRIMARY KEY,
+                                conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                                role VARCHAR(50) NOT NULL,
+                                content TEXT NOT NULL,
+                                tool_calls TEXT,
+                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """)
+                    )
+                    conn.execute(text("CREATE INDEX idx_messages_conversation_id ON messages(conversation_id)"))
+                    conn.execute(text("CREATE INDEX idx_messages_created_at ON messages(created_at)"))
+                    conn.commit()
+                    print("✓ Created messages table")
         except Exception as e:
             print(f"⚠️  Migration check failed (this is okay if columns already exist): {e}")
     except Exception as e:

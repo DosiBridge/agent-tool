@@ -1,12 +1,14 @@
 """
 Session management endpoints
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import HumanMessage
 from typing import Optional
-from src.services import history_manager
-from src.core import User
+from sqlalchemy.orm import Session
+from src.core import User, get_db, DB_AVAILABLE, Conversation, Message
 from src.core.auth import get_current_user
+from src.services.db_history import db_history_manager
+from src.services import history_manager
 from ..models import SessionInfo
 
 router = APIRouter()
@@ -15,11 +17,17 @@ router = APIRouter()
 @router.get("/session/{session_id}", response_model=SessionInfo)
 async def get_session(
     session_id: str,
-    current_user: Optional[User] = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Get session information"""
     user_id = current_user.id if current_user else None
-    messages = history_manager.get_session_messages(session_id, user_id)
+    
+    # Use database history if available and user is authenticated
+    if DB_AVAILABLE and user_id:
+        messages = db_history_manager.get_session_messages(session_id, user_id, db)
+    else:
+        messages = history_manager.get_session_messages(session_id, user_id)
     
     return SessionInfo(
         session_id=session_id,
@@ -37,26 +45,53 @@ async def get_session(
 @router.delete("/session/{session_id}")
 async def clear_session(
     session_id: str,
-    current_user: Optional[User] = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Clear session history"""
     user_id = current_user.id if current_user else None
-    history_manager.clear_session(session_id, user_id)
+    
+    # Use database history if available and user is authenticated
+    if DB_AVAILABLE and user_id:
+        db_history_manager.clear_session(session_id, user_id, db)
+    else:
+        history_manager.clear_session(session_id, user_id)
+    
     return {"status": "success", "message": f"Session {session_id} cleared"}
 
 
 @router.get("/sessions")
-async def list_sessions(current_user: Optional[User] = Depends(get_current_user)):
+async def list_sessions(
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """List all active sessions for the current user (or all if not authenticated)"""
     user_id = current_user.id if current_user else None
-    sessions = history_manager.list_sessions(user_id)
-    return {
-        "sessions": [
-            {
-                "session_id": sid,
-                "message_count": len(history_manager.get_session_messages(sid, user_id))
-            }
-            for sid in sessions
-        ]
-    }
+    
+    # Use database history if available and user is authenticated
+    if DB_AVAILABLE and user_id:
+        sessions = db_history_manager.list_sessions(user_id, db)
+        return {
+            "sessions": [
+                {
+                    "session_id": session["session_id"],
+                    "message_count": session.get("message_count", 0),
+                    "title": session.get("title"),
+                    "updated_at": session.get("updated_at")
+                }
+                for session in sessions
+            ]
+        }
+    else:
+        # Fallback to in-memory
+        session_ids = history_manager.list_sessions(user_id)
+        return {
+            "sessions": [
+                {
+                    "session_id": sid,
+                    "message_count": len(history_manager.get_session_messages(sid, user_id))
+                }
+                for sid in session_ids
+            ]
+        }
 

@@ -126,8 +126,73 @@ if Base is not None:
                 "is_active": self.is_active,
                 "created_at": self.created_at.isoformat() if self.created_at else None,
             }
+
+    class Conversation(Base):
+        """Conversation model for storing chat sessions"""
+        __tablename__ = "conversations"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+        session_id = Column(String(255), nullable=False, index=True)
+        title = Column(String(500), nullable=True)  # Auto-generated from first message
+        created_at = Column(DateTime(timezone=True), server_default=func.now())
+        updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+        
+        # Relationships
+        user = relationship("User", backref="conversations")
+        messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan", order_by="Message.created_at")
+        
+        # Unique constraint on user_id + session_id
+        __table_args__ = (
+            UniqueConstraint('user_id', 'session_id', name='uq_conversation_user_session'),
+        )
+        
+        def to_dict(self) -> dict:
+            """Convert model to dictionary"""
+            return {
+                "id": self.id,
+                "session_id": self.session_id,
+                "title": self.title or f"Conversation {self.session_id}",
+                "message_count": len(self.messages) if self.messages else 0,
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+                "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            }
+
+    class Message(Base):
+        """Message model for storing individual chat messages"""
+        __tablename__ = "messages"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+        role = Column(String(50), nullable=False)  # "user", "assistant", "system"
+        content = Column(Text, nullable=False)
+        tool_calls = Column(Text, nullable=True)  # JSON string of tool calls
+        created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+        
+        # Relationship
+        conversation = relationship("Conversation", back_populates="messages")
+        
+        def to_dict(self) -> dict:
+            """Convert model to dictionary"""
+            import json
+            tool_calls_data = None
+            if self.tool_calls:
+                try:
+                    tool_calls_data = json.loads(self.tool_calls)
+                except json.JSONDecodeError:
+                    tool_calls_data = None
+            
+            return {
+                "id": self.id,
+                "role": self.role,
+                "content": self.content,
+                "tool_calls": tool_calls_data,
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+            }
 else:
     # Dummy classes when database is not available
     LLMConfig = None  # type: ignore
     MCPServer = None  # type: ignore
     User = None  # type: ignore
+    Conversation = None  # type: ignore
+    Message = None  # type: ignore
