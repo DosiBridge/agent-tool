@@ -249,8 +249,15 @@ class DatabaseConversationHistoryManager:
                 return DatabaseChatMessageHistory(session_id, user_id, session)
     
     def get_session_messages(self, session_id: str, user_id: Optional[int] = None, db: Optional[Session] = None) -> List[BaseMessage]:
-        """Get all messages from a session"""
+        """
+        Get all messages from a session
+        
+        Note:
+            - If user_id is None: Returns from in-memory storage (temporary, lost on server restart)
+            - If user_id is provided: Returns from database (persistent)
+        """
         if not DB_AVAILABLE or user_id is None:
+            # Without login: use temporary in-memory storage
             from .history import history_manager
             return history_manager.get_session_messages(session_id, user_id)
         
@@ -317,11 +324,18 @@ class DatabaseConversationHistoryManager:
                     print(f"⚠️  Conversation {session_id} not found for user {user_id}")
     
     def list_sessions(self, user_id: Optional[int] = None, db: Optional[Session] = None) -> List[dict]:
-        """List all conversations for a user (with summary, not full messages)"""
+        """
+        List all conversations for a user (with summary, not full messages)
+        
+        Note:
+            - If user_id is None: Returns from in-memory storage (temporary sessions)
+            - If user_id is provided: Returns from database (persistent conversations)
+        """
         if not DB_AVAILABLE or user_id is None:
+            # Without login: return temporary in-memory sessions
             from .history import history_manager
             session_ids = history_manager.list_sessions(user_id)
-            return [{"session_id": sid} for sid in session_ids]
+            return [{"session_id": sid, "message_count": len(history_manager.get_session_messages(sid, user_id))} for sid in session_ids]
         
         if db:
             conversations = db.query(Conversation).filter(

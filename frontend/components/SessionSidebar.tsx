@@ -81,7 +81,7 @@ export default function SessionSidebar({
       if (sessionId === currentSessionId) {
         createNewSession();
       }
-      
+
       // Reload sessions list
       loadSessions();
       toast.success("Session deleted");
