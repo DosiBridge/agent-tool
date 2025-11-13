@@ -7,7 +7,7 @@
 import { deleteSession } from '@/lib/api';
 import { deleteStoredSession, getStoredSessions } from '@/lib/sessionStorage';
 import { useStore } from '@/lib/store';
-import { AlertTriangle, Edit2, Loader2, MessageSquare, Plus, Save, Search, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Edit2, MessageSquare, Plus, Save, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 
@@ -294,8 +294,8 @@ export default function SessionSidebar({ isOpen = true, onClose }: SessionSideba
                                     )}
                                 </div>
                             );
-                        })
-                    )}
+                        });
+                    })()}
                 </div>
 
                 {/* Footer */}
