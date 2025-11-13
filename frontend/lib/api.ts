@@ -297,7 +297,10 @@ export function createStreamReader(
       mode: request.mode,
     };
     if (request.mode === "rag") {
-      if (request.collection_id !== undefined && request.collection_id !== null) {
+      if (
+        request.collection_id !== undefined &&
+        request.collection_id !== null
+      ) {
         requestBody.collection_id = request.collection_id;
       }
       if (request.use_react !== undefined) {

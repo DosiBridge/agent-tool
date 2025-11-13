@@ -309,6 +309,15 @@ export const useStore = create<AppState>((set, get) => ({
   setMode: (mode: "agent" | "rag") => {
     set({ mode });
   },
+  setUseReact: (useReact: boolean) => {
+    set({ useReact });
+  },
+  setSelectedCollectionId: (collectionId: number | null) => {
+    set({ selectedCollectionId: collectionId });
+  },
+  setRagSettingsOpen: (open: boolean) => {
+    set({ ragSettingsOpen: open });
+  },
 
   // Load sessions - combines browser storage with backend (if authenticated)
   loadSessions: async () => {
