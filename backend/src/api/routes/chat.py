@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.tools import BaseTool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from src.core import Config, User, get_db
+from src.core import Config, User, get_db, DB_AVAILABLE
 from src.core.auth import get_current_active_user, get_current_user
 from src.services import history_manager, MCPClientManager, create_llm_from_config, rag_system
 from src.services.chat_service import ChatService
