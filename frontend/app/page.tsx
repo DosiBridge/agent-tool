@@ -10,6 +10,7 @@ import ChatWindow from "@/components/ChatWindow";
 import HealthStatus from "@/components/HealthStatus";
 import SessionSidebar from "@/components/SessionSidebar";
 import SettingsPanel from "@/components/SettingsPanel";
+import RAGSettings from "@/components/RAGSettings";
 import { useStore } from "@/lib/store";
 import { LogOut, Menu, Settings, User } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -63,6 +64,12 @@ export default function Home() {
   const messages = useStore((state) => state.messages);
   const settingsOpen = useStore((state) => state.settingsOpen);
   const setSettingsOpen = useStore((state) => state.setSettingsOpen);
+  const ragSettingsOpen = useStore((state) => state.ragSettingsOpen);
+  const setRagSettingsOpen = useStore((state) => state.setRagSettingsOpen);
+  const useReact = useStore((state) => state.useReact);
+  const setUseReact = useStore((state) => state.setUseReact);
+  const selectedCollectionId = useStore((state) => state.selectedCollectionId);
+  const setSelectedCollectionId = useStore((state) => state.setSelectedCollectionId);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -240,6 +247,18 @@ export default function Home() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
+
+      {/* RAG Settings Panel */}
+      {isAuthenticated && (
+        <RAGSettings
+          isOpen={ragSettingsOpen}
+          onClose={() => setRagSettingsOpen(false)}
+          selectedCollectionId={selectedCollectionId}
+          onCollectionSelect={setSelectedCollectionId}
+          useReact={useReact}
+          onUseReactChange={setUseReact}
+        />
+      )}
 
       {/* Auth Modal */}
       <AuthModal

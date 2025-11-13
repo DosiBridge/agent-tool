@@ -7,7 +7,7 @@
 
 import { createStreamReader, StreamChunk } from "@/lib/api";
 import { useStore } from "@/lib/store";
-import { Loader2, Send, Square, X } from "lucide-react";
+import { Loader2, Send, Square, X, Settings } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
@@ -21,7 +21,10 @@ export default function ChatInput() {
   const mode = useStore((state) => state.mode);
   const isStreaming = useStore((state) => state.isStreaming);
   const isLoading = useStore((state) => state.isLoading);
+  const useReact = useStore((state) => state.useReact);
+  const selectedCollectionId = useStore((state) => state.selectedCollectionId);
   const setMode = useStore((state) => state.setMode);
+  const setRagSettingsOpen = useStore((state) => state.setRagSettingsOpen);
   const addMessage = useStore((state) => state.addMessage);
   const updateLastMessage = useStore((state) => state.updateLastMessage);
   const updateLastMessageTools = useStore(
@@ -96,6 +99,8 @@ export default function ChatInput() {
           message,
           session_id: currentSessionId,
           mode,
+          collection_id: mode === "rag" ? selectedCollectionId : null,
+          use_react: mode === "rag" ? useReact : false,
         },
         (chunk: StreamChunk) => {
           if (chunk.error) {
@@ -233,7 +238,7 @@ export default function ChatInput() {
     <div className="border-t border-gray-700 bg-[#343541] dark:bg-[#2d2d2f] shrink-0 safe-area-inset-bottom">
       <div className="max-w-4xl mx-auto px-2 sm:px-3 md:px-4 lg:px-6 py-2 sm:py-3 md:py-4">
         {/* Mode selector */}
-        <div className="flex justify-center mb-2 sm:mb-2.5 md:mb-3">
+        <div className="flex justify-center items-center gap-2 mb-2 sm:mb-2.5 md:mb-3">
           <div className="inline-flex items-center rounded-lg border border-gray-600 bg-[#40414f] p-0.5 sm:p-1">
             <button
               onClick={() => setMode("agent")}
@@ -256,6 +261,16 @@ export default function ChatInput() {
               RAG
             </button>
           </div>
+          {mode === "rag" && (
+            <button
+              onClick={() => setRagSettingsOpen(true)}
+              disabled={inputDisabled}
+              className="p-1.5 sm:p-2 hover:bg-[#40414f] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="RAG Settings"
+            >
+              <Settings className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 hover:text-[#10a37f]" />
+            </button>
+          )}
         </div>
 
         {/* Chat input */}

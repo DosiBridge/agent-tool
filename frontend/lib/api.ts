@@ -58,6 +58,8 @@ export interface ChatRequest {
   message: string;
   session_id: string;
   mode: "agent" | "rag";
+  collection_id?: number | null;
+  use_react?: boolean;
 }
 
 export interface ChatResponse {
@@ -647,7 +649,9 @@ export async function listDocuments(
   return handleResponse(response);
 }
 
-export async function getDocument(documentId: number): Promise<{ document: Document }> {
+export async function getDocument(
+  documentId: number
+): Promise<{ document: Document }> {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/documents/${documentId}`, {
     headers: getAuthHeaders(),
@@ -664,7 +668,9 @@ export async function deleteDocument(documentId: number): Promise<void> {
   await handleResponse(response);
 }
 
-export async function approveDocument(documentId: number): Promise<{ message: string }> {
+export async function approveDocument(
+  documentId: number
+): Promise<{ message: string }> {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(
     `${apiBaseUrl}/api/documents/${documentId}/approve`,
@@ -711,9 +717,12 @@ export async function getReviewStatistics(): Promise<{
   total: number;
 }> {
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/documents/review/statistics`, {
-    headers: getAuthHeaders(),
-  });
+  const response = await fetch(
+    `${apiBaseUrl}/api/documents/review/statistics`,
+    {
+      headers: getAuthHeaders(),
+    }
+  );
   return handleResponse(response);
 }
 
@@ -744,9 +753,12 @@ export async function listCollections(): Promise<{
 
 export async function deleteCollection(collectionId: number): Promise<void> {
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/collections/${collectionId}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(),
-  });
+  const response = await fetch(
+    `${apiBaseUrl}/api/collections/${collectionId}`,
+    {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    }
+  );
   await handleResponse(response);
 }
