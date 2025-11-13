@@ -27,6 +27,7 @@ class SessionInfo(BaseModel):
 class MCPServerRequest(BaseModel):
     name: str
     url: str
+    connection_type: Optional[str] = "http"  # "stdio", "http", or "sse"
     api_key: Optional[str] = None  # Optional API key/auth key for MCP server
     enabled: Optional[bool] = True  # Whether the server is enabled
 

@@ -77,23 +77,31 @@ class MCPClientManager:
             server_name = server_config.get("name", "Unknown")
             server_name_lower = server_name.lower()
             server_url = server_config["url"]
+            connection_type = server_config.get("connection_type", "http").lower()
             server_headers = server_config.get("headers", {})
             api_key = server_config.get("api_key")
             
-            # Normalize URL: remove /sse and ensure /mcp endpoint
-            final_url = server_url.rstrip('/')
-            if final_url.endswith('/sse'):
-                final_url = final_url[:-4]  # Remove /sse
-            if not final_url.endswith('/mcp'):
-                # If URL doesn't end with /mcp, append it
-                final_url = final_url.rstrip('/') + '/mcp'
+            # Normalize URL based on connection type
+            if connection_type == "stdio":
+                # For stdio, url is the command (don't normalize)
+                final_url = server_url.strip()
+            else:
+                # For http/sse, normalize URL
+                final_url = server_url.rstrip('/')
+                if connection_type == "sse":
+                    if final_url.endswith('/mcp'):
+                        final_url = final_url[:-4] + '/sse'
+                    elif not final_url.endswith('/sse'):
+                        final_url = final_url.rstrip('/') + '/sse'
+                else:  # http
+                    if final_url.endswith('/sse'):
+                        final_url = final_url[:-4]
+                    if not final_url.endswith('/mcp'):
+                        final_url = final_url.rstrip('/') + '/mcp'
             
-            print(f"Loading tools from {server_name} MCP server ({final_url})...")
+            print(f"Loading tools from {server_name} MCP server ({connection_type}: {final_url})...")
             
             try:
-                # Prepare server params
-                server_params = {"url": final_url}
-                
                 # Build headers: start with existing headers
                 headers = dict(server_headers) if server_headers else {}
                 
@@ -103,16 +111,41 @@ class MCPClientManager:
                     api_key_header = server_config.get("api_key_header", "x-api-key")
                     headers[api_key_header] = api_key
                 
-                if headers:
-                    server_params["headers"] = headers
-                
                 # Connect to server with timeout and better error handling
                 import asyncio
                 client = None
                 session = None
                 try:
-                    # Add timeout to prevent hanging on slow/unresponsive servers
-                    client = streamablehttp_client(**server_params)
+                    # Create client based on connection type
+                    if connection_type == "stdio":
+                        # For stdio, use stdio client
+                        from mcp.client.stdio import stdio_client
+                        import shlex
+                        
+                        # Parse command
+                        command_parts = shlex.split(final_url)
+                        if not command_parts:
+                            print(f"⚠️  Invalid command for stdio connection: {server_name}")
+                            continue
+                        
+                        server_params = {"command": command_parts}
+                        client = stdio_client(**server_params)
+                        
+                    elif connection_type == "sse":
+                        # For SSE, use SSE client
+                        from mcp.client.sse import sse_client
+                        
+                        server_params = {"url": final_url}
+                        if headers:
+                            server_params["headers"] = headers
+                        client = sse_client(**server_params)
+                        
+                    else:  # http
+                        # For HTTP, use streamable HTTP client
+                        server_params = {"url": final_url}
+                        if headers:
+                            server_params["headers"] = headers
+                        client = streamablehttp_client(**server_params)
                     read, write, _ = await asyncio.wait_for(
                         client.__aenter__(),
                         timeout=5.0  # 5 second timeout per server connection

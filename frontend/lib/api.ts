@@ -92,6 +92,7 @@ export interface SessionInfo {
 export interface MCPServer {
   name: string;
   url: string;
+  connection_type?: "stdio" | "http" | "sse";
   has_api_key?: boolean;
   enabled?: boolean;
 }
@@ -99,6 +100,7 @@ export interface MCPServer {
 export interface MCPServerRequest {
   name: string;
   url: string;
+  connection_type?: "stdio" | "http" | "sse";
   api_key?: string;
   enabled?: boolean;
 }
@@ -435,6 +437,21 @@ export async function listMCPServers(): Promise<{
   }>(response);
   // Backend returns {status, servers, count}, extract just servers and count
   return { servers: data.servers, count: data.count };
+}
+
+export async function testMCPServerConnection(
+  server: MCPServerRequest
+): Promise<{ connected: boolean; message: string; url: string }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(
+    `${apiBaseUrl}/api/mcp-servers/test-connection`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(server),
+    }
+  );
+  return handleResponse(response);
 }
 
 export async function addMCPServer(

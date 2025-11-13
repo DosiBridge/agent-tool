@@ -178,6 +178,20 @@ def init_db():
                             print("✓ Made user_id nullable in llm_config table")
                         except Exception as e:
                             print(f"⚠️  Could not make user_id nullable: {e}")
+                
+                # Check and add connection_type to mcp_servers table
+                result = conn.execute(
+                    text("SELECT column_name FROM information_schema.columns "
+                         "WHERE table_name='mcp_servers' AND column_name='connection_type'")
+                )
+                if not result.fetchone():
+                    print("📝 Adding connection_type column to mcp_servers table...")
+                    conn.execute(
+                        text("ALTER TABLE mcp_servers "
+                             "ADD COLUMN connection_type VARCHAR(20) DEFAULT 'http' NOT NULL")
+                    )
+                    conn.commit()
+                    print("✓ Added connection_type column to mcp_servers table")
         except Exception as e:
             print(f"⚠️  Migration check failed (this is okay if columns already exist): {e}")
     except Exception as e:

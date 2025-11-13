@@ -56,6 +56,7 @@ if Base is not None:
         user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
         name = Column(String(100), nullable=False, index=True)  # Removed unique constraint - now per-user
         url = Column(String(500), nullable=False)
+        connection_type = Column(String(20), nullable=False, default="http")  # "stdio", "http", or "sse"
         api_key = Column(Text, nullable=True)  # Optional API key for the MCP server
         enabled = Column(Boolean, default=True, nullable=False)
         created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -74,6 +75,7 @@ if Base is not None:
             result = {
                 "name": self.name,
                 "url": self.url,
+                "connection_type": self.connection_type or "http",
                 "enabled": self.enabled,
                 "has_api_key": bool(self.api_key)
             }

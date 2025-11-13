@@ -7,6 +7,7 @@ from typing import Optional
 from src.core import Config, get_db, MCPServer, User
 from src.core.auth import get_current_active_user, get_current_user
 from ..models import MCPServerRequest
+from src.utils.mcp_connection_test import test_mcp_connection
 
 router = APIRouter()
 
@@ -52,13 +53,31 @@ async def add_mcp_server(
 ):
     """Add a new MCP server to the configuration. Requires authentication - servers are user-specific."""
     try:
-        # Normalize URL: remove /sse and ensure /mcp endpoint
-        normalized_url = server.url.rstrip('/')
-        if normalized_url.endswith('/sse'):
-            normalized_url = normalized_url[:-4]  # Remove /sse
-        if not normalized_url.endswith('/mcp'):
-            # If URL doesn't end with /mcp, append it
-            normalized_url = normalized_url.rstrip('/') + '/mcp'
+        # Get connection type (default to http)
+        connection_type = (server.connection_type or "http").lower()
+        if connection_type not in ("stdio", "http", "sse"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid connection_type: {connection_type}. Must be 'stdio', 'http', or 'sse'"
+            )
+        
+        # Normalize URL based on connection type
+        if connection_type == "stdio":
+            # For stdio, url is the command (don't normalize)
+            normalized_url = server.url.strip()
+        else:
+            # For http/sse, normalize URL
+            normalized_url = server.url.rstrip('/')
+            if connection_type == "sse":
+                if normalized_url.endswith('/mcp'):
+                    normalized_url = normalized_url[:-4] + '/sse'
+                elif not normalized_url.endswith('/sse'):
+                    normalized_url = normalized_url.rstrip('/') + '/sse'
+            else:  # http
+                if normalized_url.endswith('/sse'):
+                    normalized_url = normalized_url[:-4]
+                if not normalized_url.endswith('/mcp'):
+                    normalized_url = normalized_url.rstrip('/') + '/mcp'
         
         # Check if server already exists for this user
         existing = db.query(MCPServer).filter(
@@ -72,11 +91,29 @@ async def add_mcp_server(
                 detail=f"MCP server with name '{server.name}' or URL '{normalized_url}' already exists"
             )
         
-        # Create new server with user_id
+        # Test connection before saving
+        print(f"🔍 Testing {connection_type} connection to MCP server: {normalized_url}")
+        connection_ok, connection_message = await test_mcp_connection(
+            normalized_url,
+            connection_type=connection_type,
+            api_key=server.api_key if server.api_key else None,
+            timeout=5.0
+        )
+        
+        if not connection_ok:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Connection test failed: {connection_message}. Server not saved."
+            )
+        
+        print(f"✓ Connection test successful for {server.name} ({connection_type})")
+        
+        # Create new server with user_id (only if connection test passed)
         mcp_server = MCPServer(
             user_id=current_user.id,
             name=server.name,
             url=normalized_url,
+            connection_type=connection_type,
             api_key=server.api_key if server.api_key else None,
             enabled=server.enabled if server.enabled is not None else True
         )
@@ -89,7 +126,7 @@ async def add_mcp_server(
         
         return {
             "status": "success",
-            "message": f"MCP server '{server.name}' added successfully",
+            "message": f"MCP server '{server.name}' added successfully (connection verified)",
             "server": mcp_server.to_dict(),
             "total_servers": total_servers
         }
@@ -164,17 +201,58 @@ async def update_mcp_server(
         if not mcp_server:
             raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
         
-        # Normalize URL: remove /sse and ensure /mcp endpoint
-        normalized_url = server.url.rstrip('/')
-        if normalized_url.endswith('/sse'):
-            normalized_url = normalized_url[:-4]  # Remove /sse
-        if not normalized_url.endswith('/mcp'):
-            # If URL doesn't end with /mcp, append it
-            normalized_url = normalized_url.rstrip('/') + '/mcp'
+        # Get connection type (default to existing or http)
+        connection_type = (server.connection_type or mcp_server.connection_type or "http").lower()
+        if connection_type not in ("stdio", "http", "sse"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid connection_type: {connection_type}. Must be 'stdio', 'http', or 'sse'"
+            )
         
-        # Update server
+        # Normalize URL based on connection type
+        if connection_type == "stdio":
+            # For stdio, url is the command (don't normalize)
+            normalized_url = server.url.strip()
+        else:
+            # For http/sse, normalize URL
+            normalized_url = server.url.rstrip('/')
+            if connection_type == "sse":
+                if normalized_url.endswith('/mcp'):
+                    normalized_url = normalized_url[:-4] + '/sse'
+                elif not normalized_url.endswith('/sse'):
+                    normalized_url = normalized_url.rstrip('/') + '/sse'
+            else:  # http
+                if normalized_url.endswith('/sse'):
+                    normalized_url = normalized_url[:-4]
+                if not normalized_url.endswith('/mcp'):
+                    normalized_url = normalized_url.rstrip('/') + '/mcp'
+        
+        # Test connection before updating (only if URL, connection_type, or API key changed)
+        url_changed = mcp_server.url != normalized_url
+        connection_type_changed = mcp_server.connection_type != connection_type
+        api_key_changed = server.api_key and server.api_key != mcp_server.api_key
+        
+        if url_changed or connection_type_changed or api_key_changed:
+            print(f"🔍 Testing {connection_type} connection to updated MCP server: {normalized_url}")
+            connection_ok, connection_message = await test_mcp_connection(
+                normalized_url,
+                connection_type=connection_type,
+                api_key=server.api_key if server.api_key else mcp_server.api_key,
+                timeout=5.0
+            )
+            
+            if not connection_ok:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Connection test failed: {connection_message}. Server not updated."
+                )
+            
+            print(f"✓ Connection test successful for {server.name} ({connection_type})")
+        
+        # Update server (only if connection test passed)
         mcp_server.name = server.name
         mcp_server.url = normalized_url
+        mcp_server.connection_type = connection_type
         mcp_server.enabled = server.enabled if server.enabled is not None else True
         if server.api_key:
             mcp_server.api_key = server.api_key
@@ -184,7 +262,7 @@ async def update_mcp_server(
         
         return {
             "status": "success",
-            "message": f"MCP server '{server_name}' updated successfully",
+            "message": f"MCP server '{server_name}' updated successfully (connection verified)" if (url_changed or api_key_changed) else f"MCP server '{server_name}' updated successfully",
             "server": mcp_server.to_dict()
         }
     
@@ -192,6 +270,61 @@ async def update_mcp_server(
         raise
     except Exception as e:
         db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/mcp-servers/test-connection")
+async def test_mcp_server_connection(
+    server: MCPServerRequest,
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """Test MCP server connection without saving. Requires authentication."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    try:
+        # Get connection type (default to http)
+        connection_type = (server.connection_type or "http").lower()
+        if connection_type not in ("stdio", "http", "sse"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid connection_type: {connection_type}. Must be 'stdio', 'http', or 'sse'"
+            )
+        
+        # Normalize URL based on connection type
+        if connection_type == "stdio":
+            normalized_url = server.url.strip()
+        else:
+            normalized_url = server.url.rstrip('/')
+            if connection_type == "sse":
+                if normalized_url.endswith('/mcp'):
+                    normalized_url = normalized_url[:-4] + '/sse'
+                elif not normalized_url.endswith('/sse'):
+                    normalized_url = normalized_url.rstrip('/') + '/sse'
+            else:  # http
+                if normalized_url.endswith('/sse'):
+                    normalized_url = normalized_url[:-4]
+                if not normalized_url.endswith('/mcp'):
+                    normalized_url = normalized_url.rstrip('/') + '/mcp'
+        
+        # Test connection
+        connection_ok, connection_message = await test_mcp_connection(
+            normalized_url,
+            connection_type=connection_type,
+            api_key=server.api_key if server.api_key else None,
+            timeout=5.0
+        )
+        
+        return {
+            "status": "success" if connection_ok else "failed",
+            "connected": connection_ok,
+            "message": connection_message,
+            "url": normalized_url,
+            "connection_type": connection_type
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -214,6 +347,24 @@ async def toggle_mcp_server(
         
         if not mcp_server:
             raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
+        
+        # If enabling, test connection first
+        if not mcp_server.enabled:
+            connection_type = mcp_server.connection_type or "http"
+            print(f"🔍 Testing {connection_type} connection before enabling MCP server: {mcp_server.url}")
+            connection_ok, connection_message = await test_mcp_connection(
+                mcp_server.url,
+                connection_type=connection_type,
+                api_key=mcp_server.api_key,
+                timeout=5.0
+            )
+            
+            if not connection_ok:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot enable server: {connection_message}"
+                )
+            print(f"✓ Connection test successful for {server_name}")
         
         # Toggle enabled status
         mcp_server.enabled = not mcp_server.enabled
