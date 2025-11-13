@@ -15,6 +15,7 @@ from .routes import (
     auth_router,
     setup_mcp_routes,
 )
+from .routes.documents import router as documents_router
 
 # Try to import slowapi for rate limiting (optional)
 try:
@@ -109,6 +110,7 @@ app.include_router(tools_router, prefix="/api", tags=["tools"])
 app.include_router(mcp_servers_router, prefix="/api", tags=["mcp-servers"])
 app.include_router(llm_config_router, prefix="/api", tags=["llm-config"])
 app.include_router(mcp_routes_router, prefix="/api", tags=["mcp-routes"])
+app.include_router(documents_router, prefix="/api", tags=["documents"])
 
 # Setup MCP routes
 setup_mcp_routes(app)

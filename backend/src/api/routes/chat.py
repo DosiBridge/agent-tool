@@ -52,7 +52,9 @@ async def chat(
             session_id=chat_request.session_id,
             mode=chat_request.mode,
             user=current_user,
-            db=db
+            db=db,
+            collection_id=chat_request.collection_id,
+            use_react=chat_request.use_react
         )
         
         # Schedule async summary update in background (non-blocking)

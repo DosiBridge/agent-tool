@@ -9,6 +9,8 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str = "default"
     mode: str = "agent"  # "agent" or "rag"
+    collection_id: Optional[int] = None  # Optional collection ID for RAG
+    use_react: bool = False  # Whether to use ReAct agent for RAG mode
 
 
 class ChatResponse(BaseModel):
