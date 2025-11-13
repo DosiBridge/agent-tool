@@ -30,7 +30,10 @@ class DatabaseChatMessageHistory(BaseChatMessageHistory):
     
     @property
     def conversation(self) -> Conversation:
-        """Get or create conversation"""
+        """
+        Get or create conversation in database.
+        Only called when user is authenticated (user_id is not None).
+        """
         if self._conversation is None:
             self._conversation = self.db.query(Conversation).filter(
                 and_(
@@ -40,15 +43,17 @@ class DatabaseChatMessageHistory(BaseChatMessageHistory):
             ).first()
             
             if not self._conversation:
-                # Create new conversation
+                # Create new conversation in database
                 self._conversation = Conversation(
                     user_id=self.user_id,
                     session_id=self.session_id,
-                    title=None  # Will be set from first message
+                    title=None,  # Will be set from first message
+                    message_count=0
                 )
                 self.db.add(self._conversation)
                 self.db.commit()
                 self.db.refresh(self._conversation)
+                print(f"📝 Created new DB conversation: {self.session_id} for user {self.user_id}")
         
         return self._conversation
     
