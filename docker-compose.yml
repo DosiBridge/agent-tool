@@ -20,7 +20,8 @@ services:
       DATABASE_URL: "postgresql://sazib:1234@host.docker.internal:5432/mcpagent"
       # CORS configuration - set CORS_ORIGINS environment variable to override
       CORS_ORIGINS: "http://localhost:8086,http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:8086"
-      # API keys - set via environment variables (optional)
+      # API keys - set via environment variables
+      # OPENAI_API_KEY: Required for primary LLM model (gpt-4o) - auto-created on first connection
       OPENAI_API_KEY: ""
       GOOGLE_API_KEY: ""
       FIRECRAWL_API_KEY: ""

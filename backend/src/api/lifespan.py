@@ -3,6 +3,8 @@ Lifespan management for FastAPI app
 """
 import asyncio
 import contextlib
+import os
+from sqlalchemy import and_, not_
 from fastapi import FastAPI
 from src.database import get_db_context, DB_AVAILABLE, init_db
 from src.models import LLMConfig
@@ -18,45 +20,64 @@ async def mcp_lifespan(app: FastAPI):
         init_db()
         print("✓ Database initialized")
         
-        # Ensure default Gemini config exists (cannot be deleted, always available)
+        # Ensure primary LLM model (gpt-4o) exists - always check and create if needed
         try:
             if DB_AVAILABLE:
+                openai_api_key = os.getenv("OPENAI_API_KEY")
+                
                 with get_db_context() as db:
-                    # Check if any active config exists
-                    existing_config = db.query(LLMConfig).filter(LLMConfig.active == True).first()
-                    if not existing_config:
-                        # Check if default gemini-2.0-flash config exists (even if inactive)
-                        import os
-                        google_api_key = os.getenv("GOOGLE_API_KEY")
-                        default_existing = db.query(LLMConfig).filter(
-                            LLMConfig.type == "gemini",
-                            LLMConfig.model == "gemini-2.0-flash"
-                        ).first()
-                        
-                        if default_existing:
-                            # Reactivate the default config
-                            default_existing.active = True
-                            if google_api_key:
-                                default_existing.api_key = google_api_key
-                            db.commit()
-                            print("✓ Reactivated default Gemini LLM configuration (gemini-2.0-flash)")
+                    # Check if primary gpt-4o config exists
+                    primary_config = db.query(LLMConfig).filter(
+                        LLMConfig.type == "openai",
+                        LLMConfig.model == "gpt-4o"
+                    ).first()
+                    
+                    if primary_config:
+                        # Primary model exists - update API key from environment if provided
+                        if openai_api_key:
+                            primary_config.api_key = openai_api_key
+                        # Ensure it's active (primary model should always be available)
+                        if not primary_config.active:
+                            primary_config.active = True
+                            print("✓ Reactivated primary LLM model (gpt-4o)")
+                        db.commit()
+                        if openai_api_key:
+                            print("✓ Primary LLM model (gpt-4o) exists and is active")
                         else:
-                            # Create new default Gemini config
-                            default_config = LLMConfig(
-                                type="gemini",
-                                model="gemini-2.0-flash",
-                                api_key=google_api_key,  # Get from environment (may be None)
-                                active=True
-                            )
-                            db.add(default_config)
-                            db.commit()
-                            if google_api_key:
-                                print("✓ Created default Gemini LLM configuration (gemini-2.0-flash)")
-                            else:
-                                print("⚠️  Created default Gemini LLM configuration, but GOOGLE_API_KEY is not set in environment")
-                                print("   Please set GOOGLE_API_KEY environment variable or configure API key in settings")
+                            print("⚠️  Primary LLM model (gpt-4o) exists, but OPENAI_API_KEY is not set in environment")
+                    else:
+                        # Primary model doesn't exist - create it
+                        primary_config = LLMConfig(
+                            type="openai",
+                            model="gpt-4o",
+                            api_key=openai_api_key,  # Get from environment (may be None)
+                            active=True
+                        )
+                        db.add(primary_config)
+                        db.commit()
+                        if openai_api_key:
+                            print("✓ Created primary LLM model (gpt-4o) with API key from environment")
+                        else:
+                            print("⚠️  Created primary LLM model (gpt-4o), but OPENAI_API_KEY is not set in environment")
+                            print("   Please set OPENAI_API_KEY environment variable or configure API key in settings")
+                    
+                    # Ensure primary model is the only active one (deactivate others if primary exists)
+                    other_active = db.query(LLMConfig).filter(
+                        LLMConfig.active == True
+                    ).filter(
+                        not_(and_(LLMConfig.type == "openai", LLMConfig.model == "gpt-4o"))
+                    ).all()
+                    
+                    if other_active and primary_config:
+                        for config in other_active:
+                            config.active = False
+                        db.commit()
+                        if other_active:
+                            print(f"✓ Deactivated {len(other_active)} other LLM config(s) - gpt-4o is now primary")
         except Exception as e:
-            print(f"⚠️  Could not ensure default Gemini config exists: {e}")
+            print(f"⚠️  Could not ensure primary LLM model (gpt-4o) exists: {e}")
+            import traceback
+            traceback.print_exc()
     except Exception as e:
         print(f"⚠️  Failed to initialize database: {e}")
     

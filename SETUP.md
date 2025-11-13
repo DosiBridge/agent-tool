@@ -106,6 +106,13 @@ docker-compose up -d
 - If PostgreSQL is on a different host, update `DATABASE_URL` in `docker-compose.yml` or set it as environment variable
 - **Error "DATABASE_URL environment variable is required"**: Make sure `DATABASE_URL` is set in docker-compose.yml or as environment variable
 
+### Primary LLM Model (gpt-4o)
+- The system automatically creates the primary LLM model (gpt-4o) on first database connection
+- The API key is automatically loaded from `OPENAI_API_KEY` environment variable
+- If the primary model doesn't exist, it will be created automatically
+- The primary model is always set as active and cannot be changed
+- Set `OPENAI_API_KEY` in `docker-compose.yml` or as environment variable to enable the LLM
+
 ## Stopping the Services
 
 ```bash
