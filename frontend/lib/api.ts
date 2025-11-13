@@ -13,39 +13,44 @@ async function getApiBaseUrl(): Promise<string> {
   if (runtimeConfig?.API_BASE_URL) {
     return runtimeConfig.API_BASE_URL;
   }
-  
+
   // If already loading, return the same promise
   if (configLoadPromise) {
     return configLoadPromise;
   }
-  
+
   // Start loading config
   configLoadPromise = (async () => {
     try {
       // Try to fetch runtime config from API route (more reliable than static file)
-      const response = await fetch('/api/runtime-config', {
-        cache: 'no-store', // Always fetch fresh config
+      const response = await fetch("/api/runtime-config", {
+        cache: "no-store", // Always fetch fresh config
       });
       if (response.ok) {
         runtimeConfig = await response.json();
         if (runtimeConfig?.API_BASE_URL) {
-          console.log('Using runtime API URL:', runtimeConfig.API_BASE_URL);
+          console.log("Using runtime API URL:", runtimeConfig.API_BASE_URL);
           return runtimeConfig.API_BASE_URL;
         }
       } else {
-        console.warn('Runtime config API not available (status:', response.status, '), using fallback');
+        console.warn(
+          "Runtime config API not available (status:",
+          response.status,
+          "), using fallback"
+        );
       }
     } catch (error) {
       // Log error for debugging
-      console.warn('Failed to load runtime config:', error, '- using fallback');
+      console.warn("Failed to load runtime config:", error, "- using fallback");
     }
-    
+
     // Fall back to build-time env var or default
-    const fallbackUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8085';
-    console.log('Using fallback API URL:', fallbackUrl);
+    const fallbackUrl =
+      process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8085";
+    console.log("Using fallback API URL:", fallbackUrl);
     return fallbackUrl;
   })();
-  
+
   return configLoadPromise;
 }
 
@@ -282,104 +287,104 @@ export function createStreamReader(
       body: JSON.stringify(request),
       signal: abortController.signal,
     })
-    .then(async (response) => {
-      if (!response.ok) {
-        const error = await response
-          .json()
-          .catch(() => ({ detail: response.statusText }));
-        throw new Error(
-          error.detail || error.message || `HTTP ${response.status}`
-        );
-      }
+      .then(async (response) => {
+        if (!response.ok) {
+          const error = await response
+            .json()
+            .catch(() => ({ detail: response.statusText }));
+          throw new Error(
+            error.detail || error.message || `HTTP ${response.status}`
+          );
+        }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
 
-      if (!reader) {
-        throw new Error("No response body");
-      }
+        if (!reader) {
+          throw new Error("No response body");
+        }
 
-      let buffer = "";
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done || isAborted) break;
+        let buffer = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done || isAborted) break;
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
 
-          for (const line of lines) {
-            if (isAborted) break;
+            for (const line of lines) {
+              if (isAborted) break;
 
-            const trimmedLine = line.trim();
-            if (!trimmedLine) continue;
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
 
-            if (trimmedLine.startsWith("data: ")) {
+              if (trimmedLine.startsWith("data: ")) {
+                try {
+                  const jsonStr = trimmedLine.slice(6);
+                  if (!jsonStr) continue;
+
+                  const data = JSON.parse(jsonStr) as StreamChunk;
+                  onChunk(data);
+
+                  if (data.done || data.error) {
+                    onComplete();
+                    return;
+                  }
+                } catch (e) {
+                  console.error(
+                    "Failed to parse SSE data:",
+                    e,
+                    "Line:",
+                    trimmedLine
+                  );
+                  // Continue processing other lines
+                }
+              }
+            }
+          }
+
+          // Process remaining buffer
+          if (buffer.trim() && !isAborted) {
+            const trimmedBuffer = buffer.trim();
+            if (trimmedBuffer.startsWith("data: ")) {
               try {
-                const jsonStr = trimmedLine.slice(6);
-                if (!jsonStr) continue;
-
-                const data = JSON.parse(jsonStr) as StreamChunk;
-                onChunk(data);
-
-                if (data.done || data.error) {
-                  onComplete();
-                  return;
+                const jsonStr = trimmedBuffer.slice(6);
+                if (jsonStr) {
+                  const data = JSON.parse(jsonStr) as StreamChunk;
+                  onChunk(data);
                 }
               } catch (e) {
-                console.error(
-                  "Failed to parse SSE data:",
-                  e,
-                  "Line:",
-                  trimmedLine
-                );
-                // Continue processing other lines
+                console.error("Failed to parse remaining buffer:", e);
               }
             }
           }
-        }
 
-        // Process remaining buffer
-        if (buffer.trim() && !isAborted) {
-          const trimmedBuffer = buffer.trim();
-          if (trimmedBuffer.startsWith("data: ")) {
-            try {
-              const jsonStr = trimmedBuffer.slice(6);
-              if (jsonStr) {
-                const data = JSON.parse(jsonStr) as StreamChunk;
-                onChunk(data);
-              }
-            } catch (e) {
-              console.error("Failed to parse remaining buffer:", e);
-            }
+          if (!isAborted) {
+            onComplete();
+          }
+        } catch (error) {
+          if (
+            !isAborted &&
+            error instanceof Error &&
+            error.name !== "AbortError"
+          ) {
+            onError(error);
+          }
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch (e) {
+            // Reader already released
           }
         }
-
-        if (!isAborted) {
-          onComplete();
+      })
+      .catch((error) => {
+        if (!isAborted && error.name !== "AbortError") {
+          onError(error instanceof Error ? error : new Error(String(error)));
         }
-      } catch (error) {
-        if (
-          !isAborted &&
-          error instanceof Error &&
-          error.name !== "AbortError"
-        ) {
-          onError(error);
-        }
-      } finally {
-        try {
-          reader.releaseLock();
-        } catch (e) {
-          // Reader already released
-        }
-      }
-    })
-    .catch((error) => {
-      if (!isAborted && error.name !== "AbortError") {
-        onError(error instanceof Error ? error : new Error(String(error)));
-      }
-    });
+      });
   })(); // Invoke the async IIFE
 
   return () => {
@@ -454,14 +459,11 @@ export async function updateMCPServer(
   // URL encode the server name to handle special characters
   const encodedName = encodeURIComponent(name.trim());
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(
-    `${apiBaseUrl}/api/mcp-servers/${encodedName}`,
-    {
-      method: "PUT",
-      headers: getAuthHeaders(),
-      body: JSON.stringify(server),
-    }
-  );
+  const response = await fetch(`${apiBaseUrl}/api/mcp-servers/${encodedName}`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(server),
+  });
   return handleResponse(response);
 }
 
@@ -472,13 +474,10 @@ export async function deleteMCPServer(name: string): Promise<void> {
   // URL encode the server name to handle special characters
   const encodedName = encodeURIComponent(name.trim());
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(
-    `${apiBaseUrl}/api/mcp-servers/${encodedName}`,
-    {
-      method: "DELETE",
-      headers: getAuthHeaders(),
-    }
-  );
+  const response = await fetch(`${apiBaseUrl}/api/mcp-servers/${encodedName}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
   await handleResponse(response);
 }
 
@@ -532,7 +531,10 @@ export async function setLLMConfig(
   return handleResponse(response);
 }
 
-export async function resetLLMConfig(): Promise<{ message: string; config: LLMConfigResponse }> {
+export async function resetLLMConfig(): Promise<{
+  message: string;
+  config: LLMConfigResponse;
+}> {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/llm-config/reset`, {
     method: "POST",
