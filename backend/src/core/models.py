@@ -128,13 +128,15 @@ if Base is not None:
             }
 
     class Conversation(Base):
-        """Conversation model for storing chat sessions"""
+        """Conversation model for storing chat sessions with summary"""
         __tablename__ = "conversations"
         
         id = Column(Integer, primary_key=True, index=True)
         user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
         session_id = Column(String(255), nullable=False, index=True)
         title = Column(String(500), nullable=True)  # Auto-generated from first message
+        summary = Column(Text, nullable=True)  # Summary of conversation (first 50 messages)
+        message_count = Column(Integer, default=0, nullable=False)  # Total message count
         created_at = Column(DateTime(timezone=True), server_default=func.now())
         updated_at = Column(DateTime(timezone=True), onupdate=func.now())
         
@@ -153,13 +155,14 @@ if Base is not None:
                 "id": self.id,
                 "session_id": self.session_id,
                 "title": self.title or f"Conversation {self.session_id}",
-                "message_count": len(self.messages) if self.messages else 0,
+                "summary": self.summary,
+                "message_count": self.message_count,
                 "created_at": self.created_at.isoformat() if self.created_at else None,
                 "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             }
 
     class Message(Base):
-        """Message model for storing individual chat messages"""
+        """Message model for storing individual chat messages (optional - can be deleted after summary)"""
         __tablename__ = "messages"
         
         id = Column(Integer, primary_key=True, index=True)

@@ -75,8 +75,9 @@ async def list_sessions(
             "sessions": [
                 {
                     "session_id": session["session_id"],
-                    "message_count": session.get("message_count", 0),
                     "title": session.get("title"),
+                    "summary": session.get("summary"),  # Include summary
+                    "message_count": session.get("message_count", 0),
                     "updated_at": session.get("updated_at")
                 }
                 for session in sessions

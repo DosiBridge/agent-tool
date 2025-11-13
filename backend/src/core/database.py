@@ -207,6 +207,8 @@ def init_db():
                                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                                 session_id VARCHAR(255) NOT NULL,
                                 title VARCHAR(500),
+                                summary TEXT,
+                                message_count INTEGER DEFAULT 0 NOT NULL,
                                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                 updated_at TIMESTAMP WITH TIME ZONE,
                                 UNIQUE(user_id, session_id)
@@ -217,6 +219,31 @@ def init_db():
                     conn.execute(text("CREATE INDEX idx_conversations_session_id ON conversations(session_id)"))
                     conn.commit()
                     print("✓ Created conversations table")
+                else:
+                    # Check if summary and message_count columns exist, add if missing
+                    result = conn.execute(
+                        text("SELECT column_name FROM information_schema.columns "
+                             "WHERE table_name='conversations' AND column_name='summary'")
+                    )
+                    if not result.fetchone():
+                        print("📝 Adding summary column to conversations table...")
+                        conn.execute(
+                            text("ALTER TABLE conversations ADD COLUMN summary TEXT")
+                        )
+                        conn.commit()
+                        print("✓ Added summary column to conversations table")
+                    
+                    result = conn.execute(
+                        text("SELECT column_name FROM information_schema.columns "
+                             "WHERE table_name='conversations' AND column_name='message_count'")
+                    )
+                    if not result.fetchone():
+                        print("📝 Adding message_count column to conversations table...")
+                        conn.execute(
+                            text("ALTER TABLE conversations ADD COLUMN message_count INTEGER DEFAULT 0 NOT NULL")
+                        )
+                        conn.commit()
+                        print("✓ Added message_count column to conversations table")
                 
                 # Check if messages table exists
                 result = conn.execute(

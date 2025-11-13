@@ -89,7 +89,8 @@ class DatabaseChatMessageHistory(BaseChatMessageHistory):
             except Exception:
                 pass
         
-        # Create message
+        # Create message (only if we want to store full messages - optional)
+        # For now, we'll store messages but focus on summary
         db_message = Message(
             conversation_id=conv.id,
             role=role,
@@ -105,6 +106,22 @@ class DatabaseChatMessageHistory(BaseChatMessageHistory):
             if len(message.content) > 100:
                 title += "..."
             conv.title = title
+        
+        # Update message count
+        conv.message_count = (conv.message_count or 0) + 1
+        
+        # Update summary every 10 messages or when reaching 50 messages
+        # This way we generate summary from first 50 messages
+        if conv.message_count == 50 or (conv.message_count % 10 == 0 and conv.message_count <= 50):
+            # Generate summary from first 50 messages
+            all_messages = self.messages[:50]  # Get first 50
+            if all_messages:
+                # Use simple summary for now (can be async later)
+                from src.services.conversation_summary import generate_simple_summary
+                try:
+                    conv.summary = generate_simple_summary(all_messages, max_messages=50)
+                except Exception as e:
+                    print(f"⚠️  Failed to generate summary: {e}")
         
         # Update conversation updated_at
         from sqlalchemy.sql import func
@@ -204,7 +221,7 @@ class DatabaseConversationHistoryManager:
         history.clear()
     
     def list_sessions(self, user_id: Optional[int] = None, db: Optional[Session] = None) -> List[dict]:
-        """List all conversations for a user"""
+        """List all conversations for a user (with summary, not full messages)"""
         if not DB_AVAILABLE or user_id is None:
             from .history import history_manager
             session_ids = history_manager.list_sessions(user_id)
@@ -220,7 +237,44 @@ class DatabaseConversationHistoryManager:
                     Conversation.user_id == user_id
                 ).order_by(Conversation.updated_at.desc()).all()
         
+        # Return conversations with summary, not full messages
         return [conv.to_dict() for conv in conversations]
+    
+    async def update_summary(self, session_id: str, user_id: int, db: Session) -> None:
+        """Update conversation summary from first 50 messages"""
+        conv = db.query(Conversation).filter(
+            Conversation.user_id == user_id,
+            Conversation.session_id == session_id
+        ).first()
+        
+        if not conv:
+            return
+        
+        # Get first 50 messages
+        messages = db.query(Message).filter(
+            Message.conversation_id == conv.id
+        ).order_by(Message.created_at).limit(50).all()
+        
+        if not messages:
+            return
+        
+        # Convert to LangChain messages
+        from langchain_core.messages import HumanMessage, AIMessage
+        langchain_messages = []
+        for msg in messages:
+            if msg.role == "user":
+                langchain_messages.append(HumanMessage(content=msg.content))
+            elif msg.role == "assistant":
+                langchain_messages.append(AIMessage(content=msg.content))
+        
+        # Generate summary
+        from src.services.conversation_summary import generate_conversation_summary
+        try:
+            summary = await generate_conversation_summary(langchain_messages, max_messages=50)
+            conv.summary = summary
+            db.commit()
+        except Exception as e:
+            print(f"⚠️  Failed to update summary: {e}")
 
 
 # Global database history manager instance
