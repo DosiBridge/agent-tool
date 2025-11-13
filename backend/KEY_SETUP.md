@@ -17,6 +17,7 @@ python3 generate_keys.py
 ```
 
 This will generate both keys and display them. You can then:
+
 - Copy them to your `.env` file manually
 - Or let the script append them (if `.env` doesn't already have these keys)
 
@@ -84,10 +85,12 @@ ENVIRONMENT="development"
 ## Important Notes
 
 ### Development Mode
+
 - In development, `JWT_SECRET_KEY` can use a default value (but it's still recommended to set a real one)
 - `MCP_APIKEY_ENCRYPTION_KEY` is optional in development, but **highly recommended**
 
 ### Production Mode
+
 - **Both keys are REQUIRED in production**
 - Never use default values in production
 - Never commit `.env` file to version control
@@ -97,18 +100,22 @@ ENVIRONMENT="development"
 ## Security Best Practices
 
 1. **Never commit keys to Git**
+
    - `.env` is already in `.gitignore`
    - Always use `.env.example` as a template
 
 2. **Use strong, random keys**
+
    - JWT_SECRET_KEY: At least 32 bytes (64 hex characters)
    - MCP_APIKEY_ENCRYPTION_KEY: Must be a valid Fernet key (44 base64 characters)
 
 3. **Rotate keys periodically**
+
    - If a key is compromised, generate a new one
    - Note: Rotating `MCP_APIKEY_ENCRYPTION_KEY` will make existing encrypted data unreadable
 
 4. **Use different keys per environment**
+
    - Development, staging, and production should have different keys
 
 5. **Store keys securely**
@@ -119,15 +126,18 @@ ENVIRONMENT="development"
 ## Troubleshooting
 
 ### "JWT_SECRET_KEY is required" error
+
 - Make sure you've set `JWT_SECRET_KEY` in your `.env` file
 - Or set it as an environment variable: `export JWT_SECRET_KEY=your-key`
 
 ### "MCP_APIKEY_ENCRYPTION_KEY not set" warning
+
 - This is a warning, not an error
 - In development, the app will work but MCP API keys won't be encrypted
 - Generate a key using `python3 backend/generate_keys.py`
 
 ### Keys not working after generation
+
 - Make sure you copied the entire key (no extra spaces or newlines)
 - Check that your `.env` file is in the correct location (project root)
 - Restart the server after adding keys
@@ -146,4 +156,3 @@ After setting up keys, verify they're loaded correctly:
 ```
 
 If you see warnings about missing keys, check your `.env` file and restart the server.
-

@@ -388,8 +388,8 @@ async def chat_stream(
                                 else:
                                     session_history = history_manager.get_session_history(chat_request.session_id, user_id)
                                 
-                                session_history.add_user_message(HumanMessage(content=chat_request.message))
-                                session_history.add_ai_message(AIMessage(content=full_response))
+                                session_history.add_user_message(chat_request.message)
+                                session_history.add_ai_message(full_response)
                             
                             yield f"data: {json.dumps({'chunk': '', 'done': True})}\n\n"
                             stream_completed = True
@@ -593,8 +593,8 @@ async def chat_stream(
                                 else:
                                     session_history = history_manager.get_session_history(chat_request.session_id, user_id)
                                 
-                                session_history.add_user_message(HumanMessage(content=chat_request.message))
-                                session_history.add_ai_message(AIMessage(content=full_response))
+                                session_history.add_user_message(chat_request.message)
+                                session_history.add_ai_message(full_response)
                         
                         yield f"data: {json.dumps({'chunk': '', 'done': True, 'tools_used': tool_calls_made})}\n\n"
                         stream_completed = True

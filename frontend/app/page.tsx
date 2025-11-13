@@ -57,9 +57,12 @@ export default function Home() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  const loadSessions = useStore((state) => state.loadSessions);
   const loadSession = useStore((state) => state.loadSession);
   const currentSessionId = useStore((state) => state.currentSessionId);
   const messages = useStore((state) => state.messages);
+  const settingsOpen = useStore((state) => state.settingsOpen);
+  const setSettingsOpen = useStore((state) => state.setSettingsOpen);
 
   // Keyboard shortcuts
   useEffect(() => {
