@@ -1,6 +1,7 @@
 """
 Database models for LLM config, MCP servers, and Users
 """
+from typing import Optional
 from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -72,6 +73,8 @@ if Base is not None:
         
         def to_dict(self, include_api_key: bool = False) -> dict:
             """Convert model to dictionary"""
+            from src.utils.encryption import decrypt_value
+            
             result = {
                 "name": self.name,
                 "url": self.url,
@@ -79,9 +82,28 @@ if Base is not None:
                 "enabled": self.enabled,
                 "has_api_key": bool(self.api_key)
             }
-            if include_api_key:
-                result["api_key"] = self.api_key
+            if include_api_key and self.api_key:
+                # Decrypt API key when returning
+                result["api_key"] = decrypt_value(self.api_key)
             return result
+        
+        def set_api_key(self, api_key: Optional[str]) -> None:
+            """Set API key with automatic encryption"""
+            from src.utils.encryption import encrypt_value, is_encrypted
+            
+            if not api_key:
+                self.api_key = None
+            elif is_encrypted(api_key):
+                # Already encrypted, store as-is
+                self.api_key = api_key
+            else:
+                # Encrypt before storing
+                self.api_key = encrypt_value(api_key)
+        
+        def get_api_key(self) -> Optional[str]:
+            """Get decrypted API key"""
+            from src.utils.encryption import decrypt_value
+            return decrypt_value(self.api_key) if self.api_key else None
 
     class User(Base):
         """User model for authentication"""

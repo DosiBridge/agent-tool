@@ -114,9 +114,10 @@ async def add_mcp_server(
             name=server.name,
             url=normalized_url,
             connection_type=connection_type,
-            api_key=server.api_key if server.api_key else None,
             enabled=server.enabled if server.enabled is not None else True
         )
+        # Use set_api_key() method to automatically encrypt
+        mcp_server.set_api_key(server.api_key if server.api_key else None)
         db.add(mcp_server)
         db.commit()
         db.refresh(mcp_server)
@@ -254,8 +255,9 @@ async def update_mcp_server(
         mcp_server.url = normalized_url
         mcp_server.connection_type = connection_type
         mcp_server.enabled = server.enabled if server.enabled is not None else True
-        if server.api_key:
-            mcp_server.api_key = server.api_key
+        # Use set_api_key() method to automatically encrypt
+        if server.api_key is not None:
+            mcp_server.set_api_key(server.api_key)
         
         db.commit()
         db.refresh(mcp_server)
@@ -355,7 +357,7 @@ async def toggle_mcp_server(
             connection_ok, connection_message = await test_mcp_connection(
                 mcp_server.url,
                 connection_type=connection_type,
-                api_key=mcp_server.api_key,
+                api_key=mcp_server.get_api_key(),
                 timeout=5.0
             )
             
