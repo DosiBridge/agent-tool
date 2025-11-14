@@ -329,11 +329,11 @@ class AdvancedRAGSystem:
                                 metadata["document_id"] = chunk.document_id
                                 
                                 results.append({
-                                            "content": chunk.content,
-                                            "metadata": metadata,
-                                            "score": bm25_score,
-                                            "source": "bm25"
-                                        })
+                                    "content": chunk.content,
+                                    "metadata": metadata,
+                                    "score": bm25_score,
+                                    "source": "bm25"
+                                })
                 except Exception as e:
                     print(f"⚠️  BM25 search failed: {e}")
         
