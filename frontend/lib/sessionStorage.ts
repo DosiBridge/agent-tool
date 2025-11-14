@@ -146,35 +146,53 @@ export function updateStoredSessionTitle(
 }
 
 /**
- * Delete a session and its messages
+ * Delete a session and its messages from local storage
  */
 export function deleteStoredSession(sessionId: string): void {
   if (typeof window === "undefined") return;
 
   try {
-    // Remove messages first
-    localStorage.removeItem(`${MESSAGES_PREFIX}${sessionId}`);
+    // Remove messages from local storage
+    const messagesKey = `${MESSAGES_PREFIX}${sessionId}`;
+    localStorage.removeItem(messagesKey);
 
     // Remove from sessions list
     const sessions = getStoredSessions();
-    const filtered = sessions.filter((s) => s.id !== sessionId);
-    saveStoredSessions(filtered);
+    const sessionExists = sessions.some((s) => s.id === sessionId);
 
-    // Force a storage event to ensure cleanup
-    window.dispatchEvent(
-      new StorageEvent("storage", {
-        key: SESSIONS_KEY,
-        newValue: JSON.stringify(filtered),
-        oldValue: JSON.stringify(sessions),
-      })
-    );
+    if (sessionExists) {
+      const filtered = sessions.filter((s) => s.id !== sessionId);
+      saveStoredSessions(filtered);
+
+      // Force a storage event to ensure cleanup and notify other tabs
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: SESSIONS_KEY,
+          newValue: JSON.stringify(filtered),
+          oldValue: JSON.stringify(sessions),
+          storageArea: localStorage,
+        })
+      );
+    }
+
+    // Also remove messages key explicitly (in case it wasn't removed above)
+    // This ensures complete cleanup
+    try {
+      localStorage.removeItem(messagesKey);
+    } catch {
+      // Ignore if already removed
+    }
   } catch (error) {
     console.error(`Failed to delete session ${sessionId}:`, error);
     // Try to at least remove from list even if messages fail
     try {
       const sessions = getStoredSessions();
       const filtered = sessions.filter((s) => s.id !== sessionId);
-      saveStoredSessions(filtered);
+      if (filtered.length !== sessions.length) {
+        saveStoredSessions(filtered);
+      }
+      // Also try to remove messages
+      localStorage.removeItem(`${MESSAGES_PREFIX}${sessionId}`);
     } catch (e) {
       console.error("Failed to remove session from list:", e);
     }
@@ -182,7 +200,7 @@ export function deleteStoredSession(sessionId: string): void {
 }
 
 /**
- * Clear all sessions (for logout)
+ * Clear all sessions (for logout or delete all)
  */
 export function clearAllStoredSessions(): void {
   if (typeof window === "undefined") return;
@@ -195,6 +213,16 @@ export function clearAllStoredSessions(): void {
     });
     // Clear sessions list
     localStorage.removeItem(SESSIONS_KEY);
+
+    // Dispatch storage event to notify other tabs
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: SESSIONS_KEY,
+        oldValue: JSON.stringify(sessions),
+        newValue: null,
+        storageArea: localStorage,
+      })
+    );
   } catch (error) {
     console.error("Failed to clear sessions:", error);
   }

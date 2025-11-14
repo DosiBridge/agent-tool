@@ -561,6 +561,22 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await handleResponse(response);
 }
 
+/**
+ * Delete all sessions from the backend (if authenticated)
+ */
+export async function deleteAllSessions(): Promise<void> {
+  try {
+    const { sessions } = await listSessions();
+    // Delete all sessions in parallel
+    await Promise.all(
+      sessions.map((session) => deleteSession(session.session_id))
+    );
+  } catch (error) {
+    // If not authenticated or error, just continue (local storage will be cleared)
+    console.warn("Failed to delete sessions from backend:", error);
+  }
+}
+
 export async function listSessions(): Promise<{ sessions: Session[] }> {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/sessions`, {

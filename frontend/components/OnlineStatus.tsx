@@ -13,11 +13,11 @@ export default function OnlineStatus() {
 
   useEffect(() => {
     if (!isOnline) {
-      setShowNotification(true);
+      setTimeout(() => setShowNotification(true), 1000);
       const timer = setTimeout(() => setShowNotification(false), 5000);
       return () => clearTimeout(timer);
     } else {
-      setShowNotification(true);
+      setTimeout(() => setShowNotification(true), 1000);
       const timer = setTimeout(() => setShowNotification(false), 3000);
       return () => clearTimeout(timer);
     }
@@ -27,7 +27,7 @@ export default function OnlineStatus() {
 
   return (
     <div
-      className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg transition-all animate-slide-in-right ${
+      className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg transition-all animate-slide-in-right ${
         isOnline
           ? "bg-green-500/10 border border-green-500/30 text-green-400"
           : "bg-red-500/10 border border-red-500/30 text-red-400"
@@ -41,7 +41,7 @@ export default function OnlineStatus() {
       ) : (
         <>
           <WifiOff className="w-4 h-4" />
-          <span className="text-sm font-medium">You're offline</span>
+          <span className="text-sm font-medium">You&apos;re offline</span>
         </>
       )}
     </div>

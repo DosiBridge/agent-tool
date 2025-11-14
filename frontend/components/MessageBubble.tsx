@@ -103,7 +103,7 @@ export default function MessageBubble({
                           style={vscDarkPlus}
                           language={language}
                           PreTag="div"
-                          className="rounded-lg !my-2 text-xs sm:text-sm"
+                          className="rounded-lg my-2! text-xs sm:text-sm"
                           {...props}
                         >
                           {codeString}
