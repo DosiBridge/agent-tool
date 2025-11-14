@@ -185,10 +185,34 @@ async function handleResponse<T>(response: Response): Promise<T> {
       // Redirect to login will be handled by the auth guard
       throw new Error("Unauthorized - Please login again");
     }
-    const error = await response
-      .json()
-      .catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || error.message || `HTTP ${response.status}`);
+
+    // Try to parse error response
+    let errorDetail: string;
+    try {
+      const error = await response.json();
+      errorDetail = error.detail || error.message || response.statusText;
+    } catch {
+      errorDetail = response.statusText || `HTTP ${response.status}`;
+    }
+
+    // Create more descriptive error messages
+    const errorMessages: Record<number, string> = {
+      400: "Invalid request. Please check your input.",
+      401: "Authentication required. Please log in.",
+      403: "You don't have permission to perform this action.",
+      404: "The requested resource was not found.",
+      409: "A conflict occurred. The resource may already exist.",
+      422: "Validation error. Please check your input.",
+      429: "Too many requests. Please wait a moment and try again.",
+      500: "Server error. Please try again later.",
+      502: "Service temporarily unavailable. Please try again later.",
+      503: "Service unavailable. Please try again later.",
+    };
+
+    const message = errorMessages[response.status] || errorDetail;
+    const error = new Error(message);
+    (error as any).statusCode = response.status;
+    throw error;
   }
   return response.json();
 }

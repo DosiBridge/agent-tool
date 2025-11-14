@@ -3,6 +3,7 @@ Chat endpoints (streaming and non-streaming)
 """
 import asyncio
 import json
+import traceback
 from typing import AsyncGenerator
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -19,7 +20,9 @@ from src.services.tools import retrieve_dosiblog_context
 from typing import Optional
 from sqlalchemy.orm import Session
 from ..models import ChatRequest, ChatResponse
+from ..exceptions import APIException, ValidationError, UnauthorizedError
 from src.utils import sanitize_tools_for_gemini
+from src.utils.logger import app_logger
 
 router = APIRouter()
 
@@ -46,6 +49,28 @@ async def chat(
         ChatResponse with answer
     """
     try:
+        user_id = current_user.id if current_user else None
+        
+        # Agent mode requires authentication (MCP access requires login)
+        if chat_request.mode == "agent" and not current_user:
+            app_logger.warning(
+                "Unauthorized agent mode access attempt",
+                {"session_id": chat_request.session_id, "mode": chat_request.mode}
+            )
+            raise UnauthorizedError(
+                "Authentication required for agent mode. MCP servers are only available to authenticated users."
+            )
+        
+        app_logger.info(
+            "Processing chat request",
+            {
+                "user_id": user_id,
+                "session_id": chat_request.session_id,
+                "mode": chat_request.mode,
+                "message_length": len(chat_request.message)
+            }
+        )
+        
         # Use ChatService for processing
         result = await ChatService.process_chat(
             message=chat_request.message,
@@ -74,9 +99,25 @@ async def chat(
             
             background_tasks.add_task(update_summary_task)
         
+        app_logger.info(
+            "Chat request processed successfully",
+            {"user_id": user_id, "session_id": chat_request.session_id}
+        )
+        
         return ChatResponse(**result)
+    except (APIException, HTTPException):
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        app_logger.error(
+            "Error processing chat request",
+            {
+                "user_id": user_id if current_user else None,
+                "session_id": chat_request.session_id,
+                "error": str(e)
+            },
+            exc_info=True
+        )
+        raise HTTPException(status_code=500, detail="An error occurred while processing your request")
 
 
 @router.post("/chat/stream")
@@ -100,6 +141,12 @@ async def chat_stream(
     async def generate() -> AsyncGenerator[str, None]:
         stream_completed = False
         user_id = current_user.id if current_user else None
+        
+        # Agent mode requires authentication (MCP access requires login)
+        if chat_request.mode == "agent" and not current_user:
+            yield f"data: {json.dumps({'chunk': '', 'done': True, 'error': 'Authentication required for agent mode. MCP servers are only available to authenticated users. Please log in to use agent mode.'})}\n\n"
+            return
+        
         try:
             # Send initial connection message to verify stream is working
             yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connected'})}\n\n"

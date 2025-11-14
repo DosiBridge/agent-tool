@@ -113,7 +113,7 @@ export const useStore = create<AppState>((set, get) => ({
   messages: [],
   isLoading: false,
   isStreaming: false,
-  mode: "agent",
+  mode: "rag", // Default to RAG mode (agent mode requires authentication)
   useReact: false,
   selectedCollectionId: null,
   ragSettingsOpen: false,
@@ -138,8 +138,21 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const user = await getCurrentUser();
       set({ user, isAuthenticated: true, authLoading: false });
+      // Load user-specific data after authentication check
+      // Use setTimeout to ensure state is updated before loading
+      setTimeout(() => {
+        get().loadSessions();
+        get().loadMCPServers();
+      }, 0);
     } catch (error) {
       set({ user: null, isAuthenticated: false, authLoading: false });
+      // Ensure mode is RAG if not authenticated (agent mode requires auth)
+      const currentMode = get().mode;
+      if (currentMode === "agent") {
+        set({ mode: "rag" });
+      }
+      // Clear MCP servers when not authenticated
+      set({ mcpServers: [] });
     }
   },
 
@@ -147,6 +160,12 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const result = await login(data);
       set({ user: result.user, isAuthenticated: true });
+      // Load user-specific data after login
+      // Use setTimeout to ensure state is updated before loading
+      setTimeout(() => {
+        get().loadSessions();
+        get().loadMCPServers();
+      }, 0);
     } catch (error) {
       throw error;
     }
@@ -156,6 +175,12 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const result = await register(data);
       set({ user: result.user, isAuthenticated: true });
+      // Load user-specific data after registration
+      // Use setTimeout to ensure state is updated before loading
+      setTimeout(() => {
+        get().loadSessions();
+        get().loadMCPServers();
+      }, 0);
     } catch (error) {
       throw error;
     }
@@ -170,9 +195,26 @@ export const useStore = create<AppState>((set, get) => ({
       console.error("Logout error:", error);
     } finally {
       // Don't clear browser storage on logout - keep sessions for when user logs back in
-      set({ user: null, isAuthenticated: false, messages: [], sessions: [] });
+      // But clear MCP servers and switch to RAG mode (agent mode requires authentication)
+      const currentMode = get().mode;
+
+      // Clear all MCP-related data
+      set({
+        user: null,
+        isAuthenticated: false,
+        messages: [],
+        sessions: [],
+        mcpServers: [], // Clear MCP servers list on logout
+        mode: currentMode === "agent" ? "rag" : currentMode, // Switch to RAG if in agent mode
+        isStreaming: false, // Stop any ongoing streaming
+        isLoading: false, // Stop any ongoing loading
+      });
+
       // Reload sessions from browser storage
       get().loadSessions();
+
+      // Note: WebSocket will automatically disconnect and reconnect via useEffect in page.tsx
+      // when isAuthenticated changes to false
     }
   },
 
@@ -308,6 +350,12 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setMode: (mode: "agent" | "rag") => {
+    const state = get();
+    // Agent mode requires authentication
+    if (mode === "agent" && !state.isAuthenticated) {
+      console.warn("Cannot switch to agent mode: authentication required");
+      return; // Don't change mode if not authenticated
+    }
     set({ mode });
   },
   setUseReact: (useReact: boolean) => {
@@ -454,11 +502,20 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Settings
   loadMCPServers: async () => {
+    const isAuthenticated = get().isAuthenticated;
+    if (!isAuthenticated) {
+      // Not authenticated - clear MCP servers (no access without login)
+      set({ mcpServers: [] });
+      return;
+    }
+
     try {
       const data = await listMCPServers();
       set({ mcpServers: data.servers });
     } catch (error) {
       console.error("Failed to load MCP servers:", error);
+      // On error, clear MCP servers list
+      set({ mcpServers: [] });
     }
   },
 

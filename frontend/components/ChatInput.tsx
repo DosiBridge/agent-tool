@@ -6,8 +6,9 @@
 "use client";
 
 import { createStreamReader, StreamChunk } from "@/lib/api";
+import { getUserFriendlyError, logError } from "@/lib/errors";
 import { useStore } from "@/lib/store";
-import { Loader2, Send, Square, X, Settings } from "lucide-react";
+import { Loader2, Send, Settings, Square, X } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
@@ -23,6 +24,7 @@ export default function ChatInput() {
   const isLoading = useStore((state) => state.isLoading);
   const useReact = useStore((state) => state.useReact);
   const selectedCollectionId = useStore((state) => state.selectedCollectionId);
+  const isAuthenticated = useStore((state) => state.isAuthenticated);
   const setMode = useStore((state) => state.setMode);
   const setRagSettingsOpen = useStore((state) => state.setRagSettingsOpen);
   const addMessage = useStore((state) => state.addMessage);
@@ -32,6 +34,19 @@ export default function ChatInput() {
   );
   const setStreaming = useStore((state) => state.setStreaming);
   const setLoading = useStore((state) => state.setLoading);
+
+  // Cancel ongoing requests when user logs out
+  useEffect(() => {
+    if (!isAuthenticated && (isStreaming || isLoading)) {
+      // User logged out - cancel any ongoing requests
+      if (abortRef.current) {
+        abortRef.current();
+        abortRef.current = null;
+      }
+      setStreaming(false);
+      setLoading(false);
+    }
+  }, [isAuthenticated, isStreaming, isLoading, setStreaming, setLoading]);
 
   // textarea should be disabled only while loading/streaming
   const inputDisabled = isLoading || isStreaming;
@@ -158,7 +173,9 @@ export default function ChatInput() {
           }
         },
         (error: Error) => {
-          toast.error(`Error: ${error.message}`);
+          logError(error, { session_id: currentSessionId, mode });
+          const errorMessage = getUserFriendlyError(error);
+          toast.error(errorMessage);
           // Remove empty assistant message on error
           const messages = useStore.getState().messages;
           if (
@@ -181,10 +198,13 @@ export default function ChatInput() {
         }
       );
     } catch (error) {
-      toast.error(
-        `Failed to send message: ${error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
+      logError(error instanceof Error ? error : new Error(String(error)), {
+        session_id: currentSessionId,
+        mode,
+        message_length: message.length,
+      });
+      const errorMessage = getUserFriendlyError(error);
+      toast.error(errorMessage);
       // Remove empty assistant message on error
       const messages = useStore.getState().messages;
       if (
@@ -212,7 +232,7 @@ export default function ChatInput() {
       abortRef.current = null;
       setStreaming(false);
       setLoading(false);
-      toast.success('Generation stopped');
+      toast.success("Generation stopped");
       // Auto-focus on chat input when stopped
       setTimeout(() => textareaRef.current?.focus(), 100);
     }
@@ -241,22 +261,32 @@ export default function ChatInput() {
         <div className="flex justify-center items-center gap-2 mb-2 sm:mb-2.5 md:mb-3">
           <div className="inline-flex items-center rounded-lg border border-gray-600 bg-[#40414f] p-0.5 sm:p-1">
             <button
-              onClick={() => setMode("agent")}
-              disabled={inputDisabled}
-              className={`px-2.5 py-1.5 sm:px-3 sm:py-1.5 md:px-4 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 touch-manipulation ${mode === "agent"
-                ? "bg-[#10a37f] text-white shadow-sm"
-                : "text-gray-400 hover:text-gray-200"
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              onClick={() => {
+                if (!isAuthenticated) {
+                  toast.error(
+                    "Please log in to use agent mode. MCP servers require authentication."
+                  );
+                  return;
+                }
+                setMode("agent");
+              }}
+              disabled={!isAuthenticated || inputDisabled}
+              className={`px-2.5 py-1.5 sm:px-3 sm:py-1.5 md:px-4 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 touch-manipulation ${
+                mode === "agent"
+                  ? "bg-[#10a37f] text-white shadow-sm"
+                  : "text-gray-400 hover:text-gray-200"
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               Agent
             </button>
             <button
               onClick={() => setMode("rag")}
               disabled={inputDisabled}
-              className={`px-2.5 py-1.5 sm:px-3 sm:py-1.5 md:px-4 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 touch-manipulation ${mode === "rag"
-                ? "bg-[#10a37f] text-white shadow-sm"
-                : "text-gray-400 hover:text-gray-200"
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              className={`px-2.5 py-1.5 sm:px-3 sm:py-1.5 md:px-4 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 touch-manipulation ${
+                mode === "rag"
+                  ? "bg-[#10a37f] text-white shadow-sm"
+                  : "text-gray-400 hover:text-gray-200"
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               RAG
             </button>

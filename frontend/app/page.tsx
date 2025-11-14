@@ -40,16 +40,26 @@ export default function Home() {
     // Disconnect existing connection (allow reconnect)
     healthWebSocket.disconnect(true);
 
-    // Small delay to ensure disconnect completes
-    const timer = setTimeout(() => {
-      healthWebSocket.connect();
-    }, 100);
+    // If authenticated, reconnect with new token
+    // If not authenticated, don't reconnect (no MCP access without login)
+    if (isAuthenticated) {
+      // Small delay to ensure disconnect completes
+      const timer = setTimeout(() => {
+        healthWebSocket.connect();
+      }, 100);
 
-    // Cleanup on unmount
-    return () => {
-      clearTimeout(timer);
-      healthWebSocket.disconnect(false); // Final disconnect, don't allow reconnect
-    };
+      // Cleanup on unmount or when auth changes
+      return () => {
+        clearTimeout(timer);
+        healthWebSocket.disconnect(false); // Final disconnect, don't allow reconnect
+      };
+    } else {
+      // Not authenticated - ensure WebSocket is disconnected (no MCP access)
+      // Don't reconnect - MCP servers require authentication
+      return () => {
+        healthWebSocket.disconnect(false); // Ensure disconnected on logout
+      };
+    }
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -129,6 +139,23 @@ export default function Home() {
     loadSessions();
     loadSession(currentSessionId);
   }, [loadSessions, loadSession, currentSessionId]);
+
+  // Reload user data when authentication state changes
+  useEffect(() => {
+    if (isAuthenticated && !authLoading) {
+      // User just logged in - reload all user-specific data
+      // This is a backup to ensure data is loaded even if login/register handlers miss it
+      loadSessions();
+      const loadMCPServers = useStore.getState().loadMCPServers;
+      loadMCPServers();
+    } else if (!isAuthenticated && !authLoading) {
+      // User logged out - ensure mode is RAG (agent mode requires auth)
+      const currentMode = useStore.getState().mode;
+      if (currentMode === "agent") {
+        useStore.getState().setMode("rag");
+      }
+    }
+  }, [isAuthenticated, authLoading, loadSessions]);
 
   // Save messages to browser storage when they change (debounced)
   useEffect(() => {
