@@ -2,7 +2,7 @@
  * WebSocket client for real-time connection monitoring
  */
 
-import { getApiBaseUrl, getAuthToken } from "./api";
+import { getApiBaseUrl, getAuthToken } from "./api/client";
 
 export interface HealthStatus {
   status: string;

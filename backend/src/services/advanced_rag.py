@@ -282,28 +282,67 @@ class AdvancedRAGSystem:
             bm25_index = self._build_bm25_index(user_id)
             if bm25_index and user_id in self.chunk_texts:
                 try:
-                    query_tokens = query.lower().split()
-                    bm25_scores = bm25_index.get_scores(query_tokens)
-                    
-                    # Get top BM25 results
-                    top_indices = np.argsort(bm25_scores)[::-1][:k * 2]
-                    
-                    # Normalize BM25 scores (0-1 range)
-                    max_score = bm25_scores[top_indices[0]] if len(top_indices) > 0 and bm25_scores[top_indices[0]] > 0 else 1
-                    normalized_scores = bm25_scores / max_score if max_score > 0 else bm25_scores
-                    
-                    # Get chunks from database
+                    # Get all chunks first (BM25 index is built for all chunks)
                     if DB_AVAILABLE:
                         with get_db_context() as db:
-                            chunks = db.query(DocumentChunk).join(Document).filter(
+                            all_chunks_query = db.query(DocumentChunk).join(Document).filter(
                                 Document.user_id == user_id,
                                 Document.status == "ready"
-                            ).order_by(DocumentChunk.document_id, DocumentChunk.chunk_index).all()
+                            ).order_by(DocumentChunk.document_id, DocumentChunk.chunk_index)
+                            all_chunks = all_chunks_query.all()
                             
-                    for idx in top_indices:
-                        if idx < len(chunks):
-                            chunk = chunks[idx]
-                            bm25_score = normalized_scores[idx]
+                            # Get filtered chunks if collection_id provided
+                            if collection_id:
+                                filtered_chunks_query = all_chunks_query.filter(
+                                    Document.collection_id == collection_id
+                                )
+                                filtered_chunks = filtered_chunks_query.all()
+                                # Create mapping: chunk_id -> index in all_chunks
+                                chunk_id_to_index = {chunk.id: idx for idx, chunk in enumerate(all_chunks)}
+                                # Get indices of filtered chunks in all_chunks array
+                                filtered_indices = [chunk_id_to_index[chunk.id] for chunk in filtered_chunks if chunk.id in chunk_id_to_index]
+                            else:
+                                filtered_chunks = all_chunks
+                                filtered_indices = list(range(len(all_chunks)))
+                    else:
+                        all_chunks = []
+                        filtered_chunks = []
+                        filtered_indices = []
+                    
+                    if not all_chunks:
+                        # No chunks available
+                        pass
+                    else:
+                        query_tokens = query.lower().split()
+                        bm25_scores = bm25_index.get_scores(query_tokens)
+                        
+                        # Get scores only for filtered chunks
+                        if collection_id and filtered_indices:
+                            filtered_scores = [bm25_scores[idx] for idx in filtered_indices]
+                            # Get top indices within filtered chunks
+                            top_filtered_indices = np.argsort(filtered_scores)[::-1][:k * 2]
+                            # Map back to all_chunks indices
+                            top_indices = [filtered_indices[idx] for idx in top_filtered_indices]
+                            # Get corresponding scores
+                            top_scores = [filtered_scores[idx] for idx in top_filtered_indices]
+                        else:
+                            # No collection filter, use all chunks
+                            top_indices = np.argsort(bm25_scores)[::-1][:k * 2]
+                            top_scores = [bm25_scores[idx] for idx in top_indices]
+                        
+                        # Normalize BM25 scores (0-1 range)
+                        max_score = max(top_scores) if top_scores and max(top_scores) > 0 else 1
+                        normalized_scores = [score / max_score if max_score > 0 else score for score in top_scores]
+                        
+                        # Process results
+                        for score_idx, idx in enumerate(top_indices):
+                            if idx < len(all_chunks):
+                                chunk = all_chunks[idx]
+                                bm25_score = normalized_scores[score_idx]
+                                
+                                # Skip if collection filter doesn't match
+                                if collection_id and chunk.document.collection_id != collection_id:
+                                    continue
                             
                             # Check if already in results
                             found = False
