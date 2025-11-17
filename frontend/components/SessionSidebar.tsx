@@ -4,8 +4,12 @@
 
 "use client";
 
-import { deleteSession } from "@/lib/api";
-import { deleteStoredSession, getStoredSessions } from "@/lib/sessionStorage";
+import { deleteAllSessions, deleteSession } from "@/lib/api";
+import {
+  clearAllStoredSessions,
+  deleteStoredSession,
+  getStoredSessions,
+} from "@/lib/sessionStorage";
 import { useStore } from "@/lib/store";
 import {
   AlertTriangle,
@@ -30,6 +34,7 @@ export default function SessionSidebar({
   onClose,
 }: SessionSidebarProps) {
   const isAuthenticated = useStore((state) => state.isAuthenticated);
+  const user = useStore((state) => state.user);
   const sessions = useStore((state) => state.sessions);
   const sessionsLoading = useStore((state) => state.sessionsLoading);
   const currentSessionId = useStore((state) => state.currentSessionId);
@@ -43,9 +48,15 @@ export default function SessionSidebar({
   }, [loadSessions]);
 
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isHovered, setIsHovered] = useState(false);
+
+  // On desktop, sidebar is expanded if open OR hovered
+  const isExpanded = isOpen || isHovered;
 
   const handleDeleteSession = async (
     sessionId: string,
@@ -61,12 +72,7 @@ export default function SessionSidebar({
       if (isAuthenticated) {
         try {
           await deleteSession(sessionId);
-          console.log(`✓ Deleted session ${sessionId} from database`);
         } catch (error) {
-          console.warn(
-            "Failed to delete from backend, deleting from browser storage:",
-            error
-          );
           // Continue to delete from browser storage even if backend fails
         }
       }
@@ -74,14 +80,15 @@ export default function SessionSidebar({
       // Always delete from browser storage (temporary storage)
       // This ensures cleanup even if not authenticated
       deleteStoredSession(sessionId);
-      console.log(`✓ Deleted session ${sessionId} from browser storage`);
 
-      // If deleted session was current, create a new one
+      // If deleted session was current, clear messages and create a new one
       if (sessionId === currentSessionId) {
+        // Clear current messages from store
+        useStore.getState().clearMessages();
         createNewSession();
       }
 
-      // Reload sessions list
+      // Reload sessions list to reflect the deletion
       loadSessions();
       toast.success("Session deleted");
     } catch (error) {
@@ -113,6 +120,45 @@ export default function SessionSidebar({
     setEditTitle("");
   };
 
+  const handleDeleteAll = async () => {
+    setDeletingAll(true);
+    try {
+      // Delete from backend if authenticated
+      if (isAuthenticated) {
+        try {
+          await deleteAllSessions();
+        } catch (error) {
+          // Continue to delete from browser storage even if backend fails
+          console.warn("Failed to delete all sessions from backend:", error);
+        }
+      }
+
+      // Clear all from browser storage
+      clearAllStoredSessions();
+
+      // Clear messages and sessions from store state
+      useStore.getState().clearMessages();
+      useStore.setState({ sessions: [] });
+
+      // Create a new default session
+      createNewSession();
+
+      // Reload sessions list
+      loadSessions();
+      toast.success("All sessions deleted");
+      setShowDeleteAllConfirm(false);
+    } catch (error) {
+      console.error("Error deleting all sessions:", error);
+      toast.error(
+        `Failed to delete all sessions: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   const getSessionTitle = (sessionId: string): string => {
     const storedSessions = getStoredSessions();
     const session = storedSessions.find((s) => s.id === sessionId);
@@ -135,25 +181,41 @@ export default function SessionSidebar({
 
       {/* Sidebar */}
       <div
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         className={`
                 fixed lg:static inset-y-0 left-0 z-50
-                w-[280px] sm:w-72 lg:w-64 border-r border-gray-700 bg-[#202123] 
+                border-r border-gray-700 bg-[#202123] 
                 flex flex-col shrink-0
-                transform transition-transform duration-300 ease-in-out
-                ${
-                  isOpen
-                    ? "translate-x-0"
-                    : "-translate-x-full lg:translate-x-0"
-                }
+                transform transition-all duration-300 ease-in-out
+                ${isOpen ? "translate-x-0" : "-translate-x-full"}
+                ${!isOpen ? "lg:translate-x-0" : ""}
+                ${isExpanded ? "lg:w-64" : "lg:w-16"}
+                w-[280px] sm:w-72
                 shadow-xl lg:shadow-none
                 h-screen lg:h-auto
+                overflow-hidden
             `}
       >
         {/* Header with close button for mobile */}
-        <div className="p-3 sm:p-4 border-b border-gray-700 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
+        <div
+          className={`p-3 sm:p-4 border-b border-gray-700 flex items-center ${
+            isExpanded ? "justify-between" : "justify-center lg:justify-center"
+          } shrink-0`}
+        >
+          <div
+            className={`flex items-center ${
+              isExpanded ? "gap-2" : "gap-0"
+            } min-w-0`}
+          >
             <MessageSquare className="w-5 h-5 sm:w-5 sm:h-5 text-[#10a37f] shrink-0" />
-            <h2 className="text-base sm:text-lg font-semibold text-gray-200 truncate">
+            <h2
+              className={`text-base sm:text-lg font-semibold text-gray-200 truncate transition-opacity duration-300 ${
+                isExpanded
+                  ? "opacity-100"
+                  : "opacity-0 lg:w-0 lg:overflow-hidden"
+              }`}
+            >
               Chats
             </h2>
           </div>
@@ -168,20 +230,55 @@ export default function SessionSidebar({
           )}
         </div>
 
-        {/* New Chat Button */}
-        <div className="p-2 sm:p-3 border-b border-gray-700 shrink-0">
+        {/* New Chat Button and Delete All */}
+        <div className="p-2 sm:p-3 border-b border-gray-700 shrink-0 space-y-2">
           <button
             onClick={createNewSession}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 sm:px-4 sm:py-3 bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-[#10a37f] font-medium text-sm shadow-md hover:shadow-lg active:scale-95 touch-manipulation"
+            className={`w-full flex items-center ${
+              isExpanded
+                ? "justify-center gap-2 px-3 py-2.5 sm:px-4 sm:py-3"
+                : "justify-center lg:justify-center lg:px-2 lg:py-2.5"
+            } bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-[#10a37f] font-medium text-sm shadow-md hover:shadow-lg active:scale-95 touch-manipulation`}
             aria-label="Create new session"
           >
             <Plus className="w-4 h-4 shrink-0" aria-hidden="true" />
-            <span className="truncate">New chat</span>
+            <span
+              className={`truncate transition-opacity duration-300 ${
+                isExpanded
+                  ? "opacity-100"
+                  : "opacity-0 lg:w-0 lg:overflow-hidden"
+              }`}
+            >
+              New chat
+            </span>
           </button>
+          {sessions.length > 0 && (
+            <button
+              onClick={() => setShowDeleteAllConfirm(true)}
+              disabled={deletingAll}
+              className={`w-full flex items-center ${
+                isExpanded
+                  ? "justify-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5"
+                  : "justify-center lg:justify-center lg:px-2 lg:py-2"
+              } bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 border border-red-600/30 hover:border-red-600/50 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-red-500/50 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation`}
+              aria-label="Delete all sessions"
+            >
+              <Trash2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span
+                className={`truncate transition-opacity duration-300 ${
+                  isExpanded
+                    ? "opacity-100"
+                    : "opacity-0 lg:w-0 lg:overflow-hidden"
+                }`}
+              >
+                Delete All
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Search Bar */}
-        {sessions.length > 0 && (
+        {sessions.length > 0 && isExpanded && (
           <div className="p-2 sm:p-3 border-b border-gray-700 shrink-0">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -199,27 +296,46 @@ export default function SessionSidebar({
         {/* Sessions List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {sessionsLoading ? (
-            // Skeleton loaders
+            // Enhanced skeleton loaders
             <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
+              {[1, 2, 3, 4].map((i) => (
                 <div
                   key={i}
-                  className="animate-pulse p-3 rounded-lg bg-[#343541]"
+                  className="animate-pulse p-3 rounded-lg bg-[#343541] border border-gray-700"
+                  style={{
+                    animationDelay: `${i * 100}ms`,
+                  }}
                 >
-                  <div className="h-4 bg-gray-700 rounded w-3/4 mb-2" />
-                  <div className="h-3 bg-gray-800 rounded w-1/2" />
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 bg-gray-700 rounded shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 bg-gray-700 rounded w-3/4" />
+                      <div className="h-3 bg-gray-800 rounded w-1/2" />
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
           ) : sessions.length === 0 ? (
-            <div className="text-center py-8 sm:py-12 px-3 sm:px-4">
-              <MessageSquare className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-2 sm:mb-3 text-gray-600" />
-              <p className="text-xs sm:text-sm text-gray-500">
+            <div className="text-center py-12 sm:py-16 px-3 sm:px-4 animate-fade-in">
+              <div className="relative mb-4 flex justify-center">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-[#343541] flex items-center justify-center border-2 border-dashed border-gray-600">
+                  <MessageSquare className="w-8 h-8 sm:w-10 sm:h-10 text-gray-600" />
+                </div>
+              </div>
+              <h3 className="text-sm sm:text-base font-semibold text-gray-300 mb-1">
                 No conversations yet
+              </h3>
+              <p className="text-xs sm:text-sm text-gray-500 mb-4">
+                Start a new chat to begin your conversation
               </p>
-              <p className="text-xs text-gray-600 mt-1">
-                Start a new chat to begin
-              </p>
+              <button
+                onClick={createNewSession}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+                Create First Chat
+              </button>
             </div>
           ) : (
             (() => {
@@ -278,13 +394,21 @@ export default function SessionSidebar({
                     tabIndex={0}
                     role="button"
                     aria-label={`Switch to session ${sessionTitle}`}
-                    className={`group flex items-center justify-between p-2.5 sm:p-3 rounded-lg cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#10a37f] touch-manipulation ${
+                    className={`group flex items-center ${
+                      isExpanded
+                        ? "justify-between"
+                        : "justify-center lg:justify-center"
+                    } p-2.5 sm:p-3 rounded-lg cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#10a37f] touch-manipulation ${
                       session.session_id === currentSessionId
-                        ? "bg-[#343541] text-white shadow-md"
-                        : "hover:bg-[#2d2d2f] text-gray-300 active:bg-[#2d2d2f]"
+                        ? "bg-[#343541] text-white shadow-md border-l-4 border-[#10a37f]"
+                        : "hover:bg-[#2d2d2f] text-gray-300 active:bg-[#2d2d2f] border-l-4 border-transparent hover:border-gray-600"
                     }`}
                   >
-                    <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                    <div
+                      className={`flex items-center ${
+                        isExpanded ? "gap-2 sm:gap-3 flex-1 min-w-0" : "gap-0"
+                      } ${!isExpanded ? "lg:justify-center" : ""}`}
+                    >
                       <MessageSquare
                         className={`w-4 h-4 shrink-0 ${
                           session.session_id === currentSessionId
@@ -292,7 +416,13 @@ export default function SessionSidebar({
                             : "text-gray-500"
                         }`}
                       />
-                      <div className="flex-1 min-w-0">
+                      <div
+                        className={`flex-1 min-w-0 transition-opacity duration-300 ${
+                          isExpanded
+                            ? "opacity-100"
+                            : "opacity-0 lg:w-0 lg:overflow-hidden"
+                        }`}
+                      >
                         {isEditing ? (
                           <div className="flex items-center gap-1">
                             <input
@@ -345,7 +475,7 @@ export default function SessionSidebar({
                         )}
                       </div>
                     </div>
-                    {!isEditing && (
+                    {!isEditing && isExpanded && (
                       <div className="flex items-center gap-1 ml-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                         <button
                           onClick={(e) =>
@@ -380,12 +510,74 @@ export default function SessionSidebar({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="p-3 sm:p-4 border-t border-gray-700 shrink-0">
-          <div className="text-xs text-gray-500 mb-1">Current session</div>
-          <div className="text-xs sm:text-sm font-medium text-gray-300 truncate">
-            {currentSessionId === "default" ? "Default" : currentSessionId}
-          </div>
+        {/* Profile Section at Bottom */}
+        <div className="mt-auto border-t border-gray-700 shrink-0">
+          {isAuthenticated ? (
+            <div className={`p-2 sm:p-3 ${!isExpanded ? "lg:p-2" : ""}`}>
+              <div
+                className={`flex items-center ${
+                  isExpanded
+                    ? "gap-2 sm:gap-3 p-2 rounded-lg"
+                    : "justify-center lg:justify-center lg:p-1.5"
+                } hover:bg-[#343541] transition-all duration-200 group ${
+                  !isExpanded ? "lg:rounded-full" : ""
+                }`}
+              >
+                <div
+                  className={`rounded-full bg-gradient-to-br from-[#10a37f] to-[#0d8f6e] flex items-center justify-center text-white font-medium shrink-0 transition-all duration-200 ${
+                    isExpanded
+                      ? "w-8 h-8 text-sm"
+                      : "w-8 h-8 lg:w-9 lg:h-9 text-base"
+                  }`}
+                >
+                  {user?.name?.[0]?.toUpperCase() ||
+                    user?.email?.[0]?.toUpperCase() ||
+                    "U"}
+                </div>
+                {isExpanded && (
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-200 truncate">
+                      {user?.name || user?.email || "User"}
+                    </div>
+                    {user?.email && user?.name && (
+                      <div className="text-xs text-gray-500 truncate">
+                        {user.email}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            isExpanded && (
+              <div className="p-2 sm:p-3 space-y-2">
+                <button
+                  onClick={() => {
+                    window.dispatchEvent(
+                      new CustomEvent("open-auth", {
+                        detail: { mode: "login" },
+                      })
+                    );
+                  }}
+                  className="w-full px-3 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-[#343541] rounded-lg transition-colors"
+                >
+                  Log in
+                </button>
+                <button
+                  onClick={() => {
+                    window.dispatchEvent(
+                      new CustomEvent("open-auth", {
+                        detail: { mode: "register" },
+                      })
+                    );
+                  }}
+                  className="w-full px-3 py-2 text-sm font-medium bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg transition-colors"
+                >
+                  Create account
+                </button>
+              </div>
+            )
+          )}
         </div>
       </div>
 
@@ -421,6 +613,55 @@ export default function SessionSidebar({
                   className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-medium bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors touch-manipulation"
                 >
                   Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All Confirmation Modal */}
+      {showDeleteAllConfirm && (
+        <div className="fixed inset-0 bg-black/60 z-60 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#343541] rounded-xl shadow-2xl max-w-md w-full border border-gray-700">
+            <div className="p-4 sm:p-5 md:p-6">
+              <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" />
+                </div>
+                <h3 className="text-base sm:text-lg font-semibold text-gray-200">
+                  Delete All Sessions
+                </h3>
+              </div>
+              <p className="text-sm sm:text-base text-gray-300 mb-4 sm:mb-6">
+                Are you sure you want to delete all{" "}
+                <span className="font-medium text-white">
+                  {sessions.length} session{sessions.length !== 1 ? "s" : ""}
+                </span>
+                ? This will permanently remove all conversations and messages.
+                This action cannot be undone.
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 justify-end">
+                <button
+                  onClick={() => setShowDeleteAllConfirm(false)}
+                  disabled={deletingAll}
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-[#40414f] rounded-lg transition-colors touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteAll}
+                  disabled={deletingAll}
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-medium bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {deletingAll ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    "Delete All"
+                  )}
                 </button>
               </div>
             </div>

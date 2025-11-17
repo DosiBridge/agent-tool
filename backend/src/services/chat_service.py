@@ -13,7 +13,9 @@ if TYPE_CHECKING:
 from src.core import Config, User, DB_AVAILABLE
 from src.services import history_manager, MCPClientManager, create_llm_from_config, rag_system
 from src.services.db_history import db_history_manager
-from src.services.tools import retrieve_dosiblog_context
+from src.services.tools import retrieve_dosiblog_context, load_custom_rag_tools
+from src.services.advanced_rag import advanced_rag_system
+from src.services.react_agent import create_react_agent
 from src.utils import sanitize_tools_for_gemini
 from src.core.constants import CHAT_MODE_AGENT, CHAT_MODE_RAG
 
@@ -27,7 +29,10 @@ class ChatService:
         session_id: str,
         mode: str,
         user: Optional[User] = None,
-        db: Optional["Session"] = None
+        db: Optional["Session"] = None,
+        collection_id: Optional[int] = None,
+        use_react: bool = False,
+        agent_prompt: Optional[str] = None
     ) -> dict:
         """
         Process a chat message and return response
@@ -37,6 +42,9 @@ class ChatService:
             session_id: Session identifier
             mode: Chat mode ("agent" or "rag")
             user: Optional authenticated user
+            db: Database session
+            collection_id: Optional collection ID for RAG
+            use_react: Whether to use ReAct agent for RAG mode
             
         Returns:
             Dictionary with response, session_id, mode, and tools_used
@@ -44,42 +52,115 @@ class ChatService:
         user_id = user.id if user else None
         
         if mode == CHAT_MODE_RAG:
-            return await ChatService._process_rag(message, session_id, user_id, db)
+            return await ChatService._process_rag(message, session_id, user_id, db, collection_id, use_react, agent_prompt)
         else:
-            return await ChatService._process_agent(message, session_id, user_id, db)
+            return await ChatService._process_agent(message, session_id, user_id, db, agent_prompt)
     
     @staticmethod
-    async def _process_rag(message: str, session_id: str, user_id: Optional[int], db: Optional["Session"] = None) -> dict:
-        """Process RAG-only mode"""
+    async def _process_rag(message: str, session_id: str, user_id: Optional[int], db: Optional["Session"] = None, collection_id: Optional[int] = None, use_react: bool = False, agent_prompt: Optional[str] = None) -> dict:
+        """Process RAG mode with advanced RAG system"""
         llm_config = Config.load_llm_config()
-        llm = create_llm_from_config(llm_config, streaming=False, temperature=0)
         
-        # Use database history if available
-        if DB_AVAILABLE and user_id and db:
-            history = db_history_manager.get_session_history(session_id, user_id, db)
-            # RAG system uses history_manager internally, so we need to save messages separately
-            answer = rag_system.query_with_history(message, session_id, llm)
-            # Save to database history
-            history.add_user_message(HumanMessage(content=message))
-            history.add_ai_message(AIMessage(content=answer))
+        # Use ReAct agent if requested
+        if use_react and user_id:
+            react_agent = create_react_agent(llm_config)
+            
+            # Get chat history
+            if DB_AVAILABLE and user_id and db:
+                history = db_history_manager.get_session_messages(session_id, user_id, db)
+            else:
+                history = history_manager.get_session_messages(session_id, user_id)
+            
+            result = await react_agent.run(
+                query=message,
+                user_id=user_id,
+                session_id=session_id,
+                collection_id=collection_id,
+                chat_history=history,
+                agent_prompt=agent_prompt
+            )
+            
+            answer = result["answer"]
+            tools_used = [call["name"] for call in result.get("tool_calls", [])]
         else:
-            answer = rag_system.query_with_history(message, session_id, llm)
+            # Use advanced RAG with retrieval
+            if user_id:
+                # Retrieve relevant documents
+                retrieved_docs = advanced_rag_system.retrieve(
+                    query=message,
+                    user_id=user_id,
+                    k=5,
+                    use_reranking=True,
+                    use_hybrid=True,
+                    collection_id=collection_id
+                )
+                
+                # Build context from retrieved documents
+                context_parts = []
+                for doc in retrieved_docs:
+                    content = doc["content"]
+                    metadata = doc.get("metadata", {})
+                    source = metadata.get("original_filename", "Document")
+                    context_parts.append(f"[{source}]\n{content}\n")
+                
+                context = "\n".join(context_parts) if context_parts else "No relevant documents found."
+            else:
+                # Fallback to basic RAG
+                context = rag_system.retrieve_context(message)
+            
+            llm = create_llm_from_config(llm_config, streaming=False, temperature=0)
+            
+            # Get history
+            if DB_AVAILABLE and user_id and db:
+                history = db_history_manager.get_session_messages(session_id, user_id, db)
+                session_history = db_history_manager.get_session_history(session_id, user_id, db)
+            else:
+                history = history_manager.get_session_messages(session_id, user_id)
+                session_history = history_manager.get_session_history(session_id, user_id)
+            
+            # Build prompt
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", (
+                    "You are a helpful AI assistant. Use the following context to answer questions accurately.\n\n"
+                    "Context:\n{context}\n\n"
+                    "Rules:\n"
+                    "- Answer naturally without mentioning 'the context' or 'according to the context'\n"
+                    "- If you don't know, say so honestly\n"
+                    "- Be concise and helpful"
+                )),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ])
+            
+            answer = llm.invoke(prompt.format(
+                context=context,
+                chat_history=history,
+                input=message
+            )).content
+            
+            # Save to history
+            session_history.add_user_message(HumanMessage(content=message))
+            session_history.add_ai_message(AIMessage(content=answer))
+            
+            tools_used = ["advanced_rag_retrieval"]
         
         return {
             "response": answer,
             "session_id": session_id,
             "mode": CHAT_MODE_RAG,
-            "tools_used": ["retrieve_dosiblog_context"]
+            "tools_used": tools_used
         }
     
     @staticmethod
-    async def _process_agent(message: str, session_id: str, user_id: Optional[int], db: Optional["Session"] = None) -> dict:
-        """Process agent mode with tools"""
-        mcp_servers = Config.load_mcp_servers(user_id=user_id)
+    async def _process_agent(message: str, session_id: str, user_id: Optional[int], db: Optional["Session"] = None, agent_prompt: Optional[str] = None) -> dict:
+        """Process agent mode with tools - user-specific MCP servers only"""
+        mcp_servers = Config.load_mcp_servers(user_id=user_id, db=db)
         tools_used = []
         
         async with MCPClientManager(mcp_servers) as mcp_tools:
-            all_tools = [retrieve_dosiblog_context] + mcp_tools
+            # Load custom RAG tools
+            custom_rag_tools = load_custom_rag_tools(user_id, db) if user_id and db else []
+            all_tools = [retrieve_dosiblog_context] + custom_rag_tools + mcp_tools
             
             llm_config = Config.load_llm_config()
             llm = create_llm_from_config(llm_config, streaming=False, temperature=0)
@@ -89,11 +170,11 @@ class ChatService:
             
             if is_ollama:
                 return await ChatService._process_ollama_fallback(
-                    message, session_id, user_id, all_tools, llm
+                    message, session_id, user_id, all_tools, llm, agent_prompt
                 )
             
             # Create agent with tools
-            agent = ChatService._create_agent(llm, all_tools, llm_config)
+            agent = ChatService._create_agent(llm, all_tools, llm_config, agent_prompt)
             
             # Get history and run agent
             if DB_AVAILABLE and user_id and db:
@@ -130,7 +211,7 @@ class ChatService:
     
     @staticmethod
     async def _process_ollama_fallback(message: str, session_id: str, user_id: Optional[int],
-                                      all_tools: list, llm, db: Optional["Session"] = None) -> dict:
+                                      all_tools: list, llm, agent_prompt: Optional[str] = None, db: Optional["Session"] = None) -> dict:
         """Fallback for Ollama which doesn't support bind_tools"""
         from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
         
@@ -151,13 +232,19 @@ class ChatService:
         
         context = rag_system.retrieve_context(message)
         
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", (
+        # Use custom prompt if provided, otherwise use default
+        if agent_prompt:
+            system_message = agent_prompt
+        else:
+            system_message = (
                 "You are a helpful AI assistant.\n\n"
                 "Available tools:\n{tools_context}\n\n"
                 "Context:\n{context}\n\n"
                 "Use the context to answer questions accurately."
-            )),
+            )
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_message),
             MessagesPlaceholder("chat_history"),
             ("human", "{input}"),
         ])
@@ -181,7 +268,7 @@ class ChatService:
         }
     
     @staticmethod
-    def _create_agent(llm, tools: list, llm_config: dict):
+    def _create_agent(llm, tools: list, llm_config: dict, agent_prompt: Optional[str] = None):
         """Create LangChain agent with tools"""
         tool_names = []
         tool_descriptions = []
@@ -195,11 +282,16 @@ class ChatService:
                 tool_names.append(tool.__name__)
         
         tools_list = '\n'.join(tool_descriptions) if tool_descriptions else ', '.join(tool_names)
-        system_prompt = (
-            "You are a helpful AI assistant with access to these tools ONLY:\n"
-            f"{tools_list}\n\n"
-            "ONLY use tools from this exact list. Do not call any tool that is not in this list."
-        )
+        
+        # Use custom prompt if provided, otherwise use default
+        if agent_prompt:
+            system_prompt = agent_prompt
+        else:
+            system_prompt = (
+                "You are a helpful AI assistant with access to these tools ONLY:\n"
+                f"{tools_list}\n\n"
+                "ONLY use tools from this exact list. Do not call any tool that is not in this list."
+            )
         
         # Sanitize tools for Gemini compatibility
         sanitized_tools = sanitize_tools_for_gemini(tools, llm_config.get("type", ""))

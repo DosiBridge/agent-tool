@@ -222,6 +222,154 @@ if Base is not None:
                 "tool_calls": tool_calls_data,
                 "created_at": self.created_at.isoformat() if self.created_at else None,
             }
+
+    class DocumentCollection(Base):
+        """Document collection model for organizing documents"""
+        __tablename__ = "document_collections"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+        name = Column(String(255), nullable=False)
+        description = Column(Text, nullable=True)
+        created_at = Column(DateTime(timezone=True), server_default=func.now())
+        updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+        
+        # Relationships
+        user = relationship("User", backref="document_collections")
+        documents = relationship("Document", back_populates="collection", cascade="all, delete-orphan")
+        
+        # Unique constraint on user_id + name
+        __table_args__ = (
+            UniqueConstraint('user_id', 'name', name='uq_collection_user_name'),
+        )
+        
+        def to_dict(self) -> dict:
+            """Convert model to dictionary"""
+            return {
+                "id": self.id,
+                "name": self.name,
+                "description": self.description,
+                "document_count": len(self.documents) if self.documents else 0,
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+                "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            }
+
+    class Document(Base):
+        """Document model for storing uploaded files"""
+        __tablename__ = "documents"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+        collection_id = Column(Integer, ForeignKey("document_collections.id", ondelete="SET NULL"), nullable=True, index=True)
+        filename = Column(String(500), nullable=False)
+        original_filename = Column(String(500), nullable=False)
+        file_path = Column(String(1000), nullable=False)  # Path to stored file
+        file_type = Column(String(50), nullable=False)  # pdf, txt, docx, etc.
+        file_size = Column(Integer, nullable=False)  # Size in bytes
+        status = Column(String(50), nullable=False, default="pending")  # pending, processing, ready, error, needs_review
+        document_metadata = Column(Text, nullable=True)  # JSON string for additional metadata (renamed from metadata to avoid SQLAlchemy conflict)
+        chunk_count = Column(Integer, default=0, nullable=False)
+        embedding_status = Column(String(50), nullable=False, default="pending")  # pending, processing, completed, failed
+        created_at = Column(DateTime(timezone=True), server_default=func.now())
+        updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+        
+        # Relationships
+        user = relationship("User", backref="documents")
+        collection = relationship("DocumentCollection", back_populates="documents")
+        chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+        
+        def to_dict(self) -> dict:
+            """Convert model to dictionary"""
+            import json
+            metadata_dict = None
+            if self.document_metadata:
+                try:
+                    metadata_dict = json.loads(self.document_metadata)
+                except json.JSONDecodeError:
+                    metadata_dict = None
+            
+            return {
+                "id": self.id,
+                "filename": self.filename,
+                "original_filename": self.original_filename,
+                "file_type": self.file_type,
+                "file_size": self.file_size,
+                "status": self.status,
+                "metadata": metadata_dict,
+                "chunk_count": self.chunk_count,
+                "embedding_status": self.embedding_status,
+                "collection_id": self.collection_id,
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+                "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            }
+
+    class DocumentChunk(Base):
+        """Document chunk model for storing text chunks with embeddings"""
+        __tablename__ = "document_chunks"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+        chunk_index = Column(Integer, nullable=False)  # Order of chunk in document
+        content = Column(Text, nullable=False)
+        chunk_metadata = Column(Text, nullable=True)  # JSON string for chunk metadata (page number, etc.) (renamed from metadata to avoid SQLAlchemy conflict)
+        embedding = Column(Text, nullable=True)  # Base64 encoded embedding vector
+        created_at = Column(DateTime(timezone=True), server_default=func.now())
+        
+        # Relationships
+        document = relationship("Document", back_populates="chunks")
+        
+        def to_dict(self) -> dict:
+            """Convert model to dictionary"""
+            import json
+            metadata_dict = None
+            if self.chunk_metadata:
+                try:
+                    metadata_dict = json.loads(self.chunk_metadata)
+                except json.JSONDecodeError:
+                    metadata_dict = None
+            
+            return {
+                "id": self.id,
+                "chunk_index": self.chunk_index,
+                "content": self.content,
+                "metadata": metadata_dict,
+                "has_embedding": bool(self.embedding),
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+            }
+
+    class CustomRAGTool(Base):
+        """Custom RAG tool model for user-defined retrieval tools"""
+        __tablename__ = "custom_rag_tools"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+        name = Column(String(255), nullable=False)  # Tool name (e.g., "retrieve_my_docs")
+        description = Column(Text, nullable=False)  # Tool description
+        collection_id = Column(Integer, ForeignKey("document_collections.id", ondelete="SET NULL"), nullable=True, index=True)
+        enabled = Column(Boolean, default=True, nullable=False)
+        created_at = Column(DateTime(timezone=True), server_default=func.now())
+        updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+        
+        # Relationships
+        user = relationship("User", backref="custom_rag_tools")
+        collection = relationship("DocumentCollection", backref="custom_rag_tools")
+        
+        # Unique constraint on user_id + name
+        __table_args__ = (
+            UniqueConstraint('user_id', 'name', name='uq_custom_rag_tool_user_name'),
+        )
+        
+        def to_dict(self) -> dict:
+            """Convert model to dictionary"""
+            return {
+                "id": self.id,
+                "name": self.name,
+                "description": self.description,
+                "collection_id": self.collection_id,
+                "enabled": self.enabled,
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+                "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            }
 else:
     # Dummy classes when database is not available
     LLMConfig = None  # type: ignore
@@ -229,3 +377,7 @@ else:
     User = None  # type: ignore
     Conversation = None  # type: ignore
     Message = None  # type: ignore
+    DocumentCollection = None  # type: ignore
+    Document = None  # type: ignore
+    DocumentChunk = None  # type: ignore
+    CustomRAGTool = None  # type: ignore

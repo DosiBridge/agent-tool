@@ -5,6 +5,13 @@ import os
 from contextlib import contextmanager
 from typing import Optional
 
+# Load environment variables first before any config is read
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not available, use environment variables directly
+
 # Try to import database dependencies
 try:
     from sqlalchemy import create_engine, text
@@ -282,6 +289,86 @@ def init_db():
                     conn.execute(text("CREATE INDEX idx_messages_created_at ON messages(created_at)"))
                     conn.commit()
                     print("✓ Created messages table")
+                
+                # Check if document_collections table exists
+                result = conn.execute(
+                    text("SELECT table_name FROM information_schema.tables "
+                         "WHERE table_name='document_collections'")
+                )
+                if not result.fetchone():
+                    print("📝 Creating document_collections table...")
+                    conn.execute(
+                        text("""
+                            CREATE TABLE document_collections (
+                                id SERIAL PRIMARY KEY,
+                                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                name VARCHAR(255) NOT NULL,
+                                description TEXT,
+                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP WITH TIME ZONE,
+                                UNIQUE(user_id, name)
+                            )
+                        """)
+                    )
+                    conn.execute(text("CREATE INDEX idx_document_collections_user_id ON document_collections(user_id)"))
+                    conn.commit()
+                    print("✓ Created document_collections table")
+                
+                # Check if documents table exists
+                result = conn.execute(
+                    text("SELECT table_name FROM information_schema.tables "
+                         "WHERE table_name='documents'")
+                )
+                if not result.fetchone():
+                    print("📝 Creating documents table...")
+                    conn.execute(
+                        text("""
+                            CREATE TABLE documents (
+                                id SERIAL PRIMARY KEY,
+                                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                collection_id INTEGER REFERENCES document_collections(id) ON DELETE SET NULL,
+                                filename VARCHAR(500) NOT NULL,
+                                original_filename VARCHAR(500) NOT NULL,
+                                file_path VARCHAR(1000) NOT NULL,
+                                file_type VARCHAR(50) NOT NULL,
+                                file_size INTEGER NOT NULL,
+                                status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                                document_metadata TEXT,
+                                chunk_count INTEGER DEFAULT 0 NOT NULL,
+                                embedding_status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP WITH TIME ZONE
+                            )
+                        """)
+                    )
+                    conn.execute(text("CREATE INDEX idx_documents_user_id ON documents(user_id)"))
+                    conn.execute(text("CREATE INDEX idx_documents_collection_id ON documents(collection_id)"))
+                    conn.commit()
+                    print("✓ Created documents table")
+                
+                # Check if document_chunks table exists
+                result = conn.execute(
+                    text("SELECT table_name FROM information_schema.tables "
+                         "WHERE table_name='document_chunks'")
+                )
+                if not result.fetchone():
+                    print("📝 Creating document_chunks table...")
+                    conn.execute(
+                        text("""
+                            CREATE TABLE document_chunks (
+                                id SERIAL PRIMARY KEY,
+                                document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                                chunk_index INTEGER NOT NULL,
+                                content TEXT NOT NULL,
+                                chunk_metadata TEXT,
+                                embedding TEXT,
+                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """)
+                    )
+                    conn.execute(text("CREATE INDEX idx_document_chunks_document_id ON document_chunks(document_id)"))
+                    conn.commit()
+                    print("✓ Created document_chunks table")
         except Exception as e:
             print(f"⚠️  Migration check failed (this is okay if columns already exist): {e}")
     except Exception as e:

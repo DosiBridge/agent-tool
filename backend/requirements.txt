@@ -50,3 +50,14 @@ slowapi>=0.1.9
 
 # Encryption for sensitive data (MCP API keys)
 cryptography>=41.0.0
+
+# Document processing for RAG
+pypdf2>=3.0.0  # PDF processing
+python-docx>=1.1.0  # DOCX processing
+unstructured>=0.10.0  # General document parsing
+chardet>=5.0.0  # Character encoding detection
+
+# Advanced RAG features
+sentence-transformers>=2.2.0  # For re-ranking and embeddings
+rank-bm25>=0.2.2  # BM25 for hybrid search
+numpy>=1.24.0  # For vector operations

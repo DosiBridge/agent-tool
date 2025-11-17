@@ -7,7 +7,9 @@ from typing import Optional
 from src.core import Config, get_db, MCPServer, User
 from src.core.auth import get_current_active_user, get_current_user
 from ..models import MCPServerRequest
+from ..exceptions import UnauthorizedError, ValidationError, APIException
 from src.utils.mcp_connection_test import test_mcp_connection
+from src.utils.logger import app_logger
 
 router = APIRouter()
 
@@ -19,9 +21,12 @@ async def list_mcp_servers(
 ):
     """List all configured MCP servers for the authenticated user (including disabled ones)"""
     if not current_user:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        app_logger.warning("Unauthorized MCP server list access attempt")
+        raise UnauthorizedError("Authentication required")
     
     try:
+        app_logger.info("Listing MCP servers", {"user_id": current_user.id})
+        
         # Load ALL servers for the current user (including disabled ones) for management UI
         # This is different from Config.load_mcp_servers which filters by enabled=True
         db_servers = db.query(MCPServer).filter(MCPServer.user_id == current_user.id).all()
@@ -36,13 +41,25 @@ async def list_mcp_servers(
                 safe_server["enabled"] = True
             safe_servers.append(safe_server)
         
+        app_logger.info(
+            "MCP servers listed successfully",
+            {"user_id": current_user.id, "count": len(safe_servers)}
+        )
+        
         return {
             "status": "success",
             "count": len(safe_servers),
             "servers": safe_servers
         }
+    except (APIException, HTTPException):
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        app_logger.error(
+            "Error listing MCP servers",
+            {"user_id": current_user.id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(status_code=500, detail="An error occurred while listing MCP servers")
 
 
 @router.post("/mcp-servers")
@@ -92,7 +109,15 @@ async def add_mcp_server(
             )
         
         # Test connection before saving
-        print(f"🔍 Testing {connection_type} connection to MCP server: {normalized_url}")
+        app_logger.info(
+            "Testing MCP server connection",
+            {
+                "user_id": current_user.id,
+                "server_name": server.name,
+                "connection_type": connection_type,
+                "url": normalized_url
+            }
+        )
         connection_ok, connection_message = await test_mcp_connection(
             normalized_url,
             connection_type=connection_type,
@@ -102,12 +127,20 @@ async def add_mcp_server(
         )
         
         if not connection_ok:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Connection test failed: {connection_message}. Server not saved."
+            app_logger.warning(
+                "MCP server connection test failed",
+                {
+                    "user_id": current_user.id,
+                    "server_name": server.name,
+                    "error": connection_message
+                }
             )
+            raise ValidationError(f"Connection test failed: {connection_message}. Server not saved.")
         
-        print(f"✓ Connection test successful for {server.name} ({connection_type})")
+        app_logger.info(
+            "MCP server connection test successful",
+            {"user_id": current_user.id, "server_name": server.name}
+        )
         
         # Create new server with user_id (only if connection test passed)
         mcp_server = MCPServer(
@@ -128,18 +161,35 @@ async def add_mcp_server(
         # Get total count for this user
         total_servers = db.query(MCPServer).filter(MCPServer.user_id == current_user.id).count()
         
+        app_logger.info(
+            "MCP server added successfully",
+            {
+                "user_id": current_user.id,
+                "server_name": server.name,
+                "total_servers": total_servers
+            }
+        )
+        
         return {
             "status": "success",
             "message": f"MCP server '{server.name}' added successfully (connection verified)",
-            "server": mcp_server.to_dict(),
+            "server": mcp_server.to_dict(include_api_key=False),
             "total_servers": total_servers
         }
-    
-    except HTTPException:
+    except (APIException, HTTPException):
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        app_logger.error(
+            "Error adding MCP server",
+            {
+                "user_id": current_user.id,
+                "server_name": server.name,
+                "error": str(e)
+            },
+            exc_info=True
+        )
+        raise HTTPException(status_code=500, detail="An error occurred while adding the MCP server")
 
 
 @router.delete("/mcp-servers/{server_name}")

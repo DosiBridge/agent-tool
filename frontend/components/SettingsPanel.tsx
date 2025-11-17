@@ -6,32 +6,56 @@
 "use client";
 
 import {
-  addMCPServer,
-  deleteMCPServer,
-  getToolsInfo,
+  CustomRAGTool,
+  CustomRAGToolRequest,
+  Document,
+  DocumentCollection,
   LLMConfig,
   MCPServerRequest,
+  ToolsInfo,
+  addMCPServer,
+  approveDocument,
+  createCollection,
+  createCustomRAGTool,
+  deleteCollection,
+  deleteCustomRAGTool,
+  deleteDocument,
+  deleteMCPServer,
+  getDocumentsNeedingReview,
+  getReviewStatistics,
+  getToolsInfo,
+  listCollections,
+  listCustomRAGTools,
+  listDocuments,
+  rejectDocument,
   resetLLMConfig,
   setLLMConfig,
   testMCPServerConnection,
+  toggleCustomRAGTool,
   toggleMCPServer,
-  ToolsInfo,
+  updateCustomRAGTool,
   updateMCPServer,
+  uploadDocument,
 } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import {
   AlertTriangle,
+  Brain,
   CheckCircle,
   Edit2,
   Eye,
   EyeOff,
+  File,
   FileJson,
+  Folder,
   Loader2,
   Lock,
   Plus,
   Save,
   Server,
+  Settings,
   Trash2,
+  Upload,
   Wifi,
   WifiOff,
   Wrench,
@@ -43,19 +67,73 @@ import toast from "react-hot-toast";
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: "mcp" | "llm" | "tools" | "rag";
+  selectedCollectionId?: number | null;
+  onCollectionSelect?: (collectionId: number | null) => void;
+  useReact?: boolean;
+  onUseReactChange?: (useReact: boolean) => void;
 }
 
-export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+export default function SettingsPanel({
+  isOpen,
+  onClose,
+  initialTab = "mcp",
+  selectedCollectionId: propSelectedCollectionId,
+  onCollectionSelect: propOnCollectionSelect,
+  useReact: propUseReact,
+  onUseReactChange: propOnUseReactChange,
+}: SettingsPanelProps) {
   const isAuthenticated = useStore((state) => state.isAuthenticated);
   const mcpServers = useStore((state) => state.mcpServers);
   const llmConfig = useStore((state) => state.llmConfig);
   const loadMCPServers = useStore((state) => state.loadMCPServers);
   const loadLLMConfig = useStore((state) => state.loadLLMConfig);
+  const selectedCollectionId = useStore((state) => state.selectedCollectionId);
+  const setSelectedCollectionId = useStore(
+    (state) => state.setSelectedCollectionId
+  );
+  const useReact = useStore((state) => state.useReact);
+  const setUseReact = useStore((state) => state.setUseReact);
 
   const [toolsInfo, setToolsInfo] = useState<ToolsInfo | null>(null);
-  const [activeTab, setActiveTab] = useState<"mcp" | "llm" | "tools">("mcp");
+  const [activeTab, setActiveTab] = useState<"mcp" | "llm" | "tools" | "rag">(
+    initialTab
+  );
   const [editingServer, setEditingServer] = useState<string | null>(null);
   const [deletingServer, setDeletingServer] = useState<string | null>(null);
+  const [customRAGTools, setCustomRAGTools] = useState<CustomRAGTool[]>([]);
+  const [collections, setCollections] = useState<DocumentCollection[]>([]);
+  const [editingTool, setEditingTool] = useState<number | null>(null);
+  const [deletingTool, setDeletingTool] = useState<number | null>(null);
+  const [toolForm, setToolForm] = useState<CustomRAGToolRequest>({
+    name: "",
+    description: "",
+    collection_id: null,
+    enabled: true,
+  });
+  const [showToolForm, setShowToolForm] = useState(false);
+
+  // RAG Settings state
+  const [ragActiveTab, setRagActiveTab] = useState<
+    "documents" | "collections" | "review"
+  >("documents");
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [ragCollections, setRagCollections] = useState<DocumentCollection[]>(
+    []
+  );
+  const [reviewDocuments, setReviewDocuments] = useState<Document[]>([]);
+  const [stats, setStats] = useState({
+    pending: 0,
+    needs_review: 0,
+    ready: 0,
+    error: 0,
+    total: 0,
+  });
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState("");
+  const [newCollectionDesc, setNewCollectionDesc] = useState("");
+
   const [serverForm, setServerForm] = useState<MCPServerRequest>({
     name: "",
     url: "",
@@ -92,6 +170,63 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     }
   }, []);
 
+  const loadCustomRAGTools = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const tools = await listCustomRAGTools();
+      setCustomRAGTools(tools);
+    } catch (error) {
+      console.error("Failed to load custom RAG tools:", error);
+    }
+  }, [isAuthenticated]);
+
+  const loadCollections = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const result = await listCollections();
+      setCollections(result.collections);
+      setRagCollections(result.collections);
+    } catch (error) {
+      console.error("Failed to load collections:", error);
+    }
+  }, [isAuthenticated]);
+
+  // RAG Settings load functions
+  const loadRAGDocuments = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const collectionId = propSelectedCollectionId ?? selectedCollectionId;
+      const result = await listDocuments(collectionId || undefined);
+      setDocuments(result.documents);
+    } catch (err) {
+      console.error("Failed to load documents:", err);
+    }
+  }, [isAuthenticated, propSelectedCollectionId, selectedCollectionId]);
+
+  const loadReviewDocuments = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const result = await getDocumentsNeedingReview();
+      setReviewDocuments(result.documents);
+    } catch (err) {
+      console.error("Failed to load review documents:", err);
+    }
+  }, [isAuthenticated]);
+
+  const loadStats = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const stats = await getReviewStatistics();
+      setStats(stats);
+    } catch (err) {
+      console.error("Failed to load stats:", err);
+    }
+  }, [isAuthenticated]);
+
+  // Compute currentCollectionId early
+  const currentCollectionId = propSelectedCollectionId ?? selectedCollectionId;
+  const currentUseReact = propUseReact ?? useReact;
+
   useEffect(() => {
     if (isOpen) {
       (async () => {
@@ -99,12 +234,217 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           await loadMCPServers();
           await loadLLMConfig();
           await loadToolsInfo();
+          await loadCustomRAGTools();
+          await loadCollections();
         } catch (error) {
           console.error("Failed to load settings:", error);
         }
       })();
     }
-  }, [isOpen, loadMCPServers, loadLLMConfig, loadToolsInfo]);
+  }, [
+    isOpen,
+    loadMCPServers,
+    loadLLMConfig,
+    loadToolsInfo,
+    loadCustomRAGTools,
+    loadCollections,
+  ]);
+
+  // Load RAG data when RAG tab is active
+  useEffect(() => {
+    if (isOpen && activeTab === "rag" && isAuthenticated) {
+      (async () => {
+        try {
+          await loadRAGDocuments();
+          await loadReviewDocuments();
+          await loadStats();
+        } catch (error) {
+          console.error("Failed to load RAG data:", error);
+        }
+      })();
+    }
+  }, [
+    isOpen,
+    activeTab,
+    isAuthenticated,
+    loadRAGDocuments,
+    loadReviewDocuments,
+    loadStats,
+    currentCollectionId,
+  ]);
+
+  // Update activeTab when initialTab changes
+  useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
+
+  // RAG Settings handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    await handleFiles(files);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      await handleFiles(files);
+    }
+  };
+
+  const handleFiles = async (files: File[]) => {
+    setIsUploading(true);
+    try {
+      const collectionId = propSelectedCollectionId ?? selectedCollectionId;
+      for (const file of files) {
+        await uploadDocument(file, collectionId || undefined);
+      }
+      toast.success(`Uploaded ${files.length} file(s)`);
+      await loadRAGDocuments();
+      await loadStats();
+      await loadCollections();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to upload document"
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: number) => {
+    if (!confirm("Are you sure you want to delete this document?")) return;
+    try {
+      await deleteDocument(documentId);
+      toast.success("Document deleted");
+      await loadRAGDocuments();
+      await loadStats();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to delete document"
+      );
+    }
+  };
+
+  const handleApprove = async (documentId: number) => {
+    try {
+      await approveDocument(documentId);
+      toast.success("Document approved");
+      await loadRAGDocuments();
+      await loadReviewDocuments();
+      await loadStats();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to approve document"
+      );
+    }
+  };
+
+  const handleReject = async (documentId: number) => {
+    const reason = prompt("Rejection reason (optional):");
+    try {
+      await rejectDocument(documentId, reason || undefined);
+      toast.success("Document rejected");
+      await loadRAGDocuments();
+      await loadReviewDocuments();
+      await loadStats();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to reject document"
+      );
+    }
+  };
+
+  const handleCreateCollection = async () => {
+    if (!newCollectionName.trim()) {
+      toast.error("Collection name is required");
+      return;
+    }
+    try {
+      await createCollection(newCollectionName, newCollectionDesc || undefined);
+      toast.success("Collection created");
+      setNewCollectionName("");
+      setNewCollectionDesc("");
+      await loadCollections();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create collection"
+      );
+    }
+  };
+
+  const handleDeleteCollection = async (collectionId: number) => {
+    if (!confirm("Are you sure you want to delete this collection?")) return;
+    try {
+      await deleteCollection(collectionId);
+      toast.success("Collection deleted");
+      const currentCollectionId =
+        propSelectedCollectionId ?? selectedCollectionId;
+      if (currentCollectionId === collectionId) {
+        if (propOnCollectionSelect) {
+          propOnCollectionSelect(null);
+        } else {
+          setSelectedCollectionId(null);
+        }
+      }
+      await loadCollections();
+      await loadRAGDocuments();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to delete collection"
+      );
+    }
+  };
+
+  const getStatusIcon = (status: Document["status"]) => {
+    switch (status) {
+      case "ready":
+        return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case "processing":
+        return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+      case "error":
+        return <AlertTriangle className="w-4 h-4 text-red-500" />;
+      case "needs_review":
+        return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
+      default:
+        return <File className="w-4 h-4 text-gray-500" />;
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  };
+
+  const handleUseReactChange = (value: boolean) => {
+    if (propOnUseReactChange) {
+      propOnUseReactChange(value);
+    } else {
+      setUseReact(value);
+    }
+  };
+
+  const handleCollectionSelect = (collectionId: number | null) => {
+    if (propOnCollectionSelect) {
+      propOnCollectionSelect(collectionId);
+    } else {
+      setSelectedCollectionId(collectionId);
+    }
+  };
 
   // Close on Escape key
   useEffect(() => {
@@ -545,16 +885,26 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-4 sm:p-5 md:p-6 border-b border-gray-700 shrink-0">
-            <h2 className="text-lg sm:text-xl font-semibold text-gray-200">
-              Settings
-            </h2>
+          <div className="flex items-center justify-between p-4 sm:p-5 md:p-6 border-b border-gray-700 shrink-0 bg-gradient-to-r from-[#343541] to-[#2d2d2f]">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-[#10a37f]/10 rounded-lg">
+                <Settings className="w-5 h-5 sm:w-6 sm:h-6 text-[#10a37f]" />
+              </div>
+              <div>
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-200">
+                  Settings
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Configure MCP servers and model settings
+                </p>
+              </div>
+            </div>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-[#40414f] rounded-lg transition-colors touch-manipulation"
+              className="p-2 hover:bg-[#40414f] rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 touch-manipulation group"
               aria-label="Close settings"
             >
-              <X className="w-5 h-5 text-gray-400" />
+              <X className="w-5 h-5 text-gray-400 group-hover:text-gray-200 transition-colors" />
             </button>
           </div>
 
@@ -562,13 +912,20 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <div className="flex border-b border-gray-700 bg-[#2d2d2f] shrink-0 overflow-x-auto">
             <button
               onClick={() => setActiveTab("mcp")}
-              className={`flex-1 min-w-0 px-3 sm:px-4 md:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-colors flex items-center justify-center gap-1.5 sm:gap-2 touch-manipulation ${
+              className={`flex-1 min-w-0 px-3 sm:px-4 md:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-1.5 sm:gap-2 touch-manipulation relative ${
                 activeTab === "mcp"
-                  ? "border-b-2 border-[#10a37f] text-[#10a37f] bg-[#343541]"
-                  : "text-gray-400 hover:text-gray-200"
+                  ? "text-[#10a37f] bg-[#343541]"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-[#343541]/50"
               }`}
             >
-              <Server className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              {activeTab === "mcp" && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#10a37f] rounded-t-full" />
+              )}
+              <Server
+                className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 transition-transform ${
+                  activeTab === "mcp" ? "scale-110" : ""
+                }`}
+              />
               <span className="truncate">MCP Servers</span>
             </button>
             {/* LLM Config tab disabled */}
@@ -584,15 +941,47 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                         </button> */}
             <button
               onClick={() => setActiveTab("tools")}
-              className={`flex-1 min-w-0 px-3 sm:px-4 md:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-colors flex items-center justify-center gap-1.5 sm:gap-2 touch-manipulation ${
+              className={`flex-1 min-w-0 px-3 sm:px-4 md:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-1.5 sm:gap-2 touch-manipulation relative ${
                 activeTab === "tools"
-                  ? "border-b-2 border-[#10a37f] text-[#10a37f] bg-[#343541]"
-                  : "text-gray-400 hover:text-gray-200"
+                  ? "text-[#10a37f] bg-[#343541]"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-[#343541]/50"
               }`}
             >
-              <Wrench className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              {activeTab === "tools" && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#10a37f] rounded-t-full" />
+              )}
+              <Wrench
+                className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 transition-transform ${
+                  activeTab === "tools" ? "scale-110" : ""
+                }`}
+              />
               <span className="truncate">Tools</span>
             </button>
+            {isAuthenticated && (
+              <button
+                onClick={() => setActiveTab("rag")}
+                className={`flex-1 min-w-0 px-3 sm:px-4 md:px-6 py-2.5 sm:py-3 font-medium text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-1.5 sm:gap-2 touch-manipulation relative ${
+                  activeTab === "rag"
+                    ? "text-[#10a37f] bg-[#343541]"
+                    : "text-gray-400 hover:text-gray-200 hover:bg-[#343541]/50"
+                }`}
+              >
+                {activeTab === "rag" && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#10a37f] rounded-t-full" />
+                )}
+                <File
+                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 transition-transform ${
+                    activeTab === "rag" ? "scale-110" : ""
+                  }`}
+                />
+                <span className="truncate">RAG</span>
+                {stats.needs_review > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 text-xs bg-yellow-500 text-white rounded-full">
+                    {stats.needs_review}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Content */}
@@ -600,14 +989,37 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             {activeTab === "mcp" && (
               <div className="space-y-4 sm:space-y-5 md:space-y-6">
                 {/* Add/Edit Server Form */}
-                <div className="bg-[#40414f] rounded-lg p-4 sm:p-5 border border-gray-700">
-                  <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 text-gray-200">
-                    {editingServer ? "Edit MCP Server" : "Add MCP Server"}
-                  </h3>
+                <div className="bg-gradient-to-br from-[#40414f] to-[#343541] rounded-xl p-4 sm:p-5 md:p-6 border border-gray-700 shadow-lg">
+                  <div className="flex items-center gap-3 mb-4 sm:mb-5">
+                    <div
+                      className={`p-2 rounded-lg ${
+                        editingServer ? "bg-blue-500/10" : "bg-[#10a37f]/10"
+                      }`}
+                    >
+                      {editingServer ? (
+                        <Edit2 className="w-5 h-5 text-blue-400" />
+                      ) : (
+                        <Plus className="w-5 h-5 text-[#10a37f]" />
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-semibold text-gray-200">
+                        {editingServer ? "Edit MCP Server" : "Add MCP Server"}
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {editingServer
+                          ? "Update server configuration"
+                          : "Connect a new MCP server"}
+                      </p>
+                    </div>
+                  </div>
                   <div className="space-y-3 sm:space-y-4">
                     <div>
                       <label className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 text-gray-300">
-                        Name
+                        <span className="flex items-center gap-2">
+                          <span>Name</span>
+                          <span className="text-red-400">*</span>
+                        </span>
                       </label>
                       <input
                         type="text"
@@ -615,8 +1027,8 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                         onChange={(e) =>
                           setServerForm({ ...serverForm, name: e.target.value })
                         }
-                        className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#343541] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f]"
-                        placeholder="Server name"
+                        className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#2d2d2f] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] transition-all duration-200 hover:border-gray-500"
+                        placeholder="e.g., My MCP Server"
                       />
                     </div>
                     <div>
@@ -635,25 +1047,35 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                           });
                           setConnectionStatus(null); // Clear status when connection type changes
                         }}
-                        className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#343541] text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f]"
+                        className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#2d2d2f] text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] transition-all duration-200 hover:border-gray-500 cursor-pointer"
                       >
                         <option value="http">HTTP</option>
                         <option value="sse">SSE (Server-Sent Events)</option>
                         <option value="stdio">STDIO (Command)</option>
                       </select>
-                      <p className="text-xs text-gray-500 mt-1 sm:mt-1.5">
-                        {serverForm.connection_type === "stdio"
-                          ? "Enter the command to run (e.g., 'npx @modelcontextprotocol/server-filesystem /path')"
-                          : serverForm.connection_type === "sse"
-                          ? "URL will be normalized to /sse endpoint"
-                          : "URL will be normalized to /mcp endpoint"}
-                      </p>
+                      <div className="mt-2 p-2.5 bg-[#2d2d2f] rounded-lg border border-gray-700">
+                        <p className="text-xs text-gray-400 flex items-start gap-2">
+                          <span className="text-[#10a37f] mt-0.5">ℹ️</span>
+                          <span>
+                            {serverForm.connection_type === "stdio"
+                              ? "Enter the command to run (e.g., 'npx @modelcontextprotocol/server-filesystem /path')"
+                              : serverForm.connection_type === "sse"
+                              ? "URL will be automatically normalized to /sse endpoint"
+                              : "URL will be automatically normalized to /mcp endpoint"}
+                          </span>
+                        </p>
+                      </div>
                     </div>
                     <div>
                       <label className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 text-gray-300">
-                        {serverForm.connection_type === "stdio"
-                          ? "Command"
-                          : "URL"}
+                        <span className="flex items-center gap-2">
+                          <span>
+                            {serverForm.connection_type === "stdio"
+                              ? "Command"
+                              : "URL"}
+                          </span>
+                          <span className="text-red-400">*</span>
+                        </span>
                       </label>
                       <input
                         type="text"
@@ -662,7 +1084,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                           setServerForm({ ...serverForm, url: e.target.value });
                           setConnectionStatus(null); // Clear status when URL changes
                         }}
-                        className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#343541] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f]"
+                        className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#2d2d2f] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] transition-all duration-200 hover:border-gray-500 font-mono"
                         placeholder={
                           serverForm.connection_type === "stdio"
                             ? "npx @modelcontextprotocol/server-filesystem /path"
@@ -671,17 +1093,13 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                             : "http://localhost:8000/api/mcp/server/mcp"
                         }
                       />
-                      {serverForm.connection_type !== "stdio" && (
-                        <p className="text-xs text-gray-500 mt-1 sm:mt-1.5">
-                          {serverForm.connection_type === "sse"
-                            ? "URLs are automatically normalized to /sse endpoint"
-                            : "URLs are automatically normalized to /mcp endpoint"}
-                        </p>
-                      )}
                     </div>
                     <div>
                       <label className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 text-gray-300">
-                        API Key (optional)
+                        API Key{" "}
+                        <span className="text-gray-500 font-normal">
+                          (optional)
+                        </span>
                       </label>
                       <input
                         type="password"
@@ -693,24 +1111,27 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                           });
                           setConnectionStatus(null); // Clear status when API key changes
                         }}
-                        className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#343541] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f]"
-                        placeholder="Optional API key"
+                        className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-600 rounded-lg bg-[#2d2d2f] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] transition-all duration-200 hover:border-gray-500"
+                        placeholder="Enter API key if required"
                       />
                     </div>
 
                     {/* Authentication Section */}
                     <div className="border-t border-gray-700 pt-4 mt-4">
                       <div className="flex items-center justify-between mb-4">
-                        <h4 className="text-sm font-semibold text-gray-200">
-                          Authentication
-                        </h4>
+                        <div className="flex items-center gap-2">
+                          <Lock className="w-4 h-4 text-gray-400" />
+                          <h4 className="text-sm font-semibold text-gray-200">
+                            Custom Headers
+                          </h4>
+                        </div>
                       </div>
 
                       {/* Custom Headers */}
                       <div>
                         <div className="flex items-center justify-between mb-3">
                           <label className="text-xs sm:text-sm font-medium text-gray-300">
-                            Custom Headers
+                            Headers
                           </label>
                           <div className="flex gap-2">
                             <button
@@ -886,35 +1307,43 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     {/* Connection Status */}
                     {connectionStatus && (
                       <div
-                        className={`p-3 rounded-lg border flex items-start gap-2 ${
+                        className={`p-4 rounded-lg border-2 flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300 ${
                           connectionStatus.connected
-                            ? "bg-green-900/20 border-green-700 text-green-300"
-                            : "bg-red-900/20 border-red-700 text-red-300"
+                            ? "bg-green-900/20 border-green-500/50 text-green-300"
+                            : "bg-red-900/20 border-red-500/50 text-red-300"
                         }`}
                       >
-                        {connectionStatus.connected ? (
-                          <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                        ) : (
-                          <WifiOff className="w-5 h-5 shrink-0 mt-0.5" />
-                        )}
+                        <div
+                          className={`p-1.5 rounded-full ${
+                            connectionStatus.connected
+                              ? "bg-green-500/20"
+                              : "bg-red-500/20"
+                          }`}
+                        >
+                          {connectionStatus.connected ? (
+                            <CheckCircle className="w-5 h-5 shrink-0" />
+                          ) : (
+                            <WifiOff className="w-5 h-5 shrink-0" />
+                          )}
+                        </div>
                         <div className="flex-1">
-                          <p className="text-sm font-medium">
+                          <p className="text-sm font-semibold mb-1">
                             {connectionStatus.connected
                               ? "Connection Successful"
                               : "Connection Failed"}
                           </p>
-                          <p className="text-xs mt-1 opacity-90">
+                          <p className="text-xs opacity-90 leading-relaxed">
                             {connectionStatus.message}
                           </p>
                         </div>
                       </div>
                     )}
 
-                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-2">
                       <button
                         onClick={handleTestConnection}
                         disabled={!serverForm.url.trim() || testingConnection}
-                        className="px-4 py-2.5 bg-[#40414f] hover:bg-[#2d2d2f] disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 rounded-lg transition-colors flex items-center justify-center gap-2 font-medium text-sm sm:text-base touch-manipulation"
+                        className="px-4 py-2.5 bg-[#40414f] hover:bg-[#2d2d2f] disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 font-medium text-sm sm:text-base touch-manipulation hover:scale-[1.02] active:scale-[0.98] border border-gray-600 hover:border-gray-500"
                       >
                         {testingConnection ? (
                           <>
@@ -935,7 +1364,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                             : handleAddServer()
                         }
                         disabled={testingConnection}
-                        className="flex-1 px-4 py-2.5 bg-[#10a37f] hover:bg-[#0d8f6e] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-medium text-sm sm:text-base touch-manipulation"
+                        className="flex-1 px-4 py-2.5 bg-[#10a37f] hover:bg-[#0d8f6e] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-all duration-200 flex items-center justify-center gap-2 font-medium text-sm sm:text-base touch-manipulation hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl shadow-[#10a37f]/20"
                       >
                         {testingConnection ? (
                           <>
@@ -984,17 +1413,30 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
                 {/* Configured Servers List */}
                 <div>
-                  <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 text-gray-200">
-                    Configured Servers
-                  </h3>
+                  <div className="flex items-center gap-3 mb-4 sm:mb-5">
+                    <div className="p-2 bg-[#10a37f]/10 rounded-lg">
+                      <Server className="w-5 h-5 text-[#10a37f]" />
+                    </div>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-semibold text-gray-200">
+                        Configured Servers
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {mcpServers.length} server
+                        {mcpServers.length !== 1 ? "s" : ""} configured
+                      </p>
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     {mcpServers.length === 0 ? (
-                      <div className="text-center py-8 sm:py-12 px-3 sm:px-4 bg-[#40414f] rounded-lg border border-gray-700">
-                        <Server className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-2 sm:mb-3 text-gray-600" />
-                        <p className="text-xs sm:text-sm text-gray-400">
+                      <div className="text-center py-12 sm:py-16 px-3 sm:px-4 bg-gradient-to-br from-[#40414f] to-[#343541] rounded-xl border-2 border-dashed border-gray-700">
+                        <div className="p-4 bg-[#2d2d2f] rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                          <Server className="w-8 h-8 text-gray-500" />
+                        </div>
+                        <p className="text-sm sm:text-base font-medium text-gray-300 mb-1">
                           No MCP servers configured
                         </p>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs sm:text-sm text-gray-500">
                           Add a server above to get started
                         </p>
                       </div>
@@ -1002,7 +1444,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       mcpServers.map((server) => (
                         <div
                           key={server.name}
-                          className="flex items-center justify-between p-3 sm:p-4 bg-[#40414f] border border-gray-700 rounded-lg hover:border-gray-600 transition-colors"
+                          className="flex items-center justify-between p-4 sm:p-5 bg-gradient-to-br from-[#40414f] to-[#343541] border border-gray-700 rounded-xl hover:border-[#10a37f]/50 transition-all duration-200 hover:shadow-lg hover:shadow-[#10a37f]/10 group"
                         >
                           <div className="flex-1 min-w-0 pr-2">
                             <div className="font-medium text-sm sm:text-base text-gray-200 mb-1 truncate">
@@ -1076,56 +1518,298 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
             {activeTab === "tools" && (
               <div className="space-y-4 sm:space-y-5 md:space-y-6">
-                <h3 className="text-base sm:text-lg font-semibold text-gray-200">
-                  Available Tools
-                </h3>
+                <div className="flex items-center gap-3 mb-4 sm:mb-5">
+                  <div className="p-2 bg-[#10a37f]/10 rounded-lg">
+                    <Wrench className="w-5 h-5 text-[#10a37f]" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-200">
+                      Available Tools
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Manage and view available tools from MCP servers
+                    </p>
+                  </div>
+                </div>
                 {toolsInfo ? (
                   <div className="space-y-4 sm:space-y-5 md:space-y-6">
                     <div>
-                      <h4 className="font-medium mb-2 sm:mb-3 text-sm sm:text-base text-gray-300 flex items-center gap-2">
-                        <Wrench className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                        Local Tools
+                      <h4 className="font-medium mb-3 sm:mb-4 text-sm sm:text-base text-gray-300 flex items-center gap-2">
+                        <Wrench className="w-4 h-4 shrink-0 text-[#10a37f]" />
+                        <span>Local Tools</span>
+                        <span className="text-xs text-gray-500 font-normal">
+                          ({toolsInfo.local_tools.length})
+                        </span>
                       </h4>
                       <div className="space-y-2">
                         {toolsInfo.local_tools.length === 0 ? (
-                          <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm">
-                            No local tools available
+                          <div className="text-center py-8 sm:py-12 px-3 sm:px-4 bg-gradient-to-br from-[#40414f] to-[#343541] rounded-xl border-2 border-dashed border-gray-700">
+                            <div className="p-4 bg-[#2d2d2f] rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                              <Wrench className="w-8 h-8 text-gray-500" />
+                            </div>
+                            <p className="text-sm sm:text-base font-medium text-gray-300 mb-1">
+                              No local tools available
+                            </p>
+                            <p className="text-xs sm:text-sm text-gray-500">
+                              Local tools will appear here when configured
+                            </p>
                           </div>
                         ) : (
                           toolsInfo.local_tools.map((tool) => (
                             <div
                               key={tool.name}
-                              className="p-3 sm:p-4 bg-[#40414f] border border-gray-700 rounded-lg"
+                              className="p-4 sm:p-5 bg-gradient-to-br from-[#40414f] to-[#343541] border border-gray-700 rounded-xl hover:border-[#10a37f]/50 transition-all duration-200 hover:shadow-lg hover:shadow-[#10a37f]/10"
                             >
-                              <div className="font-medium text-sm sm:text-base text-gray-200 mb-1">
-                                {tool.name}
-                              </div>
-                              <div className="text-xs sm:text-sm text-gray-400 mb-2">
-                                {tool.description}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                Type: {tool.type}
+                              <div className="flex items-start gap-3">
+                                <div className="p-2 bg-[#10a37f]/10 rounded-lg shrink-0">
+                                  <Wrench className="w-4 h-4 text-[#10a37f]" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-semibold text-sm sm:text-base text-gray-200 mb-1">
+                                    {tool.name}
+                                  </div>
+                                  <div className="text-xs sm:text-sm text-gray-400 mb-2 leading-relaxed">
+                                    {tool.description}
+                                  </div>
+                                  <div className="inline-flex items-center px-2 py-1 bg-[#2d2d2f] rounded-md text-xs text-gray-500 border border-gray-700">
+                                    Type: {tool.type}
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           ))
                         )}
                       </div>
                     </div>
+
+                    {/* Custom RAG Tools Section */}
+                    {isAuthenticated && (
+                      <div>
+                        <div className="flex items-center justify-between mb-3 sm:mb-4">
+                          <div className="flex-1">
+                            <h4 className="font-medium text-sm sm:text-base text-gray-300 flex items-center gap-2 mb-1">
+                              <FileJson className="w-4 h-4 shrink-0 text-[#10a37f]" />
+                              <span>Custom RAG Tools</span>
+                              <span className="text-xs text-gray-500 font-normal">
+                                ({customRAGTools.length})
+                              </span>
+                            </h4>
+                            <p className="text-xs text-gray-500 ml-6">
+                              Supported file types: PDF, TXT, DOCX, DOC, MD (Max
+                              100MB)
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setShowToolForm(true);
+                              setEditingTool(null);
+                              setToolForm({
+                                name: "",
+                                description: "",
+                                collection_id: null,
+                                enabled: true,
+                              });
+                            }}
+                            className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-white bg-[#10a37f] hover:bg-[#0d8f6e] rounded-lg transition-colors touch-manipulation active:scale-95"
+                          >
+                            <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
+                            <span className="hidden sm:inline">Add Tool</span>
+                            <span className="sm:hidden">Add</span>
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {customRAGTools.length === 0 ? (
+                            <div className="text-center py-8 sm:py-12 px-3 sm:px-4 bg-gradient-to-br from-[#40414f] to-[#343541] rounded-xl border-2 border-dashed border-gray-700">
+                              <div className="p-4 bg-[#2d2d2f] rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                                <FileJson className="w-8 h-8 text-gray-500" />
+                              </div>
+                              <p className="text-sm sm:text-base font-medium text-gray-300 mb-1">
+                                No custom RAG tools
+                              </p>
+                              <p className="text-xs sm:text-sm text-gray-500 mb-2">
+                                Create custom retrieval tools from your document
+                                collections
+                              </p>
+                              <div className="text-xs text-gray-500 mb-4 px-4 py-2 bg-[#2d2d2f] rounded-lg border border-gray-700">
+                                <p className="font-medium text-gray-400 mb-1">
+                                  Supported File Types:
+                                </p>
+                                <ul className="list-disc list-inside space-y-0.5 text-gray-500">
+                                  <li>PDF (.pdf) — PDF files</li>
+                                  <li>TXT (.txt) — Plain text files</li>
+                                  <li>
+                                    DOCX (.docx) — Microsoft Word documents
+                                  </li>
+                                  <li>DOC (.doc) — Older Word documents</li>
+                                  <li>MD (.md) — Markdown files</li>
+                                </ul>
+                                <p className="mt-2 text-gray-400">
+                                  Maximum file size: 100MB per file
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  setShowToolForm(true);
+                                  setEditingTool(null);
+                                  setToolForm({
+                                    name: "",
+                                    description: "",
+                                    collection_id: null,
+                                    enabled: true,
+                                  });
+                                }}
+                                className="px-4 py-2 text-sm font-medium text-white bg-[#10a37f] hover:bg-[#0d8f6e] rounded-lg transition-colors"
+                              >
+                                Create Your First Tool
+                              </button>
+                            </div>
+                          ) : (
+                            customRAGTools.map((tool) => (
+                              <div
+                                key={tool.id}
+                                className="p-4 sm:p-5 bg-gradient-to-br from-[#40414f] to-[#343541] border border-gray-700 rounded-xl hover:border-[#10a37f]/50 transition-all duration-200 hover:shadow-lg hover:shadow-[#10a37f]/10"
+                              >
+                                <div className="flex items-start gap-3">
+                                  <div className="p-2 bg-[#10a37f]/10 rounded-lg shrink-0">
+                                    <FileJson className="w-4 h-4 text-[#10a37f]" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2 mb-2">
+                                      <div className="flex-1">
+                                        <div className="font-semibold text-sm sm:text-base text-gray-200 mb-1">
+                                          {tool.name}
+                                        </div>
+                                        <div className="text-xs sm:text-sm text-gray-400 mb-2 leading-relaxed">
+                                          {tool.description}
+                                        </div>
+                                        {tool.collection_id && (
+                                          <div className="text-xs text-gray-500 mb-2">
+                                            Collection:{" "}
+                                            {collections.find(
+                                              (c) => c.id === tool.collection_id
+                                            )?.name || "Unknown"}
+                                          </div>
+                                        )}
+                                        <div className="flex items-center gap-2">
+                                          <div className="inline-flex items-center px-2 py-1 bg-[#2d2d2f] rounded-md text-xs text-gray-500 border border-gray-700">
+                                            Type: RAG
+                                          </div>
+                                          <div
+                                            className={`inline-flex items-center px-2 py-1 rounded-md text-xs border ${
+                                              tool.enabled
+                                                ? "bg-green-500/10 text-green-400 border-green-500/20"
+                                                : "bg-red-500/10 text-red-400 border-red-500/20"
+                                            }`}
+                                          >
+                                            {tool.enabled
+                                              ? "Enabled"
+                                              : "Disabled"}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <button
+                                          onClick={async () => {
+                                            try {
+                                              await toggleCustomRAGTool(
+                                                tool.id
+                                              );
+                                              toast.success(
+                                                `Tool ${
+                                                  tool.enabled
+                                                    ? "disabled"
+                                                    : "enabled"
+                                                }`
+                                              );
+                                              await loadCustomRAGTools();
+                                              await loadToolsInfo();
+                                            } catch (error) {
+                                              toast.error(
+                                                `Failed to toggle tool: ${
+                                                  error instanceof Error
+                                                    ? error.message
+                                                    : "Unknown error"
+                                                }`
+                                              );
+                                            }
+                                          }}
+                                          className={`p-2 rounded-lg transition-colors ${
+                                            tool.enabled
+                                              ? "bg-green-500/10 text-green-400 hover:bg-green-500/20"
+                                              : "bg-gray-700 text-gray-400 hover:bg-gray-600"
+                                          }`}
+                                          title={
+                                            tool.enabled ? "Disable" : "Enable"
+                                          }
+                                        >
+                                          {tool.enabled ? (
+                                            <CheckCircle className="w-4 h-4" />
+                                          ) : (
+                                            <X className="w-4 h-4" />
+                                          )}
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setEditingTool(tool.id);
+                                            setToolForm({
+                                              name: tool.name,
+                                              description: tool.description,
+                                              collection_id: tool.collection_id,
+                                              enabled: tool.enabled,
+                                            });
+                                            setShowToolForm(true);
+                                          }}
+                                          className="p-2 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+                                          title="Edit"
+                                        >
+                                          <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() =>
+                                            setDeletingTool(tool.id)
+                                          }
+                                          className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                                          title="Delete"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     <div>
-                      <h4 className="font-medium mb-2 sm:mb-3 text-sm sm:text-base text-gray-300 flex items-center gap-2">
-                        <Server className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                        MCP Servers
+                      <h4 className="font-medium mb-3 sm:mb-4 text-sm sm:text-base text-gray-300 flex items-center gap-2">
+                        <Server className="w-4 h-4 shrink-0 text-[#10a37f]" />
+                        <span>MCP Servers</span>
+                        <span className="text-xs text-gray-500 font-normal">
+                          ({mcpServers.length})
+                        </span>
                       </h4>
                       <div className="space-y-2">
                         {mcpServers.length === 0 ? (
-                          <div className="text-center py-6 sm:py-8 text-gray-500 text-xs sm:text-sm">
-                            No MCP servers configured
+                          <div className="text-center py-8 sm:py-12 px-3 sm:px-4 bg-gradient-to-br from-[#40414f] to-[#343541] rounded-xl border-2 border-dashed border-gray-700">
+                            <div className="p-4 bg-[#2d2d2f] rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                              <Server className="w-8 h-8 text-gray-500" />
+                            </div>
+                            <p className="text-sm sm:text-base font-medium text-gray-300 mb-1">
+                              No MCP servers configured
+                            </p>
+                            <p className="text-xs sm:text-sm text-gray-500">
+                              Configure MCP servers in the MCP Servers tab
+                            </p>
                           </div>
                         ) : (
                           mcpServers.map((server) => (
                             <div
                               key={server.name}
-                              className="p-3 sm:p-4 bg-[#40414f] border border-gray-700 rounded-lg flex items-center justify-between gap-3"
+                              className="p-4 sm:p-5 bg-gradient-to-br from-[#40414f] to-[#343541] border border-gray-700 rounded-xl hover:border-[#10a37f]/50 transition-all duration-200 hover:shadow-lg hover:shadow-[#10a37f]/10 flex items-center justify-between gap-3"
                             >
                               <div className="flex-1 min-w-0">
                                 <div className="font-medium text-sm sm:text-base text-gray-200 mb-1 truncate">
@@ -1200,13 +1884,361 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 )}
               </div>
             )}
+
+            {activeTab === "rag" && isAuthenticated && (
+              <div className="space-y-4 sm:space-y-5 md:space-y-6">
+                {/* ReAct Mode Toggle */}
+                <div className="p-4 border border-gray-700 rounded-xl bg-gradient-to-br from-[#40414f] to-[#343541]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm font-medium text-gray-200 flex items-center gap-2">
+                        <Brain className="w-4 h-4 text-[#10a37f]" />
+                        ReAct Mode
+                      </label>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Enable reasoning and acting for better problem-solving
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={currentUseReact}
+                        onChange={(e) => handleUseReactChange(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#10a37f] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#10a37f]"></div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* RAG Sub-tabs */}
+                <div className="flex border-b border-gray-700 bg-[#2d2d2f] rounded-t-lg overflow-x-auto">
+                  <button
+                    onClick={() => setRagActiveTab("documents")}
+                    className={`px-4 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
+                      ragActiveTab === "documents"
+                        ? "border-b-2 border-[#10a37f] text-[#10a37f] bg-[#343541]"
+                        : "text-gray-400 hover:text-gray-200"
+                    }`}
+                  >
+                    <File className="w-4 h-4" />
+                    Documents
+                  </button>
+                  <button
+                    onClick={() => setRagActiveTab("collections")}
+                    className={`px-4 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
+                      ragActiveTab === "collections"
+                        ? "border-b-2 border-[#10a37f] text-[#10a37f] bg-[#343541]"
+                        : "text-gray-400 hover:text-gray-200"
+                    }`}
+                  >
+                    <Folder className="w-4 h-4" />
+                    Collections
+                  </button>
+                  <button
+                    onClick={() => setRagActiveTab("review")}
+                    className={`px-4 py-3 font-medium text-sm transition-colors flex items-center gap-2 relative ${
+                      ragActiveTab === "review"
+                        ? "border-b-2 border-[#10a37f] text-[#10a37f] bg-[#343541]"
+                        : "text-gray-400 hover:text-gray-200"
+                    }`}
+                  >
+                    <Eye className="w-4 h-4" />
+                    Review
+                    {stats.needs_review > 0 && (
+                      <span className="ml-1 px-1.5 py-0.5 text-xs bg-yellow-500 text-white rounded-full">
+                        {stats.needs_review}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                {/* Documents Tab */}
+                {ragActiveTab === "documents" && (
+                  <div className="space-y-4">
+                    {/* Upload Area */}
+                    <div
+                      className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                        isDragging
+                          ? "border-[#10a37f] bg-[#10a37f]/10"
+                          : "border-gray-600 bg-[#2d2d2f]/50"
+                      }`}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                    >
+                      <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                      <p className="text-gray-300 mb-2">
+                        Drag and drop files here, or click to select
+                      </p>
+                      <p className="text-sm text-gray-500 mb-4">
+                        Supported: PDF, TXT, DOCX, DOC, MD (Max 100MB)
+                      </p>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,.txt,.docx,.doc,.md"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        id="file-upload"
+                        disabled={isUploading}
+                      />
+                      <label
+                        htmlFor="file-upload"
+                        className={`inline-block px-4 py-2 rounded bg-[#10a37f] text-white cursor-pointer hover:bg-[#0d8f6e] transition-colors ${
+                          isUploading ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
+                      >
+                        {isUploading ? "Uploading..." : "Select Files"}
+                      </label>
+                    </div>
+
+                    {/* Collection Filter */}
+                    <div>
+                      <label className="block text-sm font-medium mb-2 text-gray-300">
+                        Filter by Collection
+                      </label>
+                      <select
+                        value={currentCollectionId || ""}
+                        onChange={(e) =>
+                          handleCollectionSelect(
+                            e.target.value ? parseInt(e.target.value) : null
+                          )
+                        }
+                        className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-[#40414f] text-gray-100"
+                      >
+                        <option value="">All Documents</option>
+                        {ragCollections.map((col) => (
+                          <option key={col.id} value={col.id}>
+                            {col.name} ({col.document_count})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Documents List */}
+                    <div className="space-y-2">
+                      {documents.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          No documents found
+                        </div>
+                      ) : (
+                        documents.map((doc) => (
+                          <div
+                            key={doc.id}
+                            className="flex items-center justify-between p-4 bg-gradient-to-br from-[#40414f] to-[#343541] rounded-lg border border-gray-700"
+                          >
+                            <div className="flex items-center gap-3 flex-1">
+                              {getStatusIcon(doc.status)}
+                              <div className="flex-1">
+                                <p className="text-gray-200 font-medium">
+                                  {doc.original_filename}
+                                </p>
+                                <p className="text-sm text-gray-400">
+                                  {formatFileSize(doc.file_size)} •{" "}
+                                  {doc.chunk_count} chunks • {doc.status}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {doc.status === "needs_review" && (
+                                <>
+                                  <button
+                                    onClick={() => handleApprove(doc.id)}
+                                    className="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 rounded text-white"
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() => handleReject(doc.id)}
+                                    className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 rounded text-white"
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                onClick={() => handleDeleteDocument(doc.id)}
+                                className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Collections Tab */}
+                {ragActiveTab === "collections" && (
+                  <div className="space-y-4">
+                    {/* Create Collection */}
+                    <div className="bg-gradient-to-br from-[#40414f] to-[#343541] rounded-lg p-4 border border-gray-700">
+                      <h3 className="text-lg font-semibold mb-4 text-gray-200">
+                        Create Collection
+                      </h3>
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          value={newCollectionName}
+                          onChange={(e) => setNewCollectionName(e.target.value)}
+                          placeholder="Collection name"
+                          className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-[#343541] text-gray-100"
+                        />
+                        <textarea
+                          value={newCollectionDesc}
+                          onChange={(e) => setNewCollectionDesc(e.target.value)}
+                          placeholder="Description (optional)"
+                          className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-[#343541] text-gray-100"
+                          rows={2}
+                        />
+                        <button
+                          onClick={handleCreateCollection}
+                          className="px-4 py-2 bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg flex items-center gap-2"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Create Collection
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Collections List */}
+                    <div className="space-y-2">
+                      {ragCollections.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          No collections found
+                        </div>
+                      ) : (
+                        ragCollections.map((col) => (
+                          <div
+                            key={col.id}
+                            className="flex items-center justify-between p-4 bg-gradient-to-br from-[#40414f] to-[#343541] rounded-lg border border-gray-700"
+                          >
+                            <div className="flex-1">
+                              <p className="text-gray-200 font-medium">
+                                {col.name}
+                              </p>
+                              {col.description && (
+                                <p className="text-sm text-gray-400 mt-1">
+                                  {col.description}
+                                </p>
+                              )}
+                              <p className="text-xs text-gray-500 mt-1">
+                                {col.document_count} documents
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleCollectionSelect(col.id)}
+                                className={`px-3 py-1 text-sm rounded ${
+                                  currentCollectionId === col.id
+                                    ? "bg-[#10a37f] text-white"
+                                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                                }`}
+                              >
+                                {currentCollectionId === col.id
+                                  ? "Selected"
+                                  : "Select"}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteCollection(col.id)}
+                                className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Review Tab */}
+                {ragActiveTab === "review" && (
+                  <div className="space-y-4">
+                    {/* Statistics */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-gradient-to-br from-[#40414f] to-[#343541] rounded-lg p-4 border border-gray-700">
+                        <p className="text-sm text-gray-400">Pending</p>
+                        <p className="text-2xl font-bold text-gray-200">
+                          {stats.pending}
+                        </p>
+                      </div>
+                      <div className="bg-gradient-to-br from-[#40414f] to-[#343541] rounded-lg p-4 border border-gray-700">
+                        <p className="text-sm text-gray-400">Needs Review</p>
+                        <p className="text-2xl font-bold text-yellow-400">
+                          {stats.needs_review}
+                        </p>
+                      </div>
+                      <div className="bg-gradient-to-br from-[#40414f] to-[#343541] rounded-lg p-4 border border-gray-700">
+                        <p className="text-sm text-gray-400">Ready</p>
+                        <p className="text-2xl font-bold text-green-400">
+                          {stats.ready}
+                        </p>
+                      </div>
+                      <div className="bg-gradient-to-br from-[#40414f] to-[#343541] rounded-lg p-4 border border-gray-700">
+                        <p className="text-sm text-gray-400">Total</p>
+                        <p className="text-2xl font-bold text-gray-200">
+                          {stats.total}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Review Documents */}
+                    <div className="space-y-2">
+                      {reviewDocuments.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          No documents need review
+                        </div>
+                      ) : (
+                        reviewDocuments.map((doc) => (
+                          <div
+                            key={doc.id}
+                            className="p-4 bg-gradient-to-br from-[#40414f] to-[#343541] rounded-lg border border-gray-700"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex-1">
+                                <p className="text-gray-200 font-medium">
+                                  {doc.original_filename}
+                                </p>
+                                <p className="text-sm text-gray-400 mt-1">
+                                  {formatFileSize(doc.file_size)} •{" "}
+                                  {doc.chunk_count} chunks
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleApprove(doc.id)}
+                                  className="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 rounded text-white"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => handleReject(doc.id)}
+                                  className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 rounded text-white"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Delete Server Confirmation Modal */}
       {deletingServer && (
-        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-3 sm:p-4">
+        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-3 sm:p-4">
           <div className="bg-[#343541] rounded-xl shadow-2xl max-w-md w-full border border-gray-700">
             <div className="p-4 sm:p-5 md:p-6">
               <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
@@ -1231,6 +2263,256 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 </button>
                 <button
                   onClick={() => handleDeleteServer(deletingServer)}
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-medium bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors touch-manipulation"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom RAG Tool Form Modal */}
+      {showToolForm && (
+        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#343541] rounded-xl shadow-2xl max-w-2xl w-full border border-gray-700 max-h-[90vh] overflow-y-auto">
+            <div className="p-4 sm:p-5 md:p-6">
+              <div className="flex items-center justify-between mb-4 sm:mb-6">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#10a37f]/20 flex items-center justify-center shrink-0">
+                    <FileJson className="w-4 h-4 sm:w-5 sm:h-5 text-[#10a37f]" />
+                  </div>
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-200">
+                    {editingTool
+                      ? "Edit Custom RAG Tool"
+                      : "Create Custom RAG Tool"}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowToolForm(false);
+                    setEditingTool(null);
+                    setToolForm({
+                      name: "",
+                      description: "",
+                      collection_id: null,
+                      enabled: true,
+                    });
+                  }}
+                  className="p-2 hover:bg-[#40414f] rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4 sm:space-y-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    <span>Tool Name</span>
+                    <span className="text-red-400 ml-1">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={toolForm.name}
+                    onChange={(e) =>
+                      setToolForm({ ...toolForm, name: e.target.value })
+                    }
+                    placeholder="e.g., retrieve_my_docs"
+                    className="w-full px-4 py-2.5 bg-[#40414f] border border-gray-600 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-transparent"
+                  />
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    Unique name for the tool (lowercase, underscores allowed)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    <span>Description</span>
+                    <span className="text-red-400 ml-1">*</span>
+                  </label>
+                  <textarea
+                    value={toolForm.description}
+                    onChange={(e) =>
+                      setToolForm({ ...toolForm, description: e.target.value })
+                    }
+                    placeholder="Describe what this tool retrieves..."
+                    rows={3}
+                    className="w-full px-4 py-2.5 bg-[#40414f] border border-gray-600 rounded-lg text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-transparent resize-none"
+                  />
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    This description helps the AI understand when to use this
+                    tool
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Collection (Optional)
+                  </label>
+                  <select
+                    value={toolForm.collection_id || ""}
+                    onChange={(e) =>
+                      setToolForm({
+                        ...toolForm,
+                        collection_id: e.target.value
+                          ? parseInt(e.target.value)
+                          : null,
+                      })
+                    }
+                    className="w-full px-4 py-2.5 bg-[#40414f] border border-gray-600 rounded-lg text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-transparent"
+                  >
+                    <option value="">All Collections</option>
+                    {collections.map((collection) => (
+                      <option key={collection.id} value={collection.id}>
+                        {collection.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    Select a specific collection or leave blank to search all
+                    documents
+                  </p>
+                </div>
+
+                <div className="p-3 bg-[#2d2d2f] rounded-lg border border-gray-700">
+                  <p className="text-xs font-medium text-gray-400 mb-2">
+                    📄 Supported Document Types:
+                  </p>
+                  <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
+                    <li>PDF (.pdf) — PDF files</li>
+                    <li>TXT (.txt) — Plain text files</li>
+                    <li>DOCX (.docx) — Microsoft Word documents</li>
+                    <li>DOC (.doc) — Older Word documents</li>
+                    <li>MD (.md) — Markdown files</li>
+                  </ul>
+                  <p className="text-xs text-gray-500 mt-2">
+                    💡 Upload documents in RAG Settings tab first, then create
+                    tools to retrieve from them.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="tool-enabled"
+                    checked={toolForm.enabled}
+                    onChange={(e) =>
+                      setToolForm({ ...toolForm, enabled: e.target.checked })
+                    }
+                    className="w-4 h-4 text-[#10a37f] bg-[#40414f] border-gray-600 rounded focus:ring-[#10a37f] focus:ring-2"
+                  />
+                  <label
+                    htmlFor="tool-enabled"
+                    className="text-sm text-gray-300 cursor-pointer"
+                  >
+                    Enable this tool
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 justify-end mt-6 sm:mt-8">
+                <button
+                  onClick={() => {
+                    setShowToolForm(false);
+                    setEditingTool(null);
+                    setToolForm({
+                      name: "",
+                      description: "",
+                      collection_id: null,
+                      enabled: true,
+                    });
+                  }}
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-[#40414f] rounded-lg transition-colors touch-manipulation"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!toolForm.name.trim() || !toolForm.description.trim()) {
+                      toast.error("Name and description are required");
+                      return;
+                    }
+                    try {
+                      if (editingTool) {
+                        await updateCustomRAGTool(editingTool, toolForm);
+                        toast.success("Tool updated successfully");
+                      } else {
+                        await createCustomRAGTool(toolForm);
+                        toast.success("Tool created successfully");
+                      }
+                      setShowToolForm(false);
+                      setEditingTool(null);
+                      setToolForm({
+                        name: "",
+                        description: "",
+                        collection_id: null,
+                        enabled: true,
+                      });
+                      await loadCustomRAGTools();
+                      await loadToolsInfo();
+                    } catch (error) {
+                      toast.error(
+                        `Failed to ${editingTool ? "update" : "create"} tool: ${
+                          error instanceof Error
+                            ? error.message
+                            : "Unknown error"
+                        }`
+                      );
+                    }
+                  }}
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-medium bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg transition-colors touch-manipulation"
+                >
+                  {editingTool ? "Update Tool" : "Create Tool"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Custom RAG Tool Confirmation Modal */}
+      {deletingTool && (
+        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#343541] rounded-xl shadow-2xl max-w-md w-full border border-gray-700">
+            <div className="p-4 sm:p-5 md:p-6">
+              <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" />
+                </div>
+                <h3 className="text-base sm:text-lg font-semibold text-gray-200">
+                  Delete Custom RAG Tool
+                </h3>
+              </div>
+              <p className="text-sm sm:text-base text-gray-300 mb-4 sm:mb-6">
+                Are you sure you want to delete this tool? This action cannot be
+                undone.
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 justify-end">
+                <button
+                  onClick={() => setDeletingTool(null)}
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-[#40414f] rounded-lg transition-colors touch-manipulation"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      await deleteCustomRAGTool(deletingTool);
+                      toast.success("Tool deleted successfully");
+                      setDeletingTool(null);
+                      await loadCustomRAGTools();
+                      await loadToolsInfo();
+                    } catch (error) {
+                      toast.error(
+                        `Failed to delete tool: ${
+                          error instanceof Error
+                            ? error.message
+                            : "Unknown error"
+                        }`
+                      );
+                    }
+                  }}
                   className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm font-medium bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors touch-manipulation"
                 >
                   Delete

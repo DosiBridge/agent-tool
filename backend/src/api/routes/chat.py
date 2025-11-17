@@ -3,6 +3,7 @@ Chat endpoints (streaming and non-streaming)
 """
 import asyncio
 import json
+import traceback
 from typing import AsyncGenerator
 from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -15,11 +16,13 @@ from src.core import Config, User, get_db, DB_AVAILABLE
 from src.core.auth import get_current_active_user, get_current_user
 from src.services import history_manager, MCPClientManager, create_llm_from_config, rag_system
 from src.services.chat_service import ChatService
-from src.services.tools import retrieve_dosiblog_context
+from src.services.tools import retrieve_dosiblog_context, load_custom_rag_tools
 from typing import Optional
 from sqlalchemy.orm import Session
 from ..models import ChatRequest, ChatResponse
+from ..exceptions import APIException, ValidationError, UnauthorizedError
 from src.utils import sanitize_tools_for_gemini
+from src.utils.logger import app_logger
 
 router = APIRouter()
 
@@ -46,13 +49,38 @@ async def chat(
         ChatResponse with answer
     """
     try:
+        user_id = current_user.id if current_user else None
+        
+        # RAG mode requires authentication (Agent mode works without login)
+        if chat_request.mode == "rag" and not current_user:
+            app_logger.warning(
+                "Unauthorized RAG mode access attempt",
+                {"session_id": chat_request.session_id, "mode": chat_request.mode}
+            )
+            raise UnauthorizedError(
+                "Authentication required for RAG mode. Please log in to upload documents and query them."
+            )
+        
+        app_logger.info(
+            "Processing chat request",
+            {
+                "user_id": user_id,
+                "session_id": chat_request.session_id,
+                "mode": chat_request.mode,
+                "message_length": len(chat_request.message)
+            }
+        )
+        
         # Use ChatService for processing
         result = await ChatService.process_chat(
             message=chat_request.message,
             session_id=chat_request.session_id,
             mode=chat_request.mode,
             user=current_user,
-            db=db
+            db=db,
+            collection_id=chat_request.collection_id,
+            use_react=chat_request.use_react,
+            agent_prompt=chat_request.agent_prompt
         )
         
         # Schedule async summary update in background (non-blocking)
@@ -72,9 +100,25 @@ async def chat(
             
             background_tasks.add_task(update_summary_task)
         
+        app_logger.info(
+            "Chat request processed successfully",
+            {"user_id": user_id, "session_id": chat_request.session_id}
+        )
+        
         return ChatResponse(**result)
+    except (APIException, HTTPException):
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        app_logger.error(
+            "Error processing chat request",
+            {
+                "user_id": user_id if current_user else None,
+                "session_id": chat_request.session_id,
+                "error": str(e)
+            },
+            exc_info=True
+        )
+        raise HTTPException(status_code=500, detail="An error occurred while processing your request")
 
 
 @router.post("/chat/stream")
@@ -98,6 +142,12 @@ async def chat_stream(
     async def generate() -> AsyncGenerator[str, None]:
         stream_completed = False
         user_id = current_user.id if current_user else None
+        
+        # RAG mode requires authentication (Agent mode works without login)
+        if chat_request.mode == "rag" and not current_user:
+            yield f"data: {json.dumps({'chunk': '', 'done': True, 'error': 'Authentication required for RAG mode. Please log in to upload documents and query them.'})}\n\n"
+            return
+        
         try:
             # Send initial connection message to verify stream is working
             yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connected'})}\n\n"
@@ -212,7 +262,15 @@ async def chat_stream(
                     else:
                         error_details = f"LLM streaming error: {error_details}"
                     
-                    print(f"❌ RAG streaming error:\n{tb_str}")
+                    app_logger.error(
+                        "RAG streaming error",
+                        {
+                            "session_id": chat_request.session_id,
+                            "user_id": user_id,
+                            "error": str(e),
+                            "traceback": tb_str,
+                        }
+                    )
                     try:
                         yield f"data: {json.dumps({'error': error_details, 'done': True})}\n\n"
                         stream_completed = True
@@ -240,14 +298,238 @@ async def chat_stream(
                 # Agent mode with streaming
                 yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_agent'})}\n\n"
                 
-                mcp_servers = Config.load_mcp_servers(user_id=user_id)
+                mcp_servers = Config.load_mcp_servers(user_id=user_id, db=db)
                 yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connecting_mcp_servers', 'server_count': len(mcp_servers)})}\n\n"
                 
+                # If no MCP servers, use only default tools (works without login)
+                if not mcp_servers:
+                    mcp_tools = []
+                    # Load custom RAG tools if authenticated
+                    custom_rag_tools = load_custom_rag_tools(user_id, db) if user_id and db else []
+                    all_tools = [retrieve_dosiblog_context] + custom_rag_tools
+                    yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'no_mcp_servers', 'tool_count': len(all_tools)})}\n\n"
+                    
+                    # Get LLM from config
+                    llm_config = Config.load_llm_config()
+                    yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_llm', 'llm_type': llm_config.get('type', 'unknown')})}\n\n"
+                    
+                    try:
+                        llm = create_llm_from_config(llm_config, streaming=True, temperature=0)
+                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'llm_ready'})}\n\n"
+                    except ImportError as e:
+                        error_msg = (
+                            f"Missing LLM package: {str(e)}\n\n"
+                            "All required packages should be pre-installed from requirements.txt.\n"
+                            "Please redeploy after ensuring requirements.txt includes all LLM provider packages."
+                        )
+                        yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
+                        stream_completed = True
+                        return
+                    except Exception as e:
+                        error_msg = f"Failed to initialize LLM: {str(e)}"
+                        yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
+                        stream_completed = True
+                        return
+                    
+                    # Create agent with default tools only
+                    # Use custom prompt if provided, otherwise use default
+                    if chat_request.agent_prompt:
+                        system_prompt = chat_request.agent_prompt
+                    else:
+                        system_prompt = (
+                            "You are a helpful AI assistant. "
+                            "You can help answer questions and provide information. "
+                            "Use the available tools when appropriate."
+                        )
+                    
+                    # Ensure tools are properly formatted for LangChain
+                    formatted_tools = []
+                    for tool in all_tools:
+                        if isinstance(tool, BaseTool):
+                            formatted_tools.append(tool)
+                        else:
+                            formatted_tools.append(tool)
+                    
+                    # Sanitize tools for Gemini compatibility
+                    sanitized_tools = sanitize_tools_for_gemini(formatted_tools, llm_config.get("type", ""))
+                    
+                    try:
+                        agent = create_agent(
+                            model=llm,
+                            tools=sanitized_tools,
+                            system_prompt=system_prompt
+                        )
+                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'agent_ready'})}\n\n"
+                    except Exception as e:
+                        import traceback
+                        error_msg = f"Failed to create agent: {str(e)}\n{traceback.format_exc()[:300]}"
+                        try:
+                            yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
+                            stream_completed = True
+                        except (GeneratorExit, StopAsyncIteration, asyncio.CancelledError):
+                            stream_completed = True
+                        return
+                    
+                    # Get history
+                    from src.core import DB_AVAILABLE
+                    from src.services.db_history import db_history_manager
+                    
+                    if DB_AVAILABLE and user_id:
+                        history = db_history_manager.get_session_messages(chat_request.session_id, user_id, db)
+                    else:
+                        history = history_manager.get_session_messages(chat_request.session_id, user_id)
+                    messages = list(history) + [HumanMessage(content=chat_request.message)]
+                    yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'starting_agent_execution', 'message_count': len(messages)})}\n\n"
+                    
+                    # Stream agent responses
+                    full_response = ""
+                    tool_calls_made = []
+                    seen_tools = set()
+                    last_streamed_length = 0
+                    
+                    try:
+                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'streaming_response'})}\n\n"
+                        async for event in agent.astream({"messages": messages}, stream_mode="values"):
+                            last_msg = event["messages"][-1]
+                            
+                            if isinstance(last_msg, AIMessage):
+                                if getattr(last_msg, "tool_calls", None):
+                                    for call in last_msg.tool_calls:
+                                        tool_name = call.get('name') or call.get('tool_name', 'unknown')
+                                        
+                                        # Validate tool exists
+                                        tool_names = [t.name if hasattr(t, 'name') else str(t) for t in all_tools]
+                                        tool_exists = tool_name in tool_names or any(
+                                            (hasattr(tool, 'name') and tool.name == tool_name) or
+                                            (hasattr(tool, '__name__') and tool.__name__ == tool_name) or
+                                            str(tool) == tool_name
+                                            for tool in all_tools
+                                        )
+                                        
+                                        if not tool_exists:
+                                            error_msg = (
+                                                f"Tool '{tool_name}' not found. Available tools are: "
+                                                f"{', '.join(tool_names)}. "
+                                                f"Please only use tools from the available list."
+                                            )
+                                            try:
+                                                yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
+                                                stream_completed = True
+                                            except (GeneratorExit, StopAsyncIteration, asyncio.CancelledError):
+                                                stream_completed = True
+                                            return
+                                        
+                                        if tool_name not in seen_tools:
+                                            tool_calls_made.append(tool_name)
+                                            seen_tools.add(tool_name)
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'tool': tool_name})}\n\n"
+                                elif last_msg.content:
+                                    content_raw = last_msg.content
+                                    
+                                    if isinstance(content_raw, str):
+                                        content = content_raw
+                                    elif isinstance(content_raw, list):
+                                        content = ""
+                                        for item in content_raw:
+                                            if isinstance(item, dict):
+                                                if "text" in item:
+                                                    content += item["text"]
+                                                elif "type" in item and item.get("type") == "text":
+                                                    content += item.get("text", "")
+                                            elif isinstance(item, str):
+                                                content += item
+                                    elif isinstance(content_raw, dict):
+                                        if "text" in content_raw:
+                                            content = content_raw["text"]
+                                        else:
+                                            content = str(content_raw)
+                                    else:
+                                        content = str(content_raw)
+                                    
+                                    if content:
+                                        # Update full_response to the latest content
+                                        full_response = content
+                                        # Stream only new characters (incremental)
+                                        if len(full_response) > last_streamed_length:
+                                            new_content = full_response[last_streamed_length:]
+                                            for char in new_content:
+                                                yield f"data: {json.dumps({'chunk': char, 'done': False})}\n\n"
+                                                await asyncio.sleep(0.005)
+                                            last_streamed_length = len(full_response)
+                    except Exception as e:
+                        import traceback
+                        error_details = str(e)
+                        tb_str = traceback.format_exc()
+                        
+                        if "API key not valid" in error_details or "API_KEY" in error_details:
+                            error_details = (
+                                "Invalid API key. Please check your API key in Settings. "
+                                "Get a new one from: https://aistudio.google.com/app/apikey"
+                            )
+                        elif "tool call validation failed" in tb_str:
+                            error_details = "Tool validation failed. The model tried to call a tool that doesn't exist in the available tools list."
+                        elif "Connection" in tb_str or "timeout" in tb_str.lower():
+                            error_details = "Connection error. Please check if Ollama is running and accessible."
+                        elif not error_details or error_details == "":
+                            error_details = f"Agent execution failed: {tb_str.split('Traceback')[-1].strip()[:200]}"
+                        
+                        error_msg = f"Error during agent execution: {error_details}"
+                        app_logger.error(
+                            "Agent execution error",
+                            {
+                                "session_id": chat_request.session_id,
+                                "user_id": user_id,
+                                "error": error_details,
+                                "traceback": traceback.format_exc(),
+                            }
+                        )
+                        try:
+                            yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
+                            stream_completed = True
+                        except (GeneratorExit, StopAsyncIteration, asyncio.CancelledError):
+                            stream_completed = True
+                        return
+                    
+                    # If no response was received, send a helpful message
+                    if not full_response:
+                        error_msg = "No response received from agent. Please check your LLM configuration and API keys."
+                        app_logger.warning(
+                            "Agent returned no response",
+                            {
+                                "session_id": chat_request.session_id,
+                                "user_id": user_id,
+                                "message": chat_request.message,
+                            }
+                        )
+                        yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
+                        stream_completed = True
+                        return
+                    
+                    # Save to history
+                    if full_response:
+                        from src.core import DB_AVAILABLE
+                        from src.services.db_history import db_history_manager
+                        
+                        if DB_AVAILABLE and user_id:
+                            session_history = db_history_manager.get_session_history(chat_request.session_id, user_id, db)
+                        else:
+                            session_history = history_manager.get_session_history(chat_request.session_id, user_id)
+                        
+                        session_history.add_user_message(chat_request.message)
+                        session_history.add_ai_message(full_response)
+                    
+                    yield f"data: {json.dumps({'chunk': '', 'done': True, 'tools_used': tool_calls_made})}\n\n"
+                    stream_completed = True
+                    return
+                
+                # If MCP servers exist, connect to them
                 try:
                     async with MCPClientManager(mcp_servers) as mcp_tools:
                         yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'mcp_connected', 'tool_count': len(mcp_tools)})}\n\n"
                         
-                        all_tools = [retrieve_dosiblog_context] + mcp_tools
+                        # Load custom RAG tools if authenticated
+                        custom_rag_tools = load_custom_rag_tools(user_id, db) if user_id and db else []
+                        all_tools = [retrieve_dosiblog_context] + custom_rag_tools + mcp_tools
                         yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'loading_llm_config'})}\n\n"
                         
                         # Get LLM from config
@@ -298,15 +580,21 @@ async def chat_stream(
                                 history = history_manager.get_session_messages(chat_request.session_id, user_id)
                             context = rag_system.retrieve_context(chat_request.message)
                             
-                            prompt = ChatPromptTemplate.from_messages([
-                                ("system", (
+                            # Use custom prompt if provided, otherwise use default
+                            if chat_request.agent_prompt:
+                                system_message = chat_request.agent_prompt
+                            else:
+                                system_message = (
                                     "You are a helpful AI assistant.\n\n"
                                     "Available tools:\n{tools_context}\n\n"
                                     "Context from knowledge base:\n{context}\n\n"
                                     "When answering questions, reference the context when relevant. "
                                     "For calculations or specific operations, you can mention available tools, "
                                     "but note that tool calling is limited with this model."
-                                )),
+                                )
+                            
+                            prompt = ChatPromptTemplate.from_messages([
+                                ("system", system_message),
                                 MessagesPlaceholder("chat_history"),
                                 ("human", "{input}"),
                             ])
@@ -370,7 +658,15 @@ async def chat_stream(
                                 else:
                                     error_details = f"LLM streaming error: {error_details}"
                                 
-                                print(f"❌ Ollama streaming error:\n{tb_str}")
+                                app_logger.error(
+                                    "Ollama streaming error",
+                                    {
+                                        "session_id": chat_request.session_id,
+                                        "user_id": user_id,
+                                        "error": str(e),
+                                        "traceback": tb_str,
+                                    }
+                                )
                                 try:
                                     yield f"data: {json.dumps({'error': error_details, 'done': True})}\n\n"
                                     stream_completed = True
@@ -421,16 +717,20 @@ async def chat_stream(
                             
                             # Create detailed system prompt
                             tools_list = '\n'.join(tool_descriptions) if tool_descriptions else ', '.join(tool_names)
-                            system_prompt = (
-                                "You are a helpful AI assistant with access to these tools ONLY:\n"
-                                f"{tools_list}\n\n"
-                                "IMPORTANT RULES:\n"
-                                "- ONLY use tools from the list above\n"
-                                "- Do NOT call any tool that is not in this list\n"
-                                "- If you need a tool that is not available, inform the user\n"
-                                "- Do not make up or hallucinate tool names\n"
-                                "- Available tool names are: " + ', '.join(tool_names)
-                            )
+                            # Use custom prompt if provided, otherwise use default
+                            if chat_request.agent_prompt:
+                                system_prompt = chat_request.agent_prompt
+                            else:
+                                system_prompt = (
+                                    "You are a helpful AI assistant with access to these tools ONLY:\n"
+                                    f"{tools_list}\n\n"
+                                    "IMPORTANT RULES:\n"
+                                    "- ONLY use tools from the list above\n"
+                                    "- Do NOT call any tool that is not in this list\n"
+                                    "- If you need a tool that is not available, inform the user\n"
+                                    "- Do not make up or hallucinate tool names\n"
+                                    "- Available tool names are: " + ', '.join(tool_names)
+                                )
                             
                             # Ensure tools are properly formatted for LangChain
                             formatted_tools = []
@@ -575,7 +875,15 @@ async def chat_stream(
                             
                             error_msg = f"Error during agent execution: {error_details}"
                             # Log full traceback for debugging
-                            print(f"❌ Agent execution error:\n{traceback.format_exc()}")
+                            app_logger.error(
+                                "Agent execution error",
+                                {
+                                    "session_id": chat_request.session_id,
+                                    "user_id": user_id,
+                                    "error": error_details,
+                                    "traceback": traceback.format_exc(),
+                                }
+                            )
                             try:
                                 yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
                                 stream_completed = True
@@ -603,21 +911,40 @@ async def chat_stream(
                     import traceback
                     error_msg = f"Failed to connect to MCP servers: {str(mcp_error)}"
                     tb_str = traceback.format_exc()
-                    print(f"❌ MCP connection error:\n{tb_str}")
+                    app_logger.error(
+                        "MCP connection error",
+                        {
+                            "session_id": chat_request.session_id,
+                            "user_id": user_id,
+                            "error": str(mcp_error),
+                            "traceback": tb_str,
+                        }
+                    )
                     yield f"data: {json.dumps({'error': error_msg, 'traceback': tb_str[:300], 'done': True})}\n\n"
                     stream_completed = True
                     return
                     
         except asyncio.CancelledError:
             # Client disconnected - gracefully exit
-            print("⚠️  Client disconnected during streaming")
+            app_logger.warning(
+                "Client disconnected during streaming",
+                {"session_id": chat_request.session_id, "user_id": user_id}
+            )
             stream_completed = True
             return
         except Exception as e:
             import traceback
             error_msg = f"Unexpected error: {str(e)}"
             tb_str = traceback.format_exc()
-            print(f"❌ Streaming error:\n{tb_str}")
+            app_logger.error(
+                "Streaming error",
+                {
+                    "session_id": chat_request.session_id,
+                    "user_id": user_id,
+                    "error": str(e),
+                    "traceback": tb_str,
+                }
+            )
             try:
                 # Send detailed error through stream
                 error_data = {
@@ -629,7 +956,14 @@ async def chat_stream(
                 stream_completed = True
             except Exception as yield_error:
                 # If we can't yield (client disconnected), log and exit
-                print(f"❌ Could not send error to client: {yield_error}")
+                app_logger.error(
+                    "Could not send error to client",
+                    {
+                        "session_id": chat_request.session_id,
+                        "user_id": user_id,
+                        "error": str(yield_error),
+                    }
+                )
                 stream_completed = True
         finally:
             # Ensure stream always completes
