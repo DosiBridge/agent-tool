@@ -143,7 +143,7 @@ export default function AuthForm() {
                 setPassword("");
                 setName("");
               }}
-              className="text-[#10a37f] hover:text-[#0d8f6e] text-sm font-medium transition-colors"
+              className="text-[var(--green)] hover:text-[var(--green-hover)] text-sm font-medium transition-colors"
             >
               {isLogin
                 ? "Don't have an account? Sign up"

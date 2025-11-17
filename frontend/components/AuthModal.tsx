@@ -76,7 +76,7 @@ export default function AuthModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--modal-overlay)] backdrop-blur-sm p-4">
       <div className="bg-[var(--modal-bg)] rounded-2xl shadow-2xl w-full max-w-md border border-[var(--border)] relative">
         <button
           onClick={onClose}
@@ -184,7 +184,7 @@ export default function AuthModal({
                 setPassword("");
                 setName("");
               }}
-              className="text-[var(--green)] hover:text-[#0d8f6e] text-sm font-medium transition-colors"
+              className="text-[var(--green)] hover:text-[var(--green-hover)] text-sm font-medium transition-colors"
             >
               {isLogin
                 ? "Don't have an account? Sign up"

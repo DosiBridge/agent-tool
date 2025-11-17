@@ -71,9 +71,9 @@ export default function ThemeToggle() {
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           "relative p-2 rounded-lg transition-all duration-200",
-          "hover:bg-[var(--surface-hover)]",
-          "focus:outline-none focus:ring-2 focus:ring-[var(--green)] focus:ring-offset-2 focus:ring-offset-[var(--surface)]",
-          "touch-manipulation active:scale-95"
+          "bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)]",
+          "focus:outline-none focus:ring-2 focus:ring-[var(--green)] focus:ring-offset-2 focus:ring-offset-transparent",
+          "touch-manipulation active:scale-95 backdrop-blur-sm"
         )}
         aria-label={`Current theme: ${getCurrentLabel()}`}
         title={`Current theme: ${getCurrentLabel()}`}

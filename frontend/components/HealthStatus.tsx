@@ -66,7 +66,7 @@ export default function HealthStatus() {
   const isHealthy = health.status === "healthy";
 
   return (
-    <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-[var(--surface-elevated)] border border-[var(--border)]">
+    <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-[var(--surface-elevated)]/80 border border-[var(--border)] backdrop-blur-sm">
       {/* Connection indicator */}
       {isConnected ? (
         <Wifi
