@@ -50,6 +50,8 @@ interface AppState {
   messages: Message[];
   isLoading: boolean;
   isStreaming: boolean;
+  streamingStatus: "thinking" | "analyzing" | "answering" | null;
+  streamingStartTime: number | null;
   mode: "agent" | "rag";
 
   // RAG settings
@@ -81,6 +83,10 @@ interface AppState {
   clearMessages: () => void;
   setLoading: (loading: boolean) => void;
   setStreaming: (streaming: boolean) => void;
+  setStreamingStatus: (
+    status: "thinking" | "analyzing" | "answering" | null
+  ) => void;
+  setStreamingStartTime: (time: number | null) => void;
   setMode: (mode: "agent" | "rag") => void;
   setUseReact: (useReact: boolean) => void;
   setSelectedCollectionId: (collectionId: number | null) => void;
@@ -113,6 +119,8 @@ export const useStore = create<AppState>((set, get) => ({
   messages: [],
   isLoading: false,
   isStreaming: false,
+  streamingStatus: null,
+  streamingStartTime: null,
   mode: "agent", // Default to agent mode
   useReact: false,
   selectedCollectionId: null,
@@ -352,7 +360,29 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setStreaming: (streaming: boolean) => {
-    set({ isStreaming: streaming });
+    if (streaming) {
+      set({
+        isStreaming: streaming,
+        streamingStartTime: Date.now(),
+        streamingStatus: "thinking",
+      });
+    } else {
+      set({
+        isStreaming: streaming,
+        streamingStatus: null,
+        streamingStartTime: null,
+      });
+    }
+  },
+
+  setStreamingStatus: (
+    status: "thinking" | "analyzing" | "answering" | null
+  ) => {
+    set({ streamingStatus: status });
+  },
+
+  setStreamingStartTime: (time: number | null) => {
+    set({ streamingStartTime: time });
   },
 
   setMode: (mode: "agent" | "rag") => {

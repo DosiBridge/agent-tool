@@ -7,7 +7,15 @@
 import { StreamChunk, createStreamReader } from "@/lib/api";
 import { getUserFriendlyError, logError } from "@/lib/errors";
 import { Message, useStore } from "@/lib/store";
-import { Check, Copy, RefreshCw, ThumbsDown, ThumbsUp } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  RefreshCw,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
@@ -25,9 +33,21 @@ export default function MessageBubble({
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
+  const [copiedCodeBlock, setCopiedCodeBlock] = useState<string | null>(null);
   const [showActions, setShowActions] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [showStatusDetails, setShowStatusDetails] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
+
+  const isStreaming = useStore((state) => state.isStreaming);
+  const streamingStatus = useStore((state) => state.streamingStatus);
+  const streamingStartTime = useStore((state) => state.streamingStartTime);
+  const isLastMessage = useStore((state) => {
+    const messages = state.messages;
+    return (
+      messages.length > 0 && messages[messages.length - 1].id === message.id
+    );
+  });
 
   const messages = useStore((state) => state.messages);
   const currentSessionId = useStore((state) => state.currentSessionId);
@@ -50,6 +70,17 @@ export default function MessageBubble({
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
       toast.error("Failed to copy message");
+    }
+  };
+
+  const handleCopyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedCodeBlock(code);
+      toast.success("Code copied!");
+      setTimeout(() => setCopiedCodeBlock(null), 2000);
+    } catch (error) {
+      toast.error("Failed to copy code");
     }
   };
 
@@ -220,6 +251,23 @@ export default function MessageBubble({
     toast.success(`Feedback: ${type === "thumbs-up" ? "👍" : "👎"}`);
   };
 
+  // Update thinking time display
+  const [thinkingTime, setThinkingTime] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isLastMessage || !isStreaming || !streamingStartTime) {
+      // Use setTimeout to avoid synchronous setState in effect
+      const timeoutId = setTimeout(() => setThinkingTime(null), 0);
+      return () => clearTimeout(timeoutId);
+    }
+
+    const interval = setInterval(() => {
+      const seconds = Math.floor((Date.now() - streamingStartTime) / 1000);
+      setThinkingTime(seconds);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isLastMessage, isStreaming, streamingStartTime]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -243,6 +291,74 @@ export default function MessageBubble({
             : "w-full max-w-full items-start"
         }`}
       >
+        {/* Status indicators for streaming AI messages */}
+        {!isUser && isLastMessage && isStreaming && streamingStatus && (
+          <div className="mb-2 flex items-center gap-4 text-xs text-gray-400">
+            {/* Thinking/Thought status */}
+            {streamingStatus === "thinking" && (
+              <button
+                onClick={() => setShowStatusDetails(!showStatusDetails)}
+                className="flex items-center gap-1 hover:text-gray-300 transition-colors"
+              >
+                {showStatusDetails ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+                <span>
+                  {thinkingTime !== null
+                    ? `Thought for ${thinkingTime}s`
+                    : "Thinking"}
+                </span>
+              </button>
+            )}
+
+            {/* Analyzing status */}
+            {streamingStatus === "analyzing" && (
+              <button
+                onClick={() => setShowStatusDetails(!showStatusDetails)}
+                className="flex items-center gap-1 hover:text-gray-300 transition-colors"
+              >
+                {showStatusDetails ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+                <span>Analyzing</span>
+              </button>
+            )}
+
+            {/* Answering status */}
+            {streamingStatus === "answering" && (
+              <span className="text-gray-500">Answering...</span>
+            )}
+
+            {/* Answer now button */}
+            {streamingStatus === "thinking" && (
+              <button className="text-gray-400 hover:text-gray-300 underline decoration-dotted underline-offset-2 transition-colors">
+                Answer now
+              </button>
+            )}
+
+            {/* Progress bar */}
+            {streamingStatus && (
+              <div className="flex-1 h-0.5 bg-gray-700/50 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#10a37f] transition-all duration-300"
+                  style={{
+                    width: streamingStatus === "answering" ? "100%" : "30%",
+                    animation:
+                      streamingStatus === "thinking" ||
+                      streamingStatus === "analyzing"
+                        ? "pulse 2s ease-in-out infinite"
+                        : "none",
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="relative w-full">
           <div
             className={`rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 md:px-4 md:py-3 transition-all duration-200 ${
@@ -272,15 +388,44 @@ export default function MessageBubble({
                       const inline = !match; // If no language match, it's inline code
 
                       return !inline && match ? (
-                        <SyntaxHighlighter
-                          style={vscDarkPlus}
-                          language={language}
-                          PreTag="div"
-                          className="rounded-lg my-2! text-xs sm:text-sm"
-                          {...props}
-                        >
-                          {codeString}
-                        </SyntaxHighlighter>
+                        <div className="relative my-3 group/codeblock">
+                          {/* Code block header with language and copy button */}
+                          <div className="flex items-center justify-between px-4 py-2 bg-[#1e1e1e] border-b border-gray-700/50 rounded-t-lg">
+                            <span className="text-xs font-medium text-gray-400 uppercase">
+                              {language}
+                            </span>
+                            <button
+                              onClick={() => handleCopyCode(codeString)}
+                              className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-700/50 rounded transition-colors"
+                              title="Copy code"
+                            >
+                              {copiedCodeBlock === codeString ? (
+                                <>
+                                  <Check className="w-3 h-3" />
+                                  <span>Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy code</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          <SyntaxHighlighter
+                            style={vscDarkPlus}
+                            language={language}
+                            PreTag="div"
+                            className="rounded-b-lg text-xs sm:text-sm mt-0"
+                            customStyle={{
+                              margin: 0,
+                              borderRadius: "0 0 0.5rem 0.5rem",
+                            }}
+                            {...props}
+                          >
+                            {codeString}
+                          </SyntaxHighlighter>
+                        </div>
                       ) : (
                         <code className={className} {...props}>
                           {children}

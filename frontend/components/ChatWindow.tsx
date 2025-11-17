@@ -14,31 +14,102 @@ export default function ChatWindow() {
   const isStreaming = useStore((state) => state.isStreaming);
   const isLoading = useStore((state) => state.isLoading);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lastMessageCountRef = useRef(0);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Filter out empty messages
   const displayMessages = messages.filter(
     (msg) => msg.content.trim() || msg.role === "user"
   );
 
-  // Optimized scroll with throttling
+  // Improved smooth scrolling with better performance
   useEffect(() => {
-    if (messagesEndRef.current) {
-      // Use requestAnimationFrame for smoother scrolling
+    if (!containerRef.current || !messagesEndRef.current) return;
+
+    const container = containerRef.current;
+    const scrollElement = messagesEndRef.current;
+
+    // Check if user is near bottom (within 100px) to auto-scroll
+    const isNearBottom = () => {
+      const threshold = 100;
+      const scrollTop = container.scrollTop;
+      const scrollHeight = container.scrollHeight;
+      const clientHeight = container.clientHeight;
+      return scrollHeight - scrollTop - clientHeight < threshold;
+    };
+
+    // Check if new message was added
+    const isNewMessage = displayMessages.length > lastMessageCountRef.current;
+    lastMessageCountRef.current = displayMessages.length;
+
+    // Only auto-scroll if:
+    // 1. Streaming is active (user expects new content)
+    // 2. New message was added
+    // 3. User is near bottom (hasn't scrolled up)
+    const shouldAutoScroll = isStreaming || isNewMessage || isNearBottom();
+
+    if (shouldAutoScroll) {
+      // Clear any pending scroll
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+
+      // Use requestAnimationFrame for smooth scrolling
       const rafId = requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({
+        // Use scrollIntoView with smooth behavior for streaming
+        // Use instant scroll for new messages when user is at bottom
+        scrollElement.scrollIntoView({
           behavior: isStreaming ? "smooth" : "auto",
           block: "end",
         });
       });
-      return () => cancelAnimationFrame(rafId);
+
+      return () => {
+        cancelAnimationFrame(rafId);
+        const timeoutId = scrollTimeoutRef.current;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      };
     }
-  }, [messages, isStreaming]);
+  }, [messages, isStreaming, displayMessages.length]);
+
+  // Smooth scroll on streaming updates (throttled)
+  useEffect(() => {
+    if (!isStreaming || !containerRef.current || !messagesEndRef.current)
+      return;
+
+    // Throttle scroll updates during streaming
+    const scrollInterval = setInterval(() => {
+      if (containerRef.current && messagesEndRef.current) {
+        const container = containerRef.current;
+        const scrollTop = container.scrollTop;
+        const scrollHeight = container.scrollHeight;
+        const clientHeight = container.clientHeight;
+        const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+
+        if (isNearBottom) {
+          messagesEndRef.current.scrollIntoView({
+            behavior: "smooth",
+            block: "end",
+          });
+        }
+      }
+    }, 300); // Update every 300ms during streaming
+
+    return () => clearInterval(scrollInterval);
+  }, [isStreaming]);
 
   return (
     <div
-      className="flex-1 overflow-y-auto px-2 sm:px-3 md:px-4 lg:px-6 py-3 sm:py-4 bg-transparent"
+      ref={containerRef}
+      className="flex-1 overflow-y-auto px-2 sm:px-3 md:px-4 lg:px-6 py-3 sm:py-4 bg-transparent scroll-smooth"
       role="log"
       aria-label="Chat messages"
+      style={{
+        scrollBehavior: isStreaming ? "smooth" : "auto",
+      }}
     >
       {displayMessages.length === 0 && !isLoading ? (
         <div className="flex items-center justify-center h-full px-4 animate-fade-in">
