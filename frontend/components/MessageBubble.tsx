@@ -245,10 +245,10 @@ export default function MessageBubble({
       >
         <div className="relative w-full">
           <div
-            className={`rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 md:px-4 md:py-3 shadow-sm transition-all duration-200 ${
+            className={`rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 md:px-4 md:py-3 transition-all duration-200 ${
               isUser
-                ? "bg-[#10a37f] text-white hover:bg-[#0d8f6e] hover:shadow-md"
-                : "bg-[#343541] dark:bg-[#2d2d2f] text-gray-100 hover:bg-[#40414f] hover:shadow-md"
+                ? "bg-[#10a37f]/90 backdrop-blur-sm text-white hover:bg-[#0d8f6e]/90 hover:shadow-md shadow-sm"
+                : "bg-[#343541]/60 dark:bg-[#2d2d2f]/60 backdrop-blur-sm text-gray-100"
             }`}
           >
             {isUser ? (
@@ -296,7 +296,7 @@ export default function MessageBubble({
           </div>
           {!isUser && (
             <div
-              className="absolute -top-1 -right-1 sm:-top-1.5 sm:-right-1.5 md:-top-2 md:-right-2 flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all z-10"
+              className="absolute -bottom-1 -left-1 sm:-bottom-1.5 sm:-left-1.5 md:-bottom-2 md:-left-2 flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all z-10"
               onMouseEnter={() => setShowActions(true)}
               onMouseLeave={() => setShowActions(false)}
             >

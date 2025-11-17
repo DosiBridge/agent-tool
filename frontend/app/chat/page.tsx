@@ -227,12 +227,12 @@ export default function ChatPage() {
       />
 
       <div className="flex-1 flex flex-col min-w-0 w-full">
-        <header className="border-b border-gray-700 bg-[#343541] dark:bg-[#2d2d2f] px-2 sm:px-4 md:px-6 py-2 sm:py-3 flex items-center justify-between shrink-0">
+        <header className="border-b border-gray-700/50 bg-[#343541]/80 dark:bg-[#2d2d2f]/80 backdrop-blur-md px-2 sm:px-4 md:px-6 py-2 sm:py-3 flex items-center justify-between shrink-0 sticky top-0 z-40">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             {/* Back to Home Button */}
             <Link
               href="/"
-              className="p-2 sm:p-2.5 hover:bg-[#40414f] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#10a37f] active:bg-[#40414f] touch-manipulation"
+              className="p-2 sm:p-2.5 hover:bg-[#40414f]/60 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#10a37f] active:bg-[#40414f]/60 touch-manipulation backdrop-blur-sm"
               aria-label="Back to home"
               title="Back to home"
             >
@@ -241,7 +241,7 @@ export default function ChatPage() {
 
             <button
               onClick={() => setSidebarOpen((prev) => !prev)}
-              className="p-2 sm:p-2.5 hover:bg-[#40414f] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#10a37f] active:bg-[#40414f] touch-manipulation"
+              className="p-2 sm:p-2.5 hover:bg-[#40414f]/60 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#10a37f] active:bg-[#40414f]/60 touch-manipulation backdrop-blur-sm"
               aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
             >
               <Menu className="w-5 h-5 sm:w-6 sm:h-6 text-gray-300" />
@@ -251,7 +251,7 @@ export default function ChatPage() {
             <div className="relative" ref={modeDropdownRef}>
               <button
                 onClick={() => setModeDropdownOpen((prev) => !prev)}
-                className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg hover:bg-[#40414f] transition-colors group"
+                className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg hover:bg-[#40414f]/60 transition-colors group backdrop-blur-sm"
               >
                 <h1 className="text-base sm:text-lg md:text-xl font-semibold truncate bg-gradient-to-r from-[#10a37f] to-[#0d8f6e] bg-clip-text text-transparent">
                   DosiBridge Agent
@@ -265,15 +265,15 @@ export default function ChatPage() {
 
               {/* Dropdown Menu */}
               {modeDropdownOpen && (
-                <div className="absolute top-full left-0 mt-2 w-64 bg-[#202123] border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                <div className="absolute top-full left-0 mt-2 w-64 bg-[#202123]/95 backdrop-blur-lg border border-gray-700/50 rounded-lg shadow-xl z-50 overflow-hidden">
                   {/* Agent Mode Option */}
                   <button
                     onClick={() => {
                       setMode("agent");
                       setModeDropdownOpen(false);
                     }}
-                    className={`w-full flex items-start gap-3 p-3 hover:bg-[#2d2d2f] transition-colors ${
-                      mode === "agent" ? "bg-[#2d2d2f]" : ""
+                    className={`w-full flex items-start gap-3 p-3 hover:bg-[#2d2d2f]/80 backdrop-blur-sm transition-colors ${
+                      mode === "agent" ? "bg-[#2d2d2f]/80" : ""
                     }`}
                   >
                     <div className="mt-0.5">
@@ -319,8 +319,8 @@ export default function ChatPage() {
                       setModeDropdownOpen(false);
                     }}
                     disabled={!isAuthenticated}
-                    className={`w-full flex items-start gap-3 p-3 hover:bg-[#2d2d2f] transition-colors ${
-                      mode === "rag" ? "bg-[#2d2d2f]" : ""
+                    className={`w-full flex items-start gap-3 p-3 hover:bg-[#2d2d2f]/80 backdrop-blur-sm transition-colors ${
+                      mode === "rag" ? "bg-[#2d2d2f]/80" : ""
                     } ${
                       !isAuthenticated ? "opacity-50 cursor-not-allowed" : ""
                     }`}
@@ -374,7 +374,7 @@ export default function ChatPage() {
                   onClick={() => {
                     setSettingsOpen(true);
                   }}
-                  className="p-2 sm:p-2.5 hover:bg-[#40414f] rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#10a37f] active:scale-95 touch-manipulation"
+                  className="p-2 sm:p-2.5 hover:bg-[#40414f]/60 backdrop-blur-sm rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#10a37f] active:scale-95 touch-manipulation"
                   aria-label="Open settings"
                   title="Settings (MCP & Model Configuration)"
                 >
@@ -387,7 +387,7 @@ export default function ChatPage() {
                   onClick={async () => {
                     await handleLogout();
                   }}
-                  className="p-2 sm:p-2.5 hover:bg-[#40414f] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#10a37f]"
+                  className="p-2 sm:p-2.5 hover:bg-[#40414f]/60 backdrop-blur-sm rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#10a37f]"
                   aria-label="Logout"
                   title="Logout"
                 >

@@ -36,7 +36,7 @@ export default function ChatWindow() {
 
   return (
     <div
-      className="flex-1 overflow-y-auto px-2 sm:px-3 md:px-4 lg:px-6 py-3 sm:py-4 md:py-6 lg:py-8"
+      className="flex-1 overflow-y-auto px-2 sm:px-3 md:px-4 lg:px-6 py-3 sm:py-4 bg-transparent"
       role="log"
       aria-label="Chat messages"
     >
@@ -60,20 +60,20 @@ export default function ChatWindow() {
             <div className="mt-8 space-y-4 text-sm text-gray-400 animate-fade-in">
               <p className="font-medium text-gray-300">Keyboard shortcuts:</p>
               <div className="flex flex-wrap gap-3 justify-center">
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#40414f] rounded-lg border border-gray-600 hover:border-[#10a37f] transition-colors">
-                  <kbd className="px-1.5 py-0.5 bg-[#2d2d2f] rounded text-xs font-mono text-gray-300">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#40414f]/60 backdrop-blur-sm rounded-lg border border-gray-600/50 hover:border-[#10a37f] transition-colors">
+                  <kbd className="px-1.5 py-0.5 bg-[#2d2d2f]/60 backdrop-blur-sm rounded text-xs font-mono text-gray-300">
                     Ctrl/Cmd + N
                   </kbd>
                   <span className="text-gray-400 text-xs">New chat</span>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#40414f] rounded-lg border border-gray-600 hover:border-[#10a37f] transition-colors">
-                  <kbd className="px-1.5 py-0.5 bg-[#2d2d2f] rounded text-xs font-mono text-gray-300">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#40414f]/60 backdrop-blur-sm rounded-lg border border-gray-600/50 hover:border-[#10a37f] transition-colors">
+                  <kbd className="px-1.5 py-0.5 bg-[#2d2d2f]/60 backdrop-blur-sm rounded text-xs font-mono text-gray-300">
                     Ctrl/Cmd + K
                   </kbd>
                   <span className="text-gray-400 text-xs">Toggle sidebar</span>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#40414f] rounded-lg border border-gray-600 hover:border-[#10a37f] transition-colors">
-                  <kbd className="px-1.5 py-0.5 bg-[#2d2d2f] rounded text-xs font-mono text-gray-300">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-[#40414f]/60 backdrop-blur-sm rounded-lg border border-gray-600/50 hover:border-[#10a37f] transition-colors">
+                  <kbd className="px-1.5 py-0.5 bg-[#2d2d2f]/60 backdrop-blur-sm rounded text-xs font-mono text-gray-300">
                     Esc
                   </kbd>
                   <span className="text-gray-400 text-xs">Close modals</span>
@@ -105,13 +105,13 @@ export default function ChatWindow() {
               aria-live="polite"
               aria-label="AI is typing"
             >
-              <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 rounded-full bg-gray-800 dark:bg-gray-700 flex items-center justify-center shadow-md">
+              <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 rounded-full bg-gray-800/60 dark:bg-gray-700/60 backdrop-blur-sm flex items-center justify-center shadow-md">
                 <Loader2
                   className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 text-white animate-spin"
                   aria-hidden="true"
                 />
               </div>
-              <div className="bg-[#343541] dark:bg-[#2d2d2f] rounded-2xl px-3 py-2 sm:px-3 sm:py-2.5 md:px-4 md:py-3 shadow-sm">
+              <div className="bg-[#343541]/60 dark:bg-[#2d2d2f]/60 backdrop-blur-sm rounded-2xl px-3 py-2 sm:px-3 sm:py-2.5 md:px-4 md:py-3 shadow-sm">
                 <div className="flex gap-1" aria-hidden="true">
                   <span
                     className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-gray-400 rounded-full animate-bounce"
