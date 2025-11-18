@@ -51,11 +51,11 @@ export default function ThemeToggle() {
 
   const getCurrentIcon = () => {
     if (theme === "system") {
-      return <Monitor className="w-5 h-5" />;
+      return <Monitor className="w-4 h-4" />;
     } else if (theme === "light") {
-      return <Sun className="w-5 h-5" />;
+      return <Sun className="w-4 h-4" />;
     } else {
-      return <Moon className="w-5 h-5" />;
+      return <Moon className="w-4 h-4" />;
     }
   };
 
@@ -70,15 +70,15 @@ export default function ThemeToggle() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "relative p-2 rounded-lg transition-all duration-200",
+          "relative p-1.5 rounded-lg transition-all duration-200",
           "bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)]",
           "focus:outline-none focus:ring-2 focus:ring-[var(--green)] focus:ring-offset-2 focus:ring-offset-transparent",
-          "touch-manipulation active:scale-95 backdrop-blur-sm"
+          "touch-manipulation active:scale-95 backdrop-blur-sm flex items-center justify-center"
         )}
         aria-label={`Current theme: ${getCurrentLabel()}`}
         title={`Current theme: ${getCurrentLabel()}`}
       >
-        <div className="relative w-5 h-5 text-[var(--text-primary)]">
+        <div className="relative w-4 h-4 text-[var(--text-primary)]">
           {getCurrentIcon()}
         </div>
       </button>
@@ -96,14 +96,14 @@ export default function ThemeToggle() {
                 setIsOpen(false);
               }}
               className={cn(
-                "w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors",
+                "w-full px-3 py-2 text-left text-xs flex items-center gap-2 transition-colors",
                 "hover:bg-[var(--surface-hover)]",
                 theme === "light" &&
                   "bg-[var(--surface-hover)] text-[var(--green)]"
               )}
             >
-              <Sun className="w-4 h-4" />
-              <span className="text-[var(--text-primary)]">Light</span>
+              <Sun className="w-3.5 h-3.5" />
+              <span className="text-[var(--text-primary)] text-xs">Light</span>
             </button>
             <button
               onClick={() => {
@@ -111,14 +111,14 @@ export default function ThemeToggle() {
                 setIsOpen(false);
               }}
               className={cn(
-                "w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors",
+                "w-full px-3 py-2 text-left text-xs flex items-center gap-2 transition-colors",
                 "hover:bg-[var(--surface-hover)]",
                 theme === "dark" &&
                   "bg-[var(--surface-hover)] text-[var(--green)]"
               )}
             >
-              <Moon className="w-4 h-4" />
-              <span className="text-[var(--text-primary)]">Dark</span>
+              <Moon className="w-3.5 h-3.5" />
+              <span className="text-[var(--text-primary)] text-xs">Dark</span>
             </button>
             <button
               onClick={() => {
@@ -126,14 +126,14 @@ export default function ThemeToggle() {
                 setIsOpen(false);
               }}
               className={cn(
-                "w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors",
+                "w-full px-3 py-2 text-left text-xs flex items-center gap-2 transition-colors",
                 "hover:bg-[var(--surface-hover)]",
                 theme === "system" &&
                   "bg-[var(--surface-hover)] text-[var(--green)]"
               )}
             >
-              <Monitor className="w-4 h-4" />
-              <span className="text-[var(--text-primary)]">System</span>
+              <Monitor className="w-3.5 h-3.5" />
+              <span className="text-[var(--text-primary)] text-xs">System</span>
             </button>
           </div>
         </>

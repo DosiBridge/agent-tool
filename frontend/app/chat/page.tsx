@@ -229,37 +229,37 @@ export default function ChatPage() {
       />
 
       <div className="flex-1 flex flex-col min-w-0 w-full">
-        <header className="border-b border-[var(--border)]/50 bg-transparent px-2 sm:px-4 md:px-6 py-2 sm:py-3 flex items-center justify-between shrink-0 sticky top-0 z-40">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+        <header className="border-none bg-none px-2 sm:px-3 py-1.5 flex items-center justify-between shrink-0 sticky top-0 z-40">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
             {/* Back to Home Button */}
             <Link
               href="/"
-              className="p-2 sm:p-2.5 bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--green)] active:bg-[var(--surface-hover)] touch-manipulation backdrop-blur-sm"
+              className="p-1.5 bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--green)] active:bg-[var(--surface-hover)] touch-manipulation backdrop-blur-sm flex items-center justify-center"
               aria-label="Back to home"
               title="Back to home"
             >
-              <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--text-primary)]" />
+              <ArrowLeft className="w-4 h-4 text-[var(--text-primary)]" />
             </Link>
 
             <button
               onClick={() => setSidebarOpen((prev) => !prev)}
-              className="p-2 sm:p-2.5 bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--green)] active:bg-[var(--surface-hover)] touch-manipulation backdrop-blur-sm"
+              className="p-1.5 bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--green)] active:bg-[var(--surface-hover)] touch-manipulation backdrop-blur-sm flex items-center justify-center"
               aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
             >
-              <Menu className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--text-primary)]" />
+              <Menu className="w-4 h-4 text-[var(--text-primary)]" />
             </button>
 
             {/* Mode Dropdown */}
             <div className="relative" ref={modeDropdownRef}>
               <button
                 onClick={() => setModeDropdownOpen((prev) => !prev)}
-                className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] transition-colors group backdrop-blur-sm"
+                className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] transition-colors group backdrop-blur-sm"
               >
-                <h1 className="text-base sm:text-lg md:text-xl font-semibold truncate bg-gradient-to-r from-[var(--green)] to-[var(--green-hover)] bg-clip-text text-transparent">
+                <h1 className="text-sm font-semibold truncate bg-gradient-to-r from-[var(--green)] to-[var(--green-hover)] bg-clip-text text-transparent">
                   {mode === "rag" ? "RAG" : "DosiBridge Agent"}
                 </h1>
                 <ChevronDown
-                  className={`w-4 h-4 sm:w-5 sm:h-5 text-[var(--text-secondary)] transition-transform duration-200 ${
+                  className={`w-4 h-4 text-[var(--text-secondary)] transition-transform duration-200 ${
                     modeDropdownOpen ? "rotate-180" : ""
                   }`}
                 />
@@ -370,7 +370,7 @@ export default function ChatPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <div className="hidden sm:block">
               <HealthStatus />
             </div>
@@ -381,12 +381,12 @@ export default function ChatPage() {
                   onClick={() => {
                     setSettingsOpen(true);
                   }}
-                  className="p-2 sm:p-2.5 bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] backdrop-blur-sm rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[var(--green)] active:scale-95 touch-manipulation"
+                  className="p-1.5 bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] backdrop-blur-sm rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[var(--green)] active:scale-95 touch-manipulation flex items-center justify-center"
                   aria-label="Open settings"
                   title="Settings (MCP & Model Configuration)"
                 >
                   <Settings
-                    className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--text-primary)]"
+                    className="w-4 h-4 text-[var(--text-primary)]"
                     aria-hidden="true"
                   />
                 </button>
@@ -394,11 +394,11 @@ export default function ChatPage() {
                   onClick={async () => {
                     await handleLogout();
                   }}
-                  className="p-2 sm:p-2.5 bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] backdrop-blur-sm rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--green)]"
+                  className="p-1.5 bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] backdrop-blur-sm rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--green)] flex items-center justify-center"
                   aria-label="Logout"
                   title="Logout"
                 >
-                  <LogOut className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--text-primary)]" />
+                  <LogOut className="w-4 h-4 text-[var(--text-primary)]" />
                 </button>
               </>
             )}

@@ -84,9 +84,20 @@ export default function MessageBubble({
     }
   };
 
-  const handleRegenerate = () => {
+  const handleRegenerate = async () => {
     if (isUser) {
       toast.error("Cannot regenerate user messages");
+      return;
+    }
+
+    // Prevent regeneration if already streaming
+    if (isStreaming) {
+      toast.error("Please wait for the current response to finish");
+      return;
+    }
+
+    // Prevent regeneration if already regenerating
+    if (isRegenerating) {
       return;
     }
 
@@ -119,9 +130,16 @@ export default function MessageBubble({
       abortRef.current = null;
     }
 
+    // Stop any current streaming
+    setStreaming(false);
+    setLoading(false);
+
     // Remove this AI response and any messages after it
     const newMessages = messages.slice(0, messageIndex);
     useStore.setState({ messages: newMessages });
+
+    // Small delay to ensure state is updated
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Set loading states
     setIsRegenerating(true);
@@ -441,7 +459,7 @@ export default function MessageBubble({
           </div>
           {!isUser && (
             <div
-              className="absolute -bottom-1 -left-1 sm:-bottom-1.5 sm:-left-1.5 md:-bottom-2 md:-left-2 flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all z-10"
+              className="absolute -bottom-1 -left-1 sm:-bottom-1.5 sm:-left-1.5 md:-bottom-2 md:-left-2 flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all z-20"
               onMouseEnter={() => setShowActions(true)}
               onMouseLeave={() => setShowActions(false)}
             >
@@ -468,9 +486,11 @@ export default function MessageBubble({
                   e.stopPropagation();
                   handleRegenerate();
                 }}
-                disabled={isRegenerating}
+                disabled={isRegenerating || isStreaming}
                 className={`p-1.5 sm:p-1.5 md:p-2 rounded-lg bg-[var(--surface-elevated)] hover:bg-[var(--surface-hover)] text-[var(--text-primary)] hover:text-[var(--text-inverse)] transition-all shadow-md touch-manipulation ${
-                  isRegenerating ? "opacity-50 cursor-not-allowed" : ""
+                  isRegenerating || isStreaming
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
                 }`}
                 aria-label="Regenerate response"
                 type="button"
@@ -478,7 +498,7 @@ export default function MessageBubble({
               >
                 <RefreshCw
                   className={`w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 ${
-                    isRegenerating ? "animate-spin" : ""
+                    isRegenerating || isStreaming ? "animate-spin" : ""
                   }`}
                 />
               </button>
