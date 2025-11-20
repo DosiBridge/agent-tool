@@ -14,7 +14,7 @@ export default function Home() {
   const checkAuth = useStore((state) => state.checkAuth);
 
   useEffect(() => {
-    // Check authentication status
+    // Check authentication status (silently - no error messages on home page)
     checkAuth();
   }, [checkAuth]);
 

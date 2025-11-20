@@ -101,39 +101,53 @@ export function getAuthHeaders(): HeadersInit {
  */
 export async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    // Handle 401 Unauthorized - token expired or invalid
-    if (response.status === 401) {
-      removeAuthToken();
-      // Redirect to login will be handled by the auth guard
-      throw new Error("Unauthorized - Please login again");
-    }
-
-    // Try to parse error response
+    // Try to parse error response first to get the actual error message
     let errorDetail: string;
     try {
-      const error = await response.json();
-      errorDetail = error.detail || error.message || response.statusText;
-    } catch {
+      const errorData = await response.json();
+      // FastAPI returns errors in 'detail' field
+      errorDetail =
+        errorData.detail || errorData.message || response.statusText;
+    } catch (parseError) {
+      // If JSON parsing fails, use status text
       errorDetail = response.statusText || `HTTP ${response.status}`;
     }
 
-    // Create more descriptive error messages
+    // Handle 401 Unauthorized - but only remove token if we have one
+    // (login/register attempts will also return 401, but shouldn't remove token)
+    if (response.status === 401) {
+      const token = getAuthToken();
+      // Only remove token if we have one (means it's an expired/invalid token, not a login failure)
+      if (token) {
+        removeAuthToken();
+      }
+    }
+
+    // Use the backend error detail if available, otherwise use generic messages
     const errorMessages: Record<number, string> = {
-      400: "Invalid request. Please check your input.",
-      401: "Authentication required. Please log in.",
-      403: "You don't have permission to perform this action.",
-      404: "The requested resource was not found.",
-      409: "A conflict occurred. The resource may already exist.",
-      422: "Validation error. Please check your input.",
-      429: "Too many requests. Please wait a moment and try again.",
-      500: "Server error. Please try again later.",
-      502: "Service temporarily unavailable. Please try again later.",
-      503: "Service unavailable. Please try again later.",
+      400: errorDetail || "Invalid request. Please check your input.",
+      401: errorDetail || "Incorrect email or password. Please try again.",
+      403: errorDetail || "You don't have permission to perform this action.",
+      404: errorDetail || "The requested resource was not found.",
+      409:
+        errorDetail || "A conflict occurred. The resource may already exist.",
+      422: errorDetail || "Validation error. Please check your input.",
+      429:
+        errorDetail || "Too many requests. Please wait a moment and try again.",
+      500: errorDetail || "Server error. Please try again later.",
+      502:
+        errorDetail ||
+        "Service temporarily unavailable. Please try again later.",
+      503: errorDetail || "Service unavailable. Please try again later.",
     };
 
     const message = errorMessages[response.status] || errorDetail;
-    const error = new Error(message) as Error & { statusCode: number };
+    const error = new Error(message) as Error & {
+      statusCode: number;
+      detail?: string;
+    };
     error.statusCode = response.status;
+    error.detail = errorDetail;
     throw error;
   }
   return response.json();
