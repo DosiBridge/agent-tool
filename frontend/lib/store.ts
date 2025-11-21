@@ -159,8 +159,13 @@ export const useStore = create<AppState>((set, get) => ({
         get().loadSessions();
         get().loadMCPServers();
       }, 0);
-    } catch (error) {
+    } catch (error: any) {
       // Not authenticated - this is fine for agent mode
+      // Silently handle expected 401 errors (user not logged in)
+      // Only log unexpected errors
+      if (error && !error.isUnauthenticated) {
+        console.error("Unexpected error during auth check:", error);
+      }
       set({ user: null, isAuthenticated: false, authLoading: false });
       // RAG mode requires authentication - switch to agent mode if in RAG (agent works without login)
       const currentMode = get().mode;
@@ -177,33 +182,25 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   handleLogin: async (data: LoginRequest) => {
-    try {
-      const result = await login(data);
-      set({ user: result.user, isAuthenticated: true });
-      // Load user-specific data after login
-      // Use setTimeout to ensure state is updated before loading
-      setTimeout(() => {
-        get().loadSessions();
-        get().loadMCPServers();
-      }, 0);
-    } catch (error) {
-      throw error;
-    }
+    const result = await login(data);
+    set({ user: result.user, isAuthenticated: true });
+    // Load user-specific data after login
+    // Use setTimeout to ensure state is updated before loading
+    setTimeout(() => {
+      get().loadSessions();
+      get().loadMCPServers();
+    }, 0);
   },
 
   handleRegister: async (data: RegisterRequest) => {
-    try {
-      const result = await register(data);
-      set({ user: result.user, isAuthenticated: true });
-      // Load user-specific data after registration
-      // Use setTimeout to ensure state is updated before loading
-      setTimeout(() => {
-        get().loadSessions();
-        get().loadMCPServers();
-      }, 0);
-    } catch (error) {
-      throw error;
-    }
+    const result = await register(data);
+    set({ user: result.user, isAuthenticated: true });
+    // Load user-specific data after registration
+    // Use setTimeout to ensure state is updated before loading
+    setTimeout(() => {
+      get().loadSessions();
+      get().loadMCPServers();
+    }, 0);
   },
 
   handleLogout: async () => {
