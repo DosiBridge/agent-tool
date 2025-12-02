@@ -60,6 +60,8 @@ import {
   WifiOff,
   Wrench,
   X,
+  Info,
+  ExternalLink,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
@@ -115,7 +117,7 @@ export default function SettingsPanel({
 
   // RAG Settings state
   const [ragActiveTab, setRagActiveTab] = useState<
-    "documents" | "collections" | "review"
+    "documents" | "collections" | "review" | "mcp"
   >("documents");
   const [documents, setDocuments] = useState<Document[]>([]);
   const [ragCollections, setRagCollections] = useState<DocumentCollection[]>(
@@ -1953,6 +1955,22 @@ export default function SettingsPanel({
                       </span>
                     )}
                   </button>
+                  <button
+                    onClick={() => setRagActiveTab("mcp")}
+                    className={`px-4 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
+                      ragActiveTab === "mcp"
+                        ? "border-b-2 border-[var(--green)] text-[var(--green)] bg-[var(--surface-elevated)]"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    <Server className="w-4 h-4" />
+                    MCP Tools
+                    {mcpServers.length > 0 && (
+                      <span className="ml-1 px-1.5 py-0.5 text-xs bg-blue-500 text-white rounded-full">
+                        {mcpServers.filter((s) => s.enabled).length}
+                      </span>
+                    )}
+                  </button>
                 </div>
 
                 {/* Documents Tab */}
@@ -2237,6 +2255,128 @@ export default function SettingsPanel({
                           </div>
                         ))
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* MCP Tools Tab */}
+                {ragActiveTab === "mcp" && (
+                  <div className="space-y-4">
+                    {/* Info Notice */}
+                    <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                      <div className="flex items-start gap-3">
+                        <Info className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h3 className="text-sm font-semibold text-yellow-600 dark:text-yellow-400 mb-1">
+                            MCP Tools Not Available in RAG Mode
+                          </h3>
+                          <p className="text-sm text-yellow-600/80 dark:text-yellow-400/80">
+                            RAG mode focuses on document retrieval and doesn't support MCP
+                            (Model Context Protocol) tools. To use MCP tools, switch to Agent
+                            mode.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* MCP Servers Status */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                          <Server className="w-4 h-4" />
+                          Your MCP Servers
+                        </h3>
+                        <span className="text-xs text-[var(--text-secondary)]">
+                          {mcpServers.filter((s) => s.enabled).length} enabled
+                        </span>
+                      </div>
+
+                      {mcpServers.length === 0 ? (
+                        <div className="p-6 border border-[var(--border)] rounded-lg bg-[var(--surface-hover)] text-center">
+                          <Server className="w-8 h-8 mx-auto mb-2 text-[var(--text-secondary)]" />
+                          <p className="text-sm text-[var(--text-secondary)] mb-4">
+                            No MCP servers configured
+                          </p>
+                          <button
+                            onClick={() => {
+                              setActiveTab("mcp");
+                            }}
+                            className="px-4 py-2 text-sm font-medium text-white bg-[var(--green)] hover:bg-[var(--green)]/90 rounded-lg transition-colors flex items-center gap-2 mx-auto"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Add MCP Server
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {mcpServers.map((server) => (
+                            <div
+                              key={server.name}
+                              className="p-4 border border-[var(--border)] rounded-lg bg-[var(--surface-hover)]"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Server
+                                      className={`w-4 h-4 ${
+                                        server.enabled
+                                          ? "text-green-500"
+                                          : "text-[var(--text-secondary)]"
+                                      }`}
+                                    />
+                                    <p className="text-sm font-medium text-[var(--text-primary)]">
+                                      {server.name}
+                                    </p>
+                                    {server.enabled && (
+                                      <span className="px-2 py-0.5 text-xs bg-green-500/20 text-green-400 rounded">
+                                        Enabled
+                                      </span>
+                                    )}
+                                    {!server.enabled && (
+                                      <span className="px-2 py-0.5 text-xs bg-gray-500/20 text-[var(--text-secondary)] rounded">
+                                        Disabled
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-[var(--text-secondary)] mt-1">
+                                    {server.url}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="pt-4 border-t border-[var(--border)] space-y-3">
+                      <button
+                        onClick={() => {
+                          setActiveTab("mcp");
+                        }}
+                        className="w-full px-4 py-2.5 text-sm font-medium text-white bg-[var(--green)] hover:bg-[var(--green)]/90 rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Settings className="w-4 h-4" />
+                        Manage MCP Servers
+                      </button>
+                      <button
+                        onClick={() => {
+                          const mode = useStore.getState().mode;
+                          if (mode !== "agent") {
+                            useStore.getState().setMode("agent");
+                            toast.success(
+                              "Switched to Agent mode. MCP tools are now available."
+                            );
+                          } else {
+                            toast.info("Already in Agent mode");
+                          }
+                        }}
+                        className="w-full px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] bg-[var(--input-bg)] hover:bg-[var(--surface-hover)] border border-[var(--input-border)] rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        Switch to Agent Mode
+                      </button>
                     </div>
                   </div>
                 )}
