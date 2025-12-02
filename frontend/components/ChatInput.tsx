@@ -23,12 +23,14 @@ import {
 import type { KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import RAGEnablePopup from "@/components/RAGEnablePopup";
 
 export default function ChatInput() {
   const [input, setInput] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [showRAGPopup, setShowRAGPopup] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
@@ -61,6 +63,8 @@ export default function ChatInput() {
   );
   const setStreaming = useStore((state) => state.setStreaming);
   const setStreamingStatus = useStore((state) => state.setStreamingStatus);
+  const addActiveTool = useStore((state) => state.addActiveTool);
+  const clearActiveTools = useStore((state) => state.clearActiveTools);
   const setLoading = useStore((state) => state.setLoading);
 
   // Cancel ongoing requests only when user explicitly logs out
@@ -254,8 +258,12 @@ export default function ChatInput() {
 
     // keep focus on textarea so user can continue typing
     setTimeout(() => textareaRef.current?.focus(), 0);
+    
+    // Initialize streaming state properly
     setLoading(true);
     setStreaming(true);
+    setStreamingStatus("thinking");
+    clearActiveTools();
 
     // Add user message
     addMessage({
@@ -295,33 +303,55 @@ export default function ChatInput() {
             }
             setStreaming(false);
             setLoading(false);
+            setStreamingStatus(null);
+            clearActiveTools();
             // Auto-focus on chat input when error occurs
             setTimeout(() => textareaRef.current?.focus(), 100);
             return;
           }
 
+          // Process status updates from backend - handle all status types
+          if (chunk.status) {
+            if (
+              chunk.status === "thinking" ||
+              chunk.status === "tool_calling" ||
+              chunk.status === "answering" ||
+              chunk.status === "connected" ||
+              chunk.status === "creating_agent" ||
+              chunk.status === "agent_ready"
+            ) {
+              // Map backend statuses to frontend statuses
+              if (chunk.status === "connected" || chunk.status === "creating_agent" || chunk.status === "agent_ready") {
+                setStreamingStatus("thinking");
+              } else {
+                setStreamingStatus(chunk.status);
+              }
+            }
+          }
+
+          // Process tool calls
           if (chunk.tool) {
             toolsUsed.push(chunk.tool);
+            addActiveTool(chunk.tool);
           }
 
           // Process content chunks - accept all chunks including spaces
           if (chunk.chunk !== undefined && chunk.chunk !== null) {
             if (!hasReceivedContent) {
-              // First chunk received - switch from thinking to answering
-              setStreamingStatus("answering");
+              // First chunk received - switch to answering if not already set
+              if (chunk.status !== "answering") {
+                setStreamingStatus("answering");
+              }
             }
             hasReceivedContent = true;
             updateLastMessage(chunk.chunk);
           }
 
-          // Update status based on tools being used
-          if (chunk.tool && !hasReceivedContent) {
-            setStreamingStatus("analyzing");
-          }
-
           if (chunk.done) {
             setStreaming(false);
             setLoading(false);
+            setStreamingStatus(null);
+            clearActiveTools(); // Clear active tools when done
 
             // Remove empty assistant message if no content was received
             if (!hasReceivedContent) {
@@ -361,12 +391,16 @@ export default function ChatInput() {
           }
           setStreaming(false);
           setLoading(false);
+          setStreamingStatus(null);
+          clearActiveTools(); // Clear active tools on error
           // Auto-focus on chat input when error occurs
           setTimeout(() => textareaRef.current?.focus(), 100);
         },
         () => {
           setStreaming(false);
           setLoading(false);
+          setStreamingStatus(null);
+          clearActiveTools(); // Clear active tools when cancelled
           // Auto-focus on chat input when stream is cancelled
           setTimeout(() => textareaRef.current?.focus(), 100);
         }
@@ -390,6 +424,8 @@ export default function ChatInput() {
       }
       setStreaming(false);
       setLoading(false);
+      setStreamingStatus(null);
+      clearActiveTools(); // Clear active tools on error
       // Auto-focus on chat input when error occurs
       setTimeout(() => textareaRef.current?.focus(), 100);
     }
@@ -413,6 +449,8 @@ export default function ChatInput() {
       abortRef.current = null;
       setStreaming(false);
       setLoading(false);
+      setStreamingStatus(null);
+      clearActiveTools(); // Clear active tools when stopped
       toast.success("Generation stopped");
       // Auto-focus on chat input when stopped
       setTimeout(() => textareaRef.current?.focus(), 100);
@@ -617,22 +655,14 @@ export default function ChatInput() {
                           <button
                             type="button"
                             onClick={() => {
-                              if (!isAuthenticated) {
-                                toast.error(
-                                  "Please log in to use RAG mode. RAG mode requires authentication to upload and query documents."
-                                );
-                                setShowModelDropdown(false);
-                                return;
-                              }
-                              setMode("rag");
                               setShowModelDropdown(false);
+                              setShowRAGPopup(true);
                             }}
-                            disabled={!isAuthenticated}
                             className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
                               mode === "rag"
                                 ? "bg-[var(--green)]/10 text-[var(--green)] font-medium"
                                 : "text-[var(--text-primary)] hover:bg-[var(--surface-hover)]"
-                            } disabled:opacity-50 disabled:cursor-not-allowed`}
+                            }`}
                           >
                             RAG
                           </button>
@@ -714,6 +744,15 @@ export default function ChatInput() {
           </form>
         </div>
       </div>
+
+      {/* RAG Enable Popup */}
+      <RAGEnablePopup
+        isOpen={showRAGPopup}
+        onClose={() => setShowRAGPopup(false)}
+        onEnable={() => {
+          // Additional logic after enabling RAG can go here
+        }}
+      />
     </div>
   );
 }

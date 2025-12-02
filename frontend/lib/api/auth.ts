@@ -55,12 +55,17 @@ export async function logout(): Promise<void> {
   }
 }
 
+/**
+ * Get current user - returns user if authenticated, throws error if not
+ * Note: 401 errors are expected when not authenticated and are handled silently
+ */
 export async function getCurrentUser(): Promise<User> {
   const apiBaseUrl = await getApiBaseUrl();
   try {
     const response = await fetch(`${apiBaseUrl}/api/auth/me`, {
       headers: getAuthHeaders(),
     });
+
     if (!response.ok) {
       // For 401, this is expected when not authenticated - throw a specific error
       // Don't call handleResponse as it will remove the token unnecessarily
@@ -80,6 +85,10 @@ export async function getCurrentUser(): Promise<User> {
   } catch (error) {
     // If fetch fails (network error, etc.), treat as not authenticated
     if (error instanceof Error && error.name !== "AbortError") {
+      // Re-throw if it's already our custom error
+      if ((error as any).isUnauthenticated) {
+        throw error;
+      }
       const authError = new Error("Not authenticated") as Error & {
         statusCode: number;
         isUnauthenticated: boolean;

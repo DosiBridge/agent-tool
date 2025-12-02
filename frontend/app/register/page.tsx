@@ -26,21 +26,52 @@ export default function RegisterPage() {
     }
   }, [isAuthenticated, router]);
 
+  const validateForm = (): string | null => {
+    if (!name.trim()) {
+      return "Name is required";
+    }
+    if (name.trim().length < 2) {
+      return "Name must be at least 2 characters";
+    }
+    if (!email.trim()) {
+      return "Email is required";
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return "Please enter a valid email address";
+    }
+    if (!password) {
+      return "Password is required";
+    }
+    if (password.length < 8) {
+      return "Password must be at least 8 characters long";
+    }
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
 
-    if (password.length < 8) {
-      toast.error("Password must be at least 8 characters");
-      setLoading(false);
+    // Client-side validation
+    const validationError = validateForm();
+    if (validationError) {
+      toast.error(validationError);
       return;
     }
 
+    setLoading(true);
+
     try {
-      await handleRegister({ name, email, password });
-      toast.success("Account created successfully!");
+      await handleRegister({
+        name: name.trim(),
+        email: email.trim(),
+        password,
+      });
+      toast.success("Account created successfully!", {
+        duration: 2000, // Auto-hide after 2 seconds
+      });
       router.push("/chat");
     } catch (error: any) {
+      // Error message is already extracted from backend response in handleResponse
       toast.error(error.message || "Registration failed. Please try again.");
     } finally {
       setLoading(false);
@@ -89,6 +120,8 @@ export default function RegisterPage() {
                 onChange={(e) => setName(e.target.value)}
                 required
                 disabled={loading}
+                minLength={2}
+                autoComplete="name"
                 className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="John Doe"
               />
@@ -108,6 +141,7 @@ export default function RegisterPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={loading}
+                autoComplete="email"
                 className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="you@example.com"
               />
@@ -128,6 +162,7 @@ export default function RegisterPage() {
                 required
                 minLength={8}
                 disabled={loading}
+                autoComplete="new-password"
                 className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="•••••••• (min 8 characters)"
               />
