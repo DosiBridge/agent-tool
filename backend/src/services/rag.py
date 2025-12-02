@@ -17,14 +17,26 @@ class EnhancedRAGSystem:
     """Enhanced RAG system with better context retrieval and history awareness"""
     
     def __init__(self):
-        """Initialize the RAG system with DosiBlog context"""
+        """Initialize the RAG system with DOSIBridge context"""
         self.texts = [
-            "DosiBlog is a web development project created by Abdullah Al Sazib.",
-            "DosiBlog uses Node.js, Express, and MongoDB for backend development.",
-            "The DosiBlog project was started in September 2025.",
-            "DosiBlog features include user authentication, blog post creation, and commenting system.",
-            "Abdullah Al Sazib is a full-stack developer specializing in MERN stack.",
-            "The project uses RESTful API architecture for communication between frontend and backend.",
+            "DOSIBridge (Digital Operations Software Innovation) is a technology company focused on AI and automation solutions.",
+            "DOSIBridge was founded in 2025 and is an innovative team using AI to enhance digital operations and software solutions.",
+            "DOSIBridge builds research systems that drive business growth, development, and engineering excellence.",
+            "DOSIBridge's mission is to help businesses grow smarter with AI & Automation.",
+            "DOSIBridge uses Artificial Intelligence (AI) and automation to help businesses work faster, save time, and make better decisions.",
+            "DOSIBridge provides cutting-edge solutions that empower organizations to streamline operations, reduce manual workloads, and unlock new levels of productivity through intelligent automation and data-driven insights.",
+            "DOSIBridge's core values include: providing automation services that drive efficiency and reduce operational costs, building a strong open-source community to foster innovation and collaboration, and pursuing continuous learning to stay ahead in technology trends and best practices.",
+            "DOSIBridge specializes in technologies including: AI, .NET, Python, GoLang, Angular, Next.js, Docker, DevOps, Azure, AWS, and system design.",
+            "DOSIBridge builds with AI, .NET, Python, and Go to power Digitalized Operations.",
+            "DOSIBridge Team - Mihadul Islam: CEO & Founder. Mihadul Islam is a .NET engineer skilled in Python, AI, automation, Docker, DevOps, Azure, AWS, and system design. He is the CEO and Founder of DOSIBridge.",
+            "DOSIBridge Team - Abdullah Al Sazib: Co-Founder & CTO. Abdullah Al Sazib is a GoLang and Next.js expert passionate about Angular, research, and continuous learning in tech innovation. He is the Co-Founder and CTO of DOSIBridge.",
+            "The DOSIBridge team consists of brilliant minds behind the company's success, including Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).",
+            "DOSIBridge shares quick tips on AI, .NET, GoLang and modern development through their newsletter, blog, and social media channels.",
+            "DOSIBridge has over 14,000 subscribers to their newsletter.",
+            "DOSIBridge maintains active presence on GitHub, LinkedIn, Twitter/X, Facebook, and YouTube.",
+            "DOSIBridge focuses on Digital Operations, Software Innovation, and AI automation to power digitalized operations.",
+            "DOSIBridge partners with businesses to unlock digital potential and achieve sustainable growth through technology and innovation.",
+            "DOSIBridge is ready to transform businesses and help them achieve sustainable growth through technology and innovation.",
         ]
         
         try:
@@ -91,12 +103,25 @@ class EnhancedRAGSystem:
         # Answer prompt
         answer_prompt = ChatPromptTemplate.from_messages([
             ("system", 
-             "You are a helpful AI assistant. Use the following context to answer questions accurately and naturally.\n"
+             "You are the official AI assistant for dosibridge.com, trained and maintained by the DOSIBridge team.\n\n"
+             "DOSIBridge (Digital Operations Software Innovation) was founded in 2025 and is an innovative team using AI to enhance digital operations and software solutions. "
+             "DOSIBridge builds research systems that drive business growth, development, and engineering excellence.\n\n"
+             "DOSIBridge's mission is to help businesses grow smarter with AI & Automation. "
+             "We specialize in AI, .NET, Python, GoLang, Angular, Next.js, Docker, DevOps, Azure, AWS, and system design.\n\n"
+             "DOSIBridge Team Members:\n"
+             "- Mihadul Islam (CEO & Founder): .NET engineer skilled in Python, AI, automation, Docker, DevOps, Azure, AWS, and system design.\n"
+             "- Abdullah Al Sazib (Co-Founder & CTO): GoLang and Next.js expert passionate about Angular, research, and continuous learning in tech innovation.\n\n"
+             "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
+             "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
+             "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO), including their roles, expertise, and contributions.\n\n"
              "Context: {context}\n\n"
              "Rules:\n"
              "- Answer naturally without mentioning 'the context' or 'according to the context'\n"
              "- If you don't know, say so honestly\n"
-             "- Be concise and helpful"),
+             "- Be concise and helpful\n"
+             "- When discussing team members, mention their full names, titles, and expertise areas\n"
+             "- If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate\n"
+             "- Do not claim affiliation with any external AI vendor unless explicitly instructed"),
             MessagesPlaceholder("chat_history"),
             ("human", "{input}"),
         ])

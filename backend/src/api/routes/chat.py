@@ -157,6 +157,8 @@ async def chat_stream(
             
             if chat_request.mode == "rag":
                 # For RAG mode, we'll stream the response
+                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'thinking'})}\n\n"
+                
                 llm_config = Config.load_llm_config()
                 try:
                     llm = create_llm_from_config(llm_config, streaming=True, temperature=0)
@@ -187,13 +189,31 @@ async def chat_stream(
                 
                 # Build context
                 prompt = ChatPromptTemplate.from_messages([
-                    ("system", "You are a helpful AI assistant. Use the following context to answer questions.\nContext: {context}"),
+                    ("system", (
+                        "You are the official AI assistant for dosibridge.com, trained and maintained by the DOSIBridge team.\n\n"
+                        "DOSIBridge (Digital Operations Software Innovation) was founded in 2025 and is an innovative team using AI to enhance digital operations and software solutions. "
+                        "DOSIBridge builds research systems that drive business growth, development, and engineering excellence.\n\n"
+                        "DOSIBridge's mission is to help businesses grow smarter with AI & Automation. "
+                        "We specialize in AI, .NET, Python, GoLang, Angular, Next.js, Docker, DevOps, Azure, AWS, and system design.\n\n"
+                        "DOSIBridge Team Members:\n"
+                        "- Mihadul Islam (CEO & Founder): .NET engineer skilled in Python, AI, automation, Docker, DevOps, Azure, AWS, and system design.\n"
+                        "- Abdullah Al Sazib (Co-Founder & CTO): GoLang and Next.js expert passionate about Angular, research, and continuous learning in tech innovation.\n\n"
+                        "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
+                        "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
+                        "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
+                        "Context: {context}\n\n"
+                        "If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate.\n"
+                        "Do not claim affiliation with any external AI vendor unless explicitly instructed."
+                    )),
                     MessagesPlaceholder("chat_history"),
                     ("human", "{input}"),
                 ])
                 
                 # Retrieve context
                 context = rag_system.retrieve_context(chat_request.message)
+                
+                # Switch to answering status
+                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
                 
                 # Stream response
                 full_response = ""
@@ -296,10 +316,9 @@ async def chat_stream(
                 
             else:
                 # Agent mode with streaming
-                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_agent'})}\n\n"
+                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'thinking'})}\n\n"
                 
                 mcp_servers = Config.load_mcp_servers(user_id=user_id, db=db)
-                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connecting_mcp_servers', 'server_count': len(mcp_servers)})}\n\n"
                 
                 # If no MCP servers, use only default tools (works without login)
                 if not mcp_servers:
@@ -307,15 +326,12 @@ async def chat_stream(
                     # Load custom RAG tools if authenticated
                     custom_rag_tools = load_custom_rag_tools(user_id, db) if user_id and db else []
                     all_tools = [retrieve_dosiblog_context] + custom_rag_tools
-                    yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'no_mcp_servers', 'tool_count': len(all_tools)})}\n\n"
                     
                     # Get LLM from config
                     llm_config = Config.load_llm_config()
-                    yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_llm', 'llm_type': llm_config.get('type', 'unknown')})}\n\n"
                     
                     try:
                         llm = create_llm_from_config(llm_config, streaming=True, temperature=0)
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'llm_ready'})}\n\n"
                     except ImportError as e:
                         error_msg = (
                             f"Missing LLM package: {str(e)}\n\n"
@@ -337,9 +353,20 @@ async def chat_stream(
                         system_prompt = chat_request.agent_prompt
                     else:
                         system_prompt = (
-                            "You are a helpful AI assistant. "
-                            "You can help answer questions and provide information. "
-                            "Use the available tools when appropriate."
+                            "You are the official AI assistant for dosibridge.com, trained and maintained by the DOSIBridge team.\n\n"
+                            "DOSIBridge (Digital Operations Software Innovation) was founded in 2025 and is an innovative team using AI to enhance digital operations and software solutions. "
+                            "DOSIBridge builds research systems that drive business growth, development, and engineering excellence.\n\n"
+                            "DOSIBridge's mission is to help businesses grow smarter with AI & Automation. "
+                            "We specialize in AI, .NET, Python, GoLang, Angular, Next.js, Docker, DevOps, Azure, AWS, and system design.\n\n"
+                            "DOSIBridge Team Members:\n"
+                            "- Mihadul Islam (CEO & Founder): .NET engineer skilled in Python, AI, automation, Docker, DevOps, Azure, AWS, and system design.\n"
+                            "- Abdullah Al Sazib (Co-Founder & CTO): GoLang and Next.js expert passionate about Angular, research, and continuous learning in tech innovation.\n\n"
+                            "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
+                            "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
+                            "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
+                            "You can help answer questions and provide information. Use the available tools when appropriate.\n"
+                            "If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate.\n"
+                            "Do not claim affiliation with any external AI vendor unless explicitly instructed."
                         )
                     
                     # Ensure tools are properly formatted for LangChain
@@ -379,21 +406,26 @@ async def chat_stream(
                     else:
                         history = history_manager.get_session_messages(chat_request.session_id, user_id)
                     messages = list(history) + [HumanMessage(content=chat_request.message)]
-                    yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'starting_agent_execution', 'message_count': len(messages)})}\n\n"
                     
                     # Stream agent responses
                     full_response = ""
                     tool_calls_made = []
                     seen_tools = set()
                     last_streamed_length = 0
+                    is_thinking = True
+                    is_answering = False
                     
                     try:
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'streaming_response'})}\n\n"
                         async for event in agent.astream({"messages": messages}, stream_mode="values"):
                             last_msg = event["messages"][-1]
                             
                             if isinstance(last_msg, AIMessage):
                                 if getattr(last_msg, "tool_calls", None):
+                                    # Tool calling phase
+                                    if is_thinking:
+                                        is_thinking = False
+                                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling'})}\n\n"
+                                    
                                     for call in last_msg.tool_calls:
                                         tool_name = call.get('name') or call.get('tool_name', 'unknown')
                                         
@@ -422,8 +454,15 @@ async def chat_stream(
                                         if tool_name not in seen_tools:
                                             tool_calls_made.append(tool_name)
                                             seen_tools.add(tool_name)
-                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'tool': tool_name})}\n\n"
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling', 'tool': tool_name})}\n\n"
                                 elif last_msg.content:
+                                    # Answering phase
+                                    if is_thinking:
+                                        is_thinking = False
+                                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
+                                    if not is_answering:
+                                        is_answering = True
+                                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
                                     content_raw = last_msg.content
                                     
                                     if isinstance(content_raw, str):
@@ -525,20 +564,15 @@ async def chat_stream(
                 # If MCP servers exist, connect to them
                 try:
                     async with MCPClientManager(mcp_servers) as mcp_tools:
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'mcp_connected', 'tool_count': len(mcp_tools)})}\n\n"
-                        
                         # Load custom RAG tools if authenticated
                         custom_rag_tools = load_custom_rag_tools(user_id, db) if user_id and db else []
                         all_tools = [retrieve_dosiblog_context] + custom_rag_tools + mcp_tools
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'loading_llm_config'})}\n\n"
                         
                         # Get LLM from config
                         llm_config = Config.load_llm_config()
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_llm', 'llm_type': llm_config.get('type', 'unknown')})}\n\n"
                         
                         try:
                             llm = create_llm_from_config(llm_config, streaming=True, temperature=0)
-                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'llm_ready'})}\n\n"
                         except ImportError as e:
                             # Missing package - should be in requirements.txt
                             error_msg = (
@@ -585,12 +619,24 @@ async def chat_stream(
                                 system_message = chat_request.agent_prompt
                             else:
                                 system_message = (
-                                    "You are a helpful AI assistant.\n\n"
+                                    "You are the official AI assistant for dosibridge.com, trained and maintained by the DOSIBridge team.\n\n"
+                                    "DOSIBridge (Digital Operations Software Innovation) was founded in 2025 and is an innovative team using AI to enhance digital operations and software solutions. "
+                                    "DOSIBridge builds research systems that drive business growth, development, and engineering excellence.\n\n"
+                                    "DOSIBridge's mission is to help businesses grow smarter with AI & Automation. "
+                                    "We specialize in AI, .NET, Python, GoLang, Angular, Next.js, Docker, DevOps, Azure, AWS, and system design.\n\n"
+                                    "DOSIBridge Team Members:\n"
+                                    "- Mihadul Islam (CEO & Founder): .NET engineer skilled in Python, AI, automation, Docker, DevOps, Azure, AWS, and system design.\n"
+                                    "- Abdullah Al Sazib (Co-Founder & CTO): GoLang and Next.js expert passionate about Angular, research, and continuous learning in tech innovation.\n\n"
+                                    "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
+                                    "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
+                                    "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
                                     "Available tools:\n{tools_context}\n\n"
                                     "Context from knowledge base:\n{context}\n\n"
                                     "When answering questions, reference the context when relevant. "
                                     "For calculations or specific operations, you can mention available tools, "
-                                    "but note that tool calling is limited with this model."
+                                    "but note that tool calling is limited with this model.\n"
+                                    "If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate.\n"
+                                    "Do not claim affiliation with any external AI vendor unless explicitly instructed."
                                 )
                             
                             prompt = ChatPromptTemplate.from_messages([
@@ -722,14 +768,26 @@ async def chat_stream(
                                 system_prompt = chat_request.agent_prompt
                             else:
                                 system_prompt = (
-                                    "You are a helpful AI assistant with access to these tools ONLY:\n"
-                                    f"{tools_list}\n\n"
+                                    "You are the official AI assistant for dosibridge.com, trained and maintained by the DOSIBridge team.\n\n"
+                                    "DOSIBridge (Digital Operations Software Innovation) was founded in 2025 and is an innovative team using AI to enhance digital operations and software solutions. "
+                                    "DOSIBridge builds research systems that drive business growth, development, and engineering excellence.\n\n"
+                                    "DOSIBridge's mission is to help businesses grow smarter with AI & Automation. "
+                                    "We specialize in AI, .NET, Python, GoLang, Angular, Next.js, Docker, DevOps, Azure, AWS, and system design.\n\n"
+                                    "DOSIBridge Team Members:\n"
+                                    "- Mihadul Islam (CEO & Founder): .NET engineer skilled in Python, AI, automation, Docker, DevOps, Azure, AWS, and system design.\n"
+                                    "- Abdullah Al Sazib (Co-Founder & CTO): GoLang and Next.js expert passionate about Angular, research, and continuous learning in tech innovation.\n\n"
+                                    "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
+                                    "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
+                                    "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
+                                    f"You have access to these tools ONLY:\n{tools_list}\n\n"
                                     "IMPORTANT RULES:\n"
                                     "- ONLY use tools from the list above\n"
                                     "- Do NOT call any tool that is not in this list\n"
                                     "- If you need a tool that is not available, inform the user\n"
                                     "- Do not make up or hallucinate tool names\n"
-                                    "- Available tool names are: " + ', '.join(tool_names)
+                                    "- Available tool names are: " + ', '.join(tool_names) + "\n"
+                                    "- If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate\n"
+                                    "- Do not claim affiliation with any external AI vendor unless explicitly instructed"
                                 )
                             
                             # Ensure tools are properly formatted for LangChain
@@ -768,20 +826,25 @@ async def chat_stream(
                         else:
                             history = history_manager.get_session_messages(chat_request.session_id, user_id)
                         messages = list(history) + [HumanMessage(content=chat_request.message)]
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'starting_agent_execution', 'message_count': len(messages)})}\n\n"
                         
                         # Stream agent responses
                         full_response = ""
                         tool_calls_made = []
                         seen_tools = set()  # Track tools we've already sent
+                        is_thinking = True
+                        is_answering = False
                         
                         try:
-                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'streaming_response'})}\n\n"
                             async for event in agent.astream({"messages": messages}, stream_mode="values"):
                                 last_msg = event["messages"][-1]
                                 
                                 if isinstance(last_msg, AIMessage):
                                     if getattr(last_msg, "tool_calls", None):
+                                        # Tool calling phase
+                                        if is_thinking:
+                                            is_thinking = False
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling'})}\n\n"
+                                        
                                         for call in last_msg.tool_calls:
                                             tool_name = call.get('name') or call.get('tool_name', 'unknown')
                                             
@@ -809,9 +872,16 @@ async def chat_stream(
                                             if tool_name not in seen_tools:
                                                 tool_calls_made.append(tool_name)
                                                 seen_tools.add(tool_name)
-                                                # Only send tool metadata, no text chunk
-                                                yield f"data: {json.dumps({'chunk': '', 'done': False, 'tool': tool_name})}\n\n"
+                                                # Send tool metadata with status
+                                                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling', 'tool': tool_name})}\n\n"
                                     elif last_msg.content:
+                                        # Answering phase
+                                        if is_thinking:
+                                            is_thinking = False
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
+                                        if not is_answering:
+                                            is_answering = True
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
                                         # Stream the actual response character by character for smooth streaming
                                         # Handle different content types (string, list, dict)
                                         content_raw = last_msg.content

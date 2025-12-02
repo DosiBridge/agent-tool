@@ -21,6 +21,11 @@ export default function AuthModal({
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<{
+    email?: string;
+    password?: string;
+    name?: string;
+  }>({});
 
   const handleLogin = useStore((state) => state.handleLogin);
   const handleRegister = useStore((state) => state.handleRegister);
@@ -42,32 +47,79 @@ export default function AuthModal({
     return () => window.removeEventListener("open-auth" as any, handleOpenAuth);
   }, []);
 
+  const validateForm = (): string | null => {
+    if (isLogin) {
+      if (!email.trim()) {
+        return "Email is required";
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        return "Please enter a valid email address";
+      }
+      if (!password) {
+        return "Password is required";
+      }
+    } else {
+      if (!name.trim()) {
+        return "Name is required";
+      }
+      if (name.trim().length < 2) {
+        return "Name must be at least 2 characters";
+      }
+      if (!email.trim()) {
+        return "Email is required";
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        return "Please enter a valid email address";
+      }
+      if (!password) {
+        return "Password is required";
+      }
+      if (password.length < 8) {
+        return "Password must be at least 8 characters long";
+      }
+    }
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Client-side validation
+    const validationError = validateForm();
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
     setLoading(true);
 
     try {
       if (isLogin) {
-        await handleLogin({ email, password });
-        toast.success("Logged in successfully!");
+        await handleLogin({ email: email.trim(), password });
+        toast.success("Logged in successfully!", {
+          duration: 2000, // Auto-hide after 2 seconds
+        });
         onClose();
       } else {
-        if (!name.trim()) {
-          toast.error("Name is required");
-          setLoading(false);
-          return;
-        }
-        if (password.length < 8) {
-          toast.error("Password must be at least 8 characters");
-          setLoading(false);
-          return;
-        }
-        await handleRegister({ email, password, name });
-        toast.success("Registered successfully!");
+        await handleRegister({
+          email: email.trim(),
+          password,
+          name: name.trim(),
+        });
+        toast.success("Registered successfully!", {
+          duration: 2000, // Auto-hide after 2 seconds
+        });
         onClose();
       }
     } catch (error: any) {
-      toast.error(error.message || "Authentication failed");
+      // Extract error message from backend response
+      const errorMessage =
+        error?.message ||
+        error?.detail ||
+        (isLogin
+          ? "Login failed. Please check your email and password."
+          : "Registration failed. Please try again.");
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -113,6 +165,8 @@ export default function AuthModal({
                     className="w-full pl-10 pr-4 py-2.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-[var(--text-inverse)] placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--green)] focus:border-transparent"
                     placeholder="Enter your name"
                     required={!isLogin}
+                    minLength={2}
+                    autoComplete="name"
                   />
                 </div>
               </div>
@@ -131,6 +185,7 @@ export default function AuthModal({
                   className="w-full pl-10 pr-4 py-2.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-[var(--text-inverse)] placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--green)] focus:border-transparent"
                   placeholder="Enter your email"
                   required
+                  autoComplete="email"
                 />
               </div>
             </div>
@@ -149,6 +204,7 @@ export default function AuthModal({
                   placeholder="Enter your password"
                   required
                   minLength={isLogin ? undefined : 8}
+                  autoComplete={isLogin ? "current-password" : "new-password"}
                 />
               </div>
               {!isLogin && (

@@ -10,7 +10,7 @@ from src.core import CustomRAGTool, DB_AVAILABLE
 
 @tool("retrieve_dosiblog_context")
 def retrieve_dosiblog_context(query: str) -> str:
-    """Retrieves relevant context about DosiBlog projects and related topics."""
+    """Retrieves relevant context about DOSIBridge projects, services, and related topics."""
     print(f"🔍 Calling Enhanced RAG Tool for query: {query}")
     context = rag_system.retrieve_context(query)
     return f"Retrieved context:\n{context}"

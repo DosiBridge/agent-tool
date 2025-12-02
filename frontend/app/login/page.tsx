@@ -25,18 +25,45 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, router]);
 
+  const validateForm = (): string | null => {
+    if (!email.trim()) {
+      return "Email is required";
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return "Please enter a valid email address";
+    }
+    if (!password) {
+      return "Password is required";
+    }
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Client-side validation
+    const validationError = validateForm();
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await handleLogin({ email, password });
-      toast.success("Logged in successfully!");
+      await handleLogin({ email: email.trim(), password });
+      toast.success("Logged in successfully!", {
+        duration: 2000, // Auto-hide after 2 seconds
+      });
       router.push("/chat");
     } catch (error: any) {
-      toast.error(
-        error.message || "Login failed. Please check your credentials."
-      );
+      // Extract error message from backend response
+      const errorMessage =
+        error?.message ||
+        error?.detail ||
+        error?.toString() ||
+        "Login failed. Please check your email and password.";
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -82,6 +109,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={loading}
+                autoComplete="email"
                 className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="you@example.com"
               />
@@ -101,6 +129,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={loading}
+                autoComplete="current-password"
                 className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#10a37f] focus:border-[#10a37f] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="••••••••"
               />
