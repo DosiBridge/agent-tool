@@ -9,8 +9,6 @@ import { getUserFriendlyError, logError } from "@/lib/errors";
 import { Message, useStore } from "@/lib/store";
 import {
   Check,
-  ChevronDown,
-  ChevronRight,
   Copy,
   RefreshCw,
   ThumbsDown,
@@ -36,12 +34,9 @@ export default function MessageBubble({
   const [copiedCodeBlock, setCopiedCodeBlock] = useState<string | null>(null);
   const [showActions, setShowActions] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [showStatusDetails, setShowStatusDetails] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
 
   const isStreaming = useStore((state) => state.isStreaming);
-  const streamingStatus = useStore((state) => state.streamingStatus);
-  const streamingStartTime = useStore((state) => state.streamingStartTime);
   const isLastMessage = useStore((state) => {
     const messages = state.messages;
     return (
@@ -145,6 +140,10 @@ export default function MessageBubble({
     setIsRegenerating(true);
     setLoading(true);
     setStreaming(true);
+    const setStreamingStatus = useStore.getState().setStreamingStatus;
+    const clearActiveTools = useStore.getState().clearActiveTools;
+    setStreamingStatus("thinking");
+    clearActiveTools();
 
     // Add placeholder assistant message
     addMessage({
@@ -179,16 +178,45 @@ export default function MessageBubble({
             }
             setStreaming(false);
             setLoading(false);
+            setStreamingStatus(null);
             setIsRegenerating(false);
+            clearActiveTools();
             return;
           }
 
+          // Process status updates from backend
+          if (chunk.status) {
+            if (
+              chunk.status === "thinking" ||
+              chunk.status === "tool_calling" ||
+              chunk.status === "answering" ||
+              chunk.status === "connected" ||
+              chunk.status === "creating_agent" ||
+              chunk.status === "agent_ready"
+            ) {
+              if (chunk.status === "connected" || chunk.status === "creating_agent" || chunk.status === "agent_ready") {
+                setStreamingStatus("thinking");
+              } else {
+                setStreamingStatus(chunk.status);
+              }
+            }
+          }
+
+          // Process tool calls
           if (chunk.tool) {
             toolsUsed.push(chunk.tool);
+            const addActiveTool = useStore.getState().addActiveTool;
+            addActiveTool(chunk.tool);
           }
 
           // Process content chunks
           if (chunk.chunk !== undefined && chunk.chunk !== null) {
+            if (!hasReceivedContent) {
+              // First chunk received - switch to answering if not already set
+              if (chunk.status !== "answering") {
+                setStreamingStatus("answering");
+              }
+            }
             hasReceivedContent = true;
             updateLastMessage(chunk.chunk);
           }
@@ -196,7 +224,9 @@ export default function MessageBubble({
           if (chunk.done) {
             setStreaming(false);
             setLoading(false);
+            setStreamingStatus(null);
             setIsRegenerating(false);
+            clearActiveTools();
 
             // Remove empty assistant message if no content was received
             if (!hasReceivedContent) {
@@ -234,12 +264,16 @@ export default function MessageBubble({
           }
           setStreaming(false);
           setLoading(false);
+          setStreamingStatus(null);
           setIsRegenerating(false);
+          clearActiveTools();
         },
         () => {
           setStreaming(false);
           setLoading(false);
+          setStreamingStatus(null);
           setIsRegenerating(false);
+          clearActiveTools();
         }
       );
     } catch (error) {
@@ -269,22 +303,6 @@ export default function MessageBubble({
     toast.success(`Feedback: ${type === "thumbs-up" ? "👍" : "👎"}`);
   };
 
-  // Update thinking time display
-  const [thinkingTime, setThinkingTime] = useState<number | null>(null);
-  useEffect(() => {
-    if (!isLastMessage || !isStreaming || !streamingStartTime) {
-      // Use setTimeout to avoid synchronous setState in effect
-      const timeoutId = setTimeout(() => setThinkingTime(null), 0);
-      return () => clearTimeout(timeoutId);
-    }
-
-    const interval = setInterval(() => {
-      const seconds = Math.floor((Date.now() - streamingStartTime) / 1000);
-      setThinkingTime(seconds);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isLastMessage, isStreaming, streamingStartTime]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -309,73 +327,6 @@ export default function MessageBubble({
             : "w-full max-w-full items-start"
         }`}
       >
-        {/* Status indicators for streaming AI messages */}
-        {!isUser && isLastMessage && isStreaming && streamingStatus && (
-          <div className="mb-2 flex items-center gap-4 text-xs text-[var(--text-secondary)]">
-            {/* Thinking/Thought status */}
-            {streamingStatus === "thinking" && (
-              <button
-                onClick={() => setShowStatusDetails(!showStatusDetails)}
-                className="flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors"
-              >
-                {showStatusDetails ? (
-                  <ChevronDown className="w-3 h-3" />
-                ) : (
-                  <ChevronRight className="w-3 h-3" />
-                )}
-                <span>
-                  {thinkingTime !== null
-                    ? `Thought for ${thinkingTime}s`
-                    : "Thinking"}
-                </span>
-              </button>
-            )}
-
-            {/* Analyzing status */}
-            {streamingStatus === "analyzing" && (
-              <button
-                onClick={() => setShowStatusDetails(!showStatusDetails)}
-                className="flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors"
-              >
-                {showStatusDetails ? (
-                  <ChevronDown className="w-3 h-3" />
-                ) : (
-                  <ChevronRight className="w-3 h-3" />
-                )}
-                <span>Analyzing</span>
-              </button>
-            )}
-
-            {/* Answering status */}
-            {streamingStatus === "answering" && (
-              <span className="text-[var(--text-secondary)]">Answering...</span>
-            )}
-
-            {/* Answer now button */}
-            {streamingStatus === "thinking" && (
-              <button className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline decoration-dotted underline-offset-2 transition-colors">
-                Answer now
-              </button>
-            )}
-
-            {/* Progress bar */}
-            {streamingStatus && (
-              <div className="flex-1 h-0.5 bg-[var(--border)]/50 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[var(--green)] transition-all duration-300"
-                  style={{
-                    width: streamingStatus === "answering" ? "100%" : "30%",
-                    animation:
-                      streamingStatus === "thinking" ||
-                      streamingStatus === "analyzing"
-                        ? "pulse 2s ease-in-out infinite"
-                        : "none",
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        )}
 
         <div className="relative w-full">
           <div

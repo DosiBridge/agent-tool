@@ -225,36 +225,6 @@ export default function ChatWindow() {
           ))}
           {/* Show thinking indicator when streaming */}
           {isStreaming && <ThinkingIndicator />}
-          {isStreaming && (
-            <div
-              className="flex gap-2 sm:gap-3 md:gap-4 mb-3 sm:mb-4 md:mb-6 message-enter px-1 sm:px-2"
-              aria-live="polite"
-              aria-label="AI is typing"
-            >
-              <div className="shrink-0 w-7 h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 rounded-full bg-[var(--surface-hover)] backdrop-blur-sm flex items-center justify-center shadow-md">
-                <Loader2
-                  className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 text-[var(--text-primary)] animate-spin"
-                  aria-hidden="true"
-                />
-              </div>
-              <div className="bg-transparent rounded-2xl px-3 py-2 sm:px-3 sm:py-2.5 md:px-4 md:py-3 shadow-sm">
-                <div className="flex gap-1" aria-hidden="true">
-                  <span
-                    className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-[var(--text-secondary)] rounded-full animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  />
-                  <span
-                    className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-[var(--text-secondary)] rounded-full animate-bounce"
-                    style={{ animationDelay: "150ms" }}
-                  />
-                  <span
-                    className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-[var(--text-secondary)] rounded-full animate-bounce"
-                    style={{ animationDelay: "300ms" }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
           {isLoading && !isStreaming && (
             <div className="flex items-center justify-center py-8 sm:py-12">
               <div className="text-center">
