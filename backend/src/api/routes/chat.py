@@ -157,6 +157,8 @@ async def chat_stream(
             
             if chat_request.mode == "rag":
                 # For RAG mode, we'll stream the response
+                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'thinking'})}\n\n"
+                
                 llm_config = Config.load_llm_config()
                 try:
                     llm = create_llm_from_config(llm_config, streaming=True, temperature=0)
@@ -194,6 +196,9 @@ async def chat_stream(
                 
                 # Retrieve context
                 context = rag_system.retrieve_context(chat_request.message)
+                
+                # Switch to answering status
+                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
                 
                 # Stream response
                 full_response = ""
@@ -296,10 +301,9 @@ async def chat_stream(
                 
             else:
                 # Agent mode with streaming
-                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_agent'})}\n\n"
+                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'thinking'})}\n\n"
                 
                 mcp_servers = Config.load_mcp_servers(user_id=user_id, db=db)
-                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'connecting_mcp_servers', 'server_count': len(mcp_servers)})}\n\n"
                 
                 # If no MCP servers, use only default tools (works without login)
                 if not mcp_servers:
@@ -307,15 +311,12 @@ async def chat_stream(
                     # Load custom RAG tools if authenticated
                     custom_rag_tools = load_custom_rag_tools(user_id, db) if user_id and db else []
                     all_tools = [retrieve_dosiblog_context] + custom_rag_tools
-                    yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'no_mcp_servers', 'tool_count': len(all_tools)})}\n\n"
                     
                     # Get LLM from config
                     llm_config = Config.load_llm_config()
-                    yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_llm', 'llm_type': llm_config.get('type', 'unknown')})}\n\n"
                     
                     try:
                         llm = create_llm_from_config(llm_config, streaming=True, temperature=0)
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'llm_ready'})}\n\n"
                     except ImportError as e:
                         error_msg = (
                             f"Missing LLM package: {str(e)}\n\n"
@@ -379,21 +380,26 @@ async def chat_stream(
                     else:
                         history = history_manager.get_session_messages(chat_request.session_id, user_id)
                     messages = list(history) + [HumanMessage(content=chat_request.message)]
-                    yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'starting_agent_execution', 'message_count': len(messages)})}\n\n"
                     
                     # Stream agent responses
                     full_response = ""
                     tool_calls_made = []
                     seen_tools = set()
                     last_streamed_length = 0
+                    is_thinking = True
+                    is_answering = False
                     
                     try:
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'streaming_response'})}\n\n"
                         async for event in agent.astream({"messages": messages}, stream_mode="values"):
                             last_msg = event["messages"][-1]
                             
                             if isinstance(last_msg, AIMessage):
                                 if getattr(last_msg, "tool_calls", None):
+                                    # Tool calling phase
+                                    if is_thinking:
+                                        is_thinking = False
+                                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling'})}\n\n"
+                                    
                                     for call in last_msg.tool_calls:
                                         tool_name = call.get('name') or call.get('tool_name', 'unknown')
                                         
@@ -422,8 +428,15 @@ async def chat_stream(
                                         if tool_name not in seen_tools:
                                             tool_calls_made.append(tool_name)
                                             seen_tools.add(tool_name)
-                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'tool': tool_name})}\n\n"
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling', 'tool': tool_name})}\n\n"
                                 elif last_msg.content:
+                                    # Answering phase
+                                    if is_thinking:
+                                        is_thinking = False
+                                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
+                                    if not is_answering:
+                                        is_answering = True
+                                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
                                     content_raw = last_msg.content
                                     
                                     if isinstance(content_raw, str):
@@ -525,20 +538,15 @@ async def chat_stream(
                 # If MCP servers exist, connect to them
                 try:
                     async with MCPClientManager(mcp_servers) as mcp_tools:
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'mcp_connected', 'tool_count': len(mcp_tools)})}\n\n"
-                        
                         # Load custom RAG tools if authenticated
                         custom_rag_tools = load_custom_rag_tools(user_id, db) if user_id and db else []
                         all_tools = [retrieve_dosiblog_context] + custom_rag_tools + mcp_tools
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'loading_llm_config'})}\n\n"
                         
                         # Get LLM from config
                         llm_config = Config.load_llm_config()
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'initializing_llm', 'llm_type': llm_config.get('type', 'unknown')})}\n\n"
                         
                         try:
                             llm = create_llm_from_config(llm_config, streaming=True, temperature=0)
-                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'llm_ready'})}\n\n"
                         except ImportError as e:
                             # Missing package - should be in requirements.txt
                             error_msg = (
@@ -768,20 +776,25 @@ async def chat_stream(
                         else:
                             history = history_manager.get_session_messages(chat_request.session_id, user_id)
                         messages = list(history) + [HumanMessage(content=chat_request.message)]
-                        yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'starting_agent_execution', 'message_count': len(messages)})}\n\n"
                         
                         # Stream agent responses
                         full_response = ""
                         tool_calls_made = []
                         seen_tools = set()  # Track tools we've already sent
+                        is_thinking = True
+                        is_answering = False
                         
                         try:
-                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'streaming_response'})}\n\n"
                             async for event in agent.astream({"messages": messages}, stream_mode="values"):
                                 last_msg = event["messages"][-1]
                                 
                                 if isinstance(last_msg, AIMessage):
                                     if getattr(last_msg, "tool_calls", None):
+                                        # Tool calling phase
+                                        if is_thinking:
+                                            is_thinking = False
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling'})}\n\n"
+                                        
                                         for call in last_msg.tool_calls:
                                             tool_name = call.get('name') or call.get('tool_name', 'unknown')
                                             
@@ -809,9 +822,16 @@ async def chat_stream(
                                             if tool_name not in seen_tools:
                                                 tool_calls_made.append(tool_name)
                                                 seen_tools.add(tool_name)
-                                                # Only send tool metadata, no text chunk
-                                                yield f"data: {json.dumps({'chunk': '', 'done': False, 'tool': tool_name})}\n\n"
+                                                # Send tool metadata with status
+                                                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling', 'tool': tool_name})}\n\n"
                                     elif last_msg.content:
+                                        # Answering phase
+                                        if is_thinking:
+                                            is_thinking = False
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
+                                        if not is_answering:
+                                            is_answering = True
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'answering'})}\n\n"
                                         # Stream the actual response character by character for smooth streaming
                                         # Handle different content types (string, list, dict)
                                         content_raw = last_msg.content

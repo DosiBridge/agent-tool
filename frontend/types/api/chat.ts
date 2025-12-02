@@ -23,5 +23,5 @@ export interface StreamChunk {
   tool?: string;
   tools_used?: string[];
   error?: string;
-  status?: string; // Status messages from backend (e.g., 'connected', 'initializing_agent')
+  status?: "thinking" | "tool_calling" | "answering" | string; // Status messages from backend
 }

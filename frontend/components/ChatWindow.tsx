@@ -8,6 +8,7 @@ import { useStore } from "@/lib/store";
 import { Loader2, MessageSquare } from "lucide-react";
 import { useEffect, useRef } from "react";
 import MessageBubble from "./MessageBubble";
+import ThinkingIndicator from "./ThinkingIndicator";
 
 export default function ChatWindow() {
   const messages = useStore((state) => state.messages);
@@ -15,39 +16,77 @@ export default function ChatWindow() {
   const isLoading = useStore((state) => state.isLoading);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastContentLengthRef = useRef(0);
   const lastMessageCountRef = useRef(0);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isUserScrollingRef = useRef(false);
+  const scrollCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Filter out empty messages
   const displayMessages = messages.filter(
     (msg) => msg.content.trim() || msg.role === "user"
   );
 
-  // Improved smooth scrolling with better performance
+  // Get the last message content length for streaming detection
+  const lastMessageContent = displayMessages.length > 0 
+    ? displayMessages[displayMessages.length - 1].content 
+    : "";
+  const currentContentLength = lastMessageContent.length;
+
+  // Track user scroll behavior to prevent auto-scroll when user scrolls up
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      isUserScrollingRef.current = true;
+      // Reset flag after user stops scrolling
+      if (scrollCheckTimeoutRef.current) {
+        clearTimeout(scrollCheckTimeoutRef.current);
+      }
+      scrollCheckTimeoutRef.current = setTimeout(() => {
+        isUserScrollingRef.current = false;
+      }, 150);
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      if (scrollCheckTimeoutRef.current) {
+        clearTimeout(scrollCheckTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Improved smooth scrolling - triggers on content changes during streaming
   useEffect(() => {
     if (!containerRef.current || !messagesEndRef.current) return;
 
     const container = containerRef.current;
     const scrollElement = messagesEndRef.current;
 
-    // Check if user is near bottom (within 100px) to auto-scroll
+    // Check if user is near bottom (within 150px) to auto-scroll
     const isNearBottom = () => {
-      const threshold = 100;
+      const threshold = 150;
       const scrollTop = container.scrollTop;
       const scrollHeight = container.scrollHeight;
       const clientHeight = container.clientHeight;
       return scrollHeight - scrollTop - clientHeight < threshold;
     };
 
-    // Check if new message was added
+    // Check if content changed (new message or streaming update)
     const isNewMessage = displayMessages.length > lastMessageCountRef.current;
+    const isContentUpdate = currentContentLength > lastContentLengthRef.current;
+    
     lastMessageCountRef.current = displayMessages.length;
+    lastContentLengthRef.current = currentContentLength;
 
     // Only auto-scroll if:
-    // 1. Streaming is active (user expects new content)
-    // 2. New message was added
-    // 3. User is near bottom (hasn't scrolled up)
-    const shouldAutoScroll = isStreaming || isNewMessage || isNearBottom();
+    // 1. User hasn't manually scrolled up (or was near bottom)
+    // 2. Content is updating (new message or streaming)
+    const shouldAutoScroll = 
+      !isUserScrollingRef.current && 
+      (isNewMessage || (isStreaming && isContentUpdate) || isNearBottom());
 
     if (shouldAutoScroll) {
       // Clear any pending scroll
@@ -56,47 +95,53 @@ export default function ChatWindow() {
       }
 
       // Use requestAnimationFrame for smooth scrolling
-      const rafId = requestAnimationFrame(() => {
-        // Use scrollIntoView with smooth behavior for streaming
-        // Use instant scroll for new messages when user is at bottom
-        scrollElement.scrollIntoView({
-          behavior: isStreaming ? "smooth" : "auto",
-          block: "end",
+      scrollTimeoutRef.current = setTimeout(() => {
+        requestAnimationFrame(() => {
+          if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({
+              behavior: isStreaming ? "smooth" : "auto",
+              block: "end",
+            });
+          }
         });
-      });
-
-      return () => {
-        cancelAnimationFrame(rafId);
-        const timeoutId = scrollTimeoutRef.current;
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-      };
+      }, isStreaming ? 50 : 0); // Small delay for streaming to batch updates
     }
-  }, [messages, isStreaming, displayMessages.length]);
 
-  // Smooth scroll on streaming updates (throttled)
-  useEffect(() => {
-    if (!isStreaming || !containerRef.current || !messagesEndRef.current)
-      return;
-
-    // Throttle scroll updates during streaming
-    const scrollInterval = setInterval(() => {
-      if (containerRef.current && messagesEndRef.current) {
-        const container = containerRef.current;
-        const scrollTop = container.scrollTop;
-        const scrollHeight = container.scrollHeight;
-        const clientHeight = container.clientHeight;
-        const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
-
-        if (isNearBottom) {
-          messagesEndRef.current.scrollIntoView({
-            behavior: "smooth",
-            block: "end",
-          });
-        }
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
       }
-    }, 300); // Update every 300ms during streaming
+    };
+  }, [messages, isStreaming, displayMessages.length, currentContentLength]);
+
+  // Continuous scroll during streaming (more aggressive for smooth experience)
+  useEffect(() => {
+    if (!isStreaming || !containerRef.current || !messagesEndRef.current) {
+      return;
+    }
+
+    // More frequent updates during streaming for smoother experience
+    const scrollInterval = setInterval(() => {
+      if (!containerRef.current || !messagesEndRef.current) return;
+      
+      const container = containerRef.current;
+      const scrollTop = container.scrollTop;
+      const scrollHeight = container.scrollHeight;
+      const clientHeight = container.clientHeight;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      
+      // Only scroll if user is near bottom (within 200px) and not manually scrolling
+      if (distanceFromBottom < 200 && !isUserScrollingRef.current) {
+        requestAnimationFrame(() => {
+          if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({
+              behavior: "smooth",
+              block: "end",
+            });
+          }
+        });
+      }
+    }, 100); // Update every 100ms during streaming for smoother experience
 
     return () => clearInterval(scrollInterval);
   }, [isStreaming]);
@@ -108,7 +153,7 @@ export default function ChatWindow() {
       role="log"
       aria-label="Chat messages"
       style={{
-        scrollBehavior: isStreaming ? "smooth" : "auto",
+        scrollBehavior: "smooth",
       }}
     >
       {displayMessages.length === 0 && !isLoading ? (
@@ -178,6 +223,8 @@ export default function ChatWindow() {
               />
             </div>
           ))}
+          {/* Show thinking indicator when streaming */}
+          {isStreaming && <ThinkingIndicator />}
           {isStreaming && (
             <div
               className="flex gap-2 sm:gap-3 md:gap-4 mb-3 sm:mb-4 md:mb-6 message-enter px-1 sm:px-2"

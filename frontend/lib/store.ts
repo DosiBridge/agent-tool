@@ -50,7 +50,8 @@ interface AppState {
   messages: Message[];
   isLoading: boolean;
   isStreaming: boolean;
-  streamingStatus: "thinking" | "analyzing" | "answering" | null;
+  streamingStatus: "thinking" | "tool_calling" | "answering" | null;
+  activeTools: string[]; // Currently active tools being used
   streamingStartTime: number | null;
   mode: "agent" | "rag";
 
@@ -88,8 +89,10 @@ interface AppState {
   setLoading: (loading: boolean) => void;
   setStreaming: (streaming: boolean) => void;
   setStreamingStatus: (
-    status: "thinking" | "analyzing" | "answering" | null
+    status: "thinking" | "tool_calling" | "answering" | null
   ) => void;
+  addActiveTool: (tool: string) => void;
+  clearActiveTools: () => void;
   setStreamingStartTime: (time: number | null) => void;
   setMode: (mode: "agent" | "rag") => void;
   setUseReact: (useReact: boolean) => void;
@@ -124,6 +127,7 @@ export const useStore = create<AppState>((set, get) => ({
   isLoading: false,
   isStreaming: false,
   streamingStatus: null,
+  activeTools: [],
   streamingStartTime: null,
   mode: "agent", // Default to agent mode
   useReact: false,
@@ -369,20 +373,32 @@ export const useStore = create<AppState>((set, get) => ({
         isStreaming: streaming,
         streamingStartTime: Date.now(),
         streamingStatus: "thinking",
+        activeTools: [],
       });
     } else {
       set({
         isStreaming: streaming,
         streamingStatus: null,
+        activeTools: [],
         streamingStartTime: null,
       });
     }
   },
 
   setStreamingStatus: (
-    status: "thinking" | "analyzing" | "answering" | null
+    status: "thinking" | "tool_calling" | "answering" | null
   ) => {
     set({ streamingStatus: status });
+  },
+
+  addActiveTool: (tool: string) => {
+    set((state) => ({
+      activeTools: [...state.activeTools.filter((t) => t !== tool), tool],
+    }));
+  },
+
+  clearActiveTools: () => {
+    set({ activeTools: [] });
   },
 
   setStreamingStartTime: (time: number | null) => {
