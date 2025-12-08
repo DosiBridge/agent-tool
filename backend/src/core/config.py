@@ -142,7 +142,10 @@ class Config:
                             if config.get('type', '').lower() == 'gemini':
                                 config['api_key'] = os.getenv("GOOGLE_API_KEY")
                             elif config.get('type', '').lower() == 'openai':
-                                config['api_key'] = os.getenv("OPENAI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+                                # OPENAI_API_KEY is ONLY for embeddings, use OPENAI_LLM_API_KEY for LLM
+                                config['api_key'] = os.getenv("OPENAI_LLM_API_KEY")
+                            elif config.get('type', '').lower() == 'deepseek':
+                                config['api_key'] = os.getenv("DEEPSEEK_KEY")
                             elif config.get('type', '').lower() == 'groq':
                                 config['api_key'] = os.getenv("GROQ_API_KEY")
                             elif config.get('type', '').lower() == 'ollama':
@@ -162,7 +165,10 @@ class Config:
                                 if config.get('type', '').lower() == 'gemini':
                                     config['api_key'] = os.getenv("GOOGLE_API_KEY")
                                 elif config.get('type', '').lower() == 'openai':
-                                    config['api_key'] = os.getenv("OPENAI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+                                    # OPENAI_API_KEY is ONLY for embeddings, use OPENAI_LLM_API_KEY for LLM
+                                    config['api_key'] = os.getenv("OPENAI_LLM_API_KEY")
+                                elif config.get('type', '').lower() == 'deepseek':
+                                    config['api_key'] = os.getenv("DEEPSEEK_KEY")
                                 elif config.get('type', '').lower() == 'groq':
                                     config['api_key'] = os.getenv("GROQ_API_KEY")
                                 elif config.get('type', '').lower() == 'ollama':
@@ -173,22 +179,25 @@ class Config:
             except Exception as e:
                 print(f"⚠️  Failed to load LLM config from database: {e}")
         
-        # Fallback to OpenAI GPT from environment
-        openai_api_key = os.getenv("OPENAI_API_KEY")
+        # Fallback to DeepSeek from environment
+        # Note: OPENAI_API_KEY is ONLY for embeddings, not for LLM responses
+        deepseek_api_key = os.getenv("DEEPSEEK_KEY")
         default_config = {
-            "type": "openai",
-            "model": "gpt-4o",
-            "api_key": openai_api_key,  # Get from environment (may be None)
+            "type": "deepseek",
+            "model": "deepseek-chat",
+            "api_key": deepseek_api_key,  # Get from environment (may be None)
+            "api_base": "https://api.deepseek.com",
             "active": True
         }
         
         # Warn if API key is missing
         if not default_config["api_key"]:
-            print("⚠️  Warning: OPENAI_API_KEY not set. Please set it as an environment variable or configure in database")
-            print("   Set it with: export OPENAI_API_KEY='your-api-key'")
+            print("⚠️  Warning: DEEPSEEK_KEY not set. Please set it as an environment variable or configure in database")
+            print("   Set it with: export DEEPSEEK_KEY='your-api-key'")
             print("   Or configure it in the frontend Settings panel")
+            print("   Note: OPENAI_API_KEY is only used for embeddings, not for LLM responses")
         else:
-            print(f"📝 Using fallback LLM config: OpenAI GPT (gpt-4o) from environment")
+            print(f"📝 Using fallback LLM config: DeepSeek (deepseek-chat) from environment")
         
         return default_config
     

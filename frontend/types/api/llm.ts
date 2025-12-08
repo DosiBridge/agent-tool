@@ -3,7 +3,7 @@
  */
 
 export interface LLMConfig {
-  type: "openai" | "groq" | "ollama" | "gemini";
+  type: "openai" | "deepseek" | "groq" | "ollama" | "gemini";
   model: string;
   api_key?: string;
   base_url?: string;

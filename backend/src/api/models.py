@@ -65,11 +65,11 @@ class MCPServerRequest(BaseModel):
 
 
 class LLMConfigRequest(BaseModel):
-    type: Literal["openai", "groq", "ollama", "gemini"] = Field(..., description="LLM provider type")
+    type: Literal["openai", "deepseek", "groq", "ollama", "gemini"] = Field(..., description="LLM provider type")
     model: str = Field(..., min_length=1, max_length=100, description="Model name")
     api_key: Optional[str] = Field(None, max_length=500, description="API key for the LLM provider")
     base_url: Optional[str] = Field(None, max_length=500, description="Base URL (for Ollama)")
-    api_base: Optional[str] = Field(None, max_length=500, description="Custom API base (for OpenAI/Groq)")
+    api_base: Optional[str] = Field(None, max_length=500, description="Custom API base (for OpenAI/Groq/DeepSeek)")
     
     @validator('model')
     def validate_model(cls, v):

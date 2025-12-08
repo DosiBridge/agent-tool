@@ -45,25 +45,26 @@ def create_llm_from_config(config: dict, streaming: bool = False, temperature: f
     
     Supported types:
     - openai: OpenAI models (requires api_key and model)
+    - deepseek: DeepSeek models (requires api_key and model, uses OpenAI-compatible API)
     - groq: Groq models (requires api_key and model)
     - ollama: Local Ollama models (requires base_url and model)
     - gemini: Google Gemini models (requires api_key and model)
     
     Args:
         config: LLM configuration dictionary with keys:
-            - type: "openai", "groq", "ollama", or "gemini"
+            - type: "openai", "deepseek", "groq", "ollama", or "gemini"
             - model: Model name
-            - api_key: API key (for openai/groq/gemini)
+            - api_key: API key (for openai/deepseek/groq/gemini)
             - base_url: Base URL (for ollama, defaults to http://localhost:11434)
-            - api_base: Custom API base URL (optional, for openai/groq)
+            - api_base: Custom API base URL (optional, for openai/groq/deepseek)
         streaming: Whether to enable streaming
         temperature: Temperature for the model
         
     Returns:
         LLM instance (ChatOpenAI, ChatOllama, etc.)
     """
-    llm_type = config.get("type", "openai").lower()
-    model = config.get("model", "gpt-4o")
+    llm_type = config.get("type", "deepseek").lower()
+    model = config.get("model", "deepseek-chat")
     
     if llm_type == "ollama":
         # Local Ollama instance
@@ -86,6 +87,26 @@ def create_llm_from_config(config: dict, streaming: bool = False, temperature: f
                 f"Failed to connect to Ollama at {base_url}. "
                 f"Make sure Ollama is running. Error: {str(e)}"
             )
+    
+    elif llm_type == "deepseek":
+        # DeepSeek API (OpenAI-compatible)
+        api_key = config.get("api_key") or os.getenv("DEEPSEEK_KEY")
+        if not api_key:
+            raise ValueError(
+                "DeepSeek API key is required. "
+                "Please set DEEPSEEK_KEY environment variable or configure it in the database. "
+                "Get an API key from: https://platform.deepseek.com"
+            )
+        
+        # DeepSeek uses OpenAI-compatible API
+        api_base = config.get("api_base") or "https://api.deepseek.com"
+        return ChatOpenAI(
+            model=model or "deepseek-chat",
+            api_key=api_key,
+            base_url=api_base,
+            temperature=temperature,
+            streaming=streaming
+        )
     
     elif llm_type == "groq":
         # Groq API
@@ -169,15 +190,15 @@ def create_llm_from_config(config: dict, streaming: bool = False, temperature: f
                     f"- Internet connection is working"
                 )
     
-    else:  # Default to OpenAI
+    elif llm_type == "openai":
         # OpenAI API
         # Note: OPENAI_API_KEY from env is ONLY for embeddings (RAG), not for LLM model
-        # The LLM model API key must be set in the database config
-        api_key = config.get("api_key")
+        # The LLM model API key must be set in the database config or use OPENAI_LLM_API_KEY env var
+        api_key = config.get("api_key") or os.getenv("OPENAI_LLM_API_KEY")
         if not api_key:
             raise ValueError(
                 "OpenAI API key is required for the LLM model. "
-                "Please set it in the LLM configuration. "
+                "Please set it in the LLM configuration or set OPENAI_LLM_API_KEY environment variable. "
                 "Note: OPENAI_API_KEY environment variable is only used for embeddings (RAG), not for the LLM model."
             )
         
@@ -193,4 +214,23 @@ def create_llm_from_config(config: dict, streaming: bool = False, temperature: f
             kwargs["base_url"] = api_base
         
         return ChatOpenAI(**kwargs)
+    
+    else:  # Default to DeepSeek
+        # DeepSeek API (default fallback)
+        api_key = config.get("api_key") or os.getenv("DEEPSEEK_KEY")
+        if not api_key:
+            raise ValueError(
+                "DeepSeek API key is required. "
+                "Please set DEEPSEEK_KEY environment variable or configure it in the database. "
+                "Get an API key from: https://platform.deepseek.com"
+            )
+        
+        api_base = config.get("api_base") or "https://api.deepseek.com"
+        return ChatOpenAI(
+            model=model or "deepseek-chat",
+            api_key=api_key,
+            base_url=api_base,
+            temperature=temperature,
+            streaming=streaming
+        )
 

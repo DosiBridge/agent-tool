@@ -40,8 +40,10 @@ services:
       # CORS configuration - set CORS_ORIGINS environment variable to override
       CORS_ORIGINS: "http://localhost:8086,http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:8086"
       # API keys - set via environment variables
-      # OPENAI_API_KEY: Required for primary LLM model (gpt-4o) - auto-created on first connection
+      # OPENAI_API_KEY: Required for embeddings ONLY (RAG system) - NOT used for LLM responses
       OPENAI_API_KEY: ""
+      # DEEPSEEK_KEY: Required for agent and RAG responses (default LLM provider)
+      DEEPSEEK_KEY: ""
       GOOGLE_API_KEY: ""
       FIRECRAWL_API_KEY: ""
       # JWT Secret Key - set JWT_SECRET_KEY environment variable to override

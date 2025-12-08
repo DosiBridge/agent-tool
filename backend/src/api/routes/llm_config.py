@@ -67,7 +67,19 @@ async def set_llm_config(config: LLMConfigRequest, db: Session = Depends(get_db)
                 "api_key": config.api_key,
                 "active": True
             }
-        else:  # OpenAI or default
+        elif config.type.lower() == "deepseek":
+            if not config.model:
+                raise HTTPException(status_code=400, detail="Model name is required for DeepSeek")
+            if not config.api_key:
+                raise HTTPException(status_code=400, detail="API key is required for DeepSeek")
+            config_dict = {
+                "type": "deepseek",
+                "model": config.model,
+                "api_key": config.api_key,
+                "api_base": config.api_base or "https://api.deepseek.com",
+                "active": True
+            }
+        else:  # OpenAI
             if not config.model:
                 raise HTTPException(status_code=400, detail="Model name is required for OpenAI")
             if not config.api_key:
@@ -141,38 +153,39 @@ async def set_llm_config(config: LLMConfigRequest, db: Session = Depends(get_db)
 @router.post("/llm-config/reset")
 async def reset_llm_config(db: Session = Depends(get_db)):
     """
-    Reset LLM configuration to default OpenAI GPT settings (gpt-4o).
+    Reset LLM configuration to default DeepSeek settings (deepseek-chat).
     This always restores the default config with API key from environment.
     Previous configs are preserved but deactivated.
-    Note: This is the only way to restore the default config, but changing models is disabled.
+    Note: OPENAI_API_KEY is only used for embeddings, not for LLM responses.
     """
     try:
         # Deactivate all existing configs (they are preserved, just not active)
-        # This ensures the default OpenAI GPT config cannot be deleted
+        # This ensures the default DeepSeek config cannot be deleted
         db.query(LLMConfig).update({LLMConfig.active: False})
         
-        # Check if default OpenAI GPT config already exists
+        # Check if default DeepSeek config already exists
         existing_default = db.query(LLMConfig).filter(
-            LLMConfig.type == "openai",
-            LLMConfig.model == "gpt-4o"
+            LLMConfig.type == "deepseek",
+            LLMConfig.model == "deepseek-chat"
         ).first()
         
         if existing_default:
             # Reactivate the existing default config and update API key from env
-            openai_api_key = os.getenv("OPENAI_API_KEY")
+            deepseek_api_key = os.getenv("DEEPSEEK_KEY")
             existing_default.active = True
-            if openai_api_key:
-                existing_default.api_key = openai_api_key
+            if deepseek_api_key:
+                existing_default.api_key = deepseek_api_key
             db.commit()
             db.refresh(existing_default)
             default_config = existing_default
         else:
-            # Create new default OpenAI GPT config with API key from environment
-            openai_api_key = os.getenv("OPENAI_API_KEY")
+            # Create new default DeepSeek config with API key from environment
+            deepseek_api_key = os.getenv("DEEPSEEK_KEY")
             default_config = LLMConfig(
-                type="openai",
-                model="gpt-4o",
-                api_key=openai_api_key,  # Get from environment
+                type="deepseek",
+                model="deepseek-chat",
+                api_key=deepseek_api_key,  # Get from environment
+                api_base="https://api.deepseek.com",
                 active=True
             )
             db.add(default_config)
@@ -181,7 +194,7 @@ async def reset_llm_config(db: Session = Depends(get_db)):
         
         return {
             "status": "success",
-            "message": "LLM configuration reset to default OpenAI GPT settings (gpt-4o)",
+            "message": "LLM configuration reset to default DeepSeek settings (deepseek-chat)",
             "config": default_config.to_dict()
         }
     except Exception as e:

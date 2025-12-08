@@ -23,38 +23,40 @@ async def mcp_lifespan(app: FastAPI):
         init_db()
         print("✓ Database initialized")
         
-        # Ensure primary LLM model (gpt-4o) exists - always check and create if needed
+        # Ensure primary LLM model (DeepSeek) exists - always check and create if needed
+        # Note: OPENAI_API_KEY is ONLY for embeddings, not for LLM responses
         try:
             if DB_AVAILABLE:
-                openai_api_key = os.getenv("OPENAI_API_KEY")
+                deepseek_api_key = os.getenv("DEEPSEEK_KEY")
                 
                 with get_db_context() as db:
-                    # Check if primary gpt-4o config exists (system-wide, user_id is NULL)
+                    # Check if primary DeepSeek config exists (system-wide, user_id is NULL)
                     primary_config = db.query(LLMConfig).filter(
-                        LLMConfig.type == "openai",
-                        LLMConfig.model == "gpt-4o",
+                        LLMConfig.type == "deepseek",
+                        LLMConfig.model == "deepseek-chat",
                         LLMConfig.user_id == None  # System-wide config
                     ).first()
                     
                     if primary_config:
                         # Primary model exists - update API key from environment if provided
-                        if openai_api_key:
-                            primary_config.api_key = openai_api_key
+                        if deepseek_api_key:
+                            primary_config.api_key = deepseek_api_key
                         # Ensure it's active (primary model should always be available)
                         if not primary_config.active:
                             primary_config.active = True
-                            print("✓ Reactivated primary LLM model (gpt-4o)")
+                            print("✓ Reactivated primary LLM model (deepseek-chat)")
                         db.commit()
-                        if openai_api_key:
-                            print("✓ Primary LLM model (gpt-4o) exists and is active")
+                        if deepseek_api_key:
+                            print("✓ Primary LLM model (deepseek-chat) exists and is active")
                         else:
-                            print("⚠️  Primary LLM model (gpt-4o) exists, but OPENAI_API_KEY is not set in environment")
+                            print("⚠️  Primary LLM model (deepseek-chat) exists, but DEEPSEEK_KEY is not set in environment")
                     else:
                         # Primary model doesn't exist - create it (system-wide, no user_id)
                         primary_config = LLMConfig(
-                            type="openai",
-                            model="gpt-4o",
-                            api_key=openai_api_key,  # Get from environment (may be None)
+                            type="deepseek",
+                            model="deepseek-chat",
+                            api_key=deepseek_api_key,  # Get from environment (may be None)
+                            api_base="https://api.deepseek.com",
                             active=True,
                             user_id=None  # System-wide config, no user_id
                         )
@@ -68,17 +70,18 @@ async def mcp_lifespan(app: FastAPI):
                             print("   Attempting to fix database schema...")
                             # The init_db() migration should handle this, but if it didn't, we'll skip
                             raise
-                        if openai_api_key:
-                            print("✓ Created primary LLM model (gpt-4o) with API key from environment")
+                        if deepseek_api_key:
+                            print("✓ Created primary LLM model (deepseek-chat) with API key from environment")
                         else:
-                            print("⚠️  Created primary LLM model (gpt-4o), but OPENAI_API_KEY is not set in environment")
-                            print("   Please set OPENAI_API_KEY environment variable or configure API key in settings")
+                            print("⚠️  Created primary LLM model (deepseek-chat), but DEEPSEEK_KEY is not set in environment")
+                            print("   Please set DEEPSEEK_KEY environment variable or configure API key in settings")
+                            print("   Note: OPENAI_API_KEY is only used for embeddings, not for LLM responses")
                     
                     # Ensure primary model is the only active one (deactivate others if primary exists)
                     other_active = db.query(LLMConfig).filter(
                         LLMConfig.active == True
                     ).filter(
-                        not_(and_(LLMConfig.type == "openai", LLMConfig.model == "gpt-4o"))
+                        not_(and_(LLMConfig.type == "deepseek", LLMConfig.model == "deepseek-chat"))
                     ).all()
                     
                     if other_active and primary_config:
@@ -86,9 +89,9 @@ async def mcp_lifespan(app: FastAPI):
                             config.active = False
                         db.commit()
                         if other_active:
-                            print(f"✓ Deactivated {len(other_active)} other LLM config(s) - gpt-4o is now primary")
+                            print(f"✓ Deactivated {len(other_active)} other LLM config(s) - deepseek-chat is now primary")
         except Exception as e:
-            print(f"⚠️  Could not ensure primary LLM model (gpt-4o) exists: {e}")
+            print(f"⚠️  Could not ensure primary LLM model (deepseek-chat) exists: {e}")
             import traceback
             traceback.print_exc()
     except Exception as e:

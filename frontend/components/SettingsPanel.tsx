@@ -465,6 +465,7 @@ export default function SettingsPanel({
     if (llmConfig) {
       const allowedTypes = [
         "openai",
+        "deepseek",
         "groq",
         "ollama",
         "gemini",
@@ -738,6 +739,7 @@ export default function SettingsPanel({
     }
     if (
       (llmForm.type === "openai" ||
+        llmForm.type === "deepseek" ||
         llmForm.type === "groq" ||
         llmForm.type === "gemini") &&
       !llmForm.api_key?.trim()
@@ -761,21 +763,22 @@ export default function SettingsPanel({
   const handleResetLLMConfig = async () => {
     if (
       !confirm(
-        "Reset LLM configuration to default OpenAI GPT settings? This will replace your current configuration."
+        "Reset LLM configuration to default DeepSeek settings? This will replace your current configuration."
       )
     ) {
       return;
     }
     try {
       await resetLLMConfig();
-      toast.success("LLM configuration reset to default OpenAI GPT");
+      toast.success("LLM configuration reset to default DeepSeek");
       loadLLMConfig();
       // Update form to show default values
       setLlmForm({
-        type: "openai",
-        model: "gpt-4o",
+        type: "deepseek",
+        model: "deepseek-chat",
         api_key: "",
         base_url: "",
+        api_base: "https://api.deepseek.com",
       });
     } catch (error) {
       toast.error(
@@ -1515,7 +1518,7 @@ export default function SettingsPanel({
                             <div className="space-y-4 sm:space-y-5 md:space-y-6">
                                 <div className="bg-[var(--surface-elevated)] rounded-lg p-4 sm:p-5 border border-[var(--border)]">
                                     <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 text-[var(--text-primary)]">LLM Configuration</h3>
-                                    <p className="text-[var(--text-secondary)]">LLM configuration is disabled. The system uses a fixed OpenAI GPT (gpt-4o) configuration.</p>
+                                    <p className="text-[var(--text-secondary)]">LLM configuration is disabled. The system uses a fixed DeepSeek (deepseek-chat) configuration.</p>
                                 </div>
                             </div>
                         )} */}
