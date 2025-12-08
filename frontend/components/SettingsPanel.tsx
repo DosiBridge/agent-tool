@@ -560,7 +560,7 @@ export default function SettingsPanel({
 
       const suggestions = modelSuggestions[type] || [];
       const currentModel = llmConfig.model || "";
-      const isCustomModel = currentModel && !suggestions.includes(currentModel);
+      const isCustomModel = Boolean(currentModel && !suggestions.includes(currentModel));
 
       const t = setTimeout(() => {
         setLlmForm({
@@ -916,7 +916,7 @@ export default function SettingsPanel({
       // Test passed (or passed with rate limit warning), now save to database
       // If there's a warning about rate limits, show it but allow saving
       if (testResult.message && testResult.message.includes("rate limit") || testResult.message.includes("quota")) {
-        toast.warning(testResult.message);
+        toast(testResult.message, { icon: "⚠️" });
       } else {
         toast.success("LLM configuration tested successfully");
       }

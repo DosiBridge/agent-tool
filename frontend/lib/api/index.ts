@@ -13,11 +13,22 @@ export * from "./chat";
 export * from "./client";
 export * from "./documents";
 export * from "./health";
-export * from "./llm";
 export * from "./mcp";
 export * from "./monitoring";
 export * from "./sessions";
 export * from "./tools";
+
+// Re-export LLM API (excluding types that might conflict)
+export {
+  listLLMConfigs,
+  getLLMConfig,
+  setLLMConfig,
+  resetLLMConfig,
+  deleteLLMConfig,
+  switchLLMConfig,
+  testLLMConfig,
+  type LLMConfigListItem,
+} from "./llm";
 
 // Re-export types for convenience
 export * from "@/types/api";

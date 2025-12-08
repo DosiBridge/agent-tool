@@ -875,7 +875,7 @@ export default function MonitoringPage() {
                         cursor={{ strokeDasharray: "3 3" }}
                         content={<ChartTooltipContent />}
                       />
-                      <ChartLegend content={<ChartLegendContent />} />
+                      <ChartLegend content={(props: any) => <ChartLegendContent {...props} />} />
                       <Line
                         type="natural"
                         dataKey="input"
@@ -1054,7 +1054,7 @@ export default function MonitoringPage() {
                         cursor={{ strokeDasharray: "3 3" }}
                         content={<ChartTooltipContent />}
                       />
-                      <ChartLegend content={<ChartLegendContent />} />
+                      <ChartLegend content={(props: any) => <ChartLegendContent {...props} />} />
                       <Line
                         yAxisId="left"
                         type="natural"
@@ -1144,7 +1144,7 @@ export default function MonitoringPage() {
                         cursor={{ strokeDasharray: "3 3" }}
                         content={<ChartTooltipContent />}
                       />
-                      <ChartLegend content={<ChartLegendContent />} />
+                      <ChartLegend content={(props: any) => <ChartLegendContent {...props} />} />
                       <Line
                         type="linear"
                         dataKey="avgTokensPerRequest"
@@ -1260,7 +1260,7 @@ export default function MonitoringPage() {
                         cursor={{ strokeDasharray: "3 3" }}
                         content={<ChartTooltipContent />}
                       />
-                      <ChartLegend content={<ChartLegendContent />} />
+                      <ChartLegend content={(props: any) => <ChartLegendContent {...props} />} />
                       <Line
                         type="natural"
                         dataKey="valid"
@@ -1596,7 +1596,7 @@ export default function MonitoringPage() {
                   cursor={{ strokeDasharray: "3 3" }}
                   content={<ChartTooltipContent />}
                 />
-                <ChartLegend content={<ChartLegendContent />} />
+                <ChartLegend content={(props: any) => <ChartLegendContent {...props} />} />
                       <Line
                         yAxisId="left"
                         type="natural"

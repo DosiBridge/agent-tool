@@ -44,7 +44,7 @@ services:
       OPENAI_API_KEY: ""
       # DEEPSEEK_KEY: Required for agent and RAG responses (default LLM provider)
       DEEPSEEK_KEY: ""
-      GOOGLE_API_KEY: ""
+      
       FIRECRAWL_API_KEY: ""
       # JWT Secret Key - set JWT_SECRET_KEY environment variable to override
       JWT_SECRET_KEY: "your-secret-key-change-in-production-use-strong-random-key"

@@ -110,7 +110,7 @@ interface AppState {
   loadMCPServers: () => Promise<void>;
   loadLLMConfig: () => Promise<void>;
   loadHealth: () => Promise<void>;
-  setHealth: (health: HealthStatus) => void;
+  setHealth: (health: HealthStatus | null) => void;
   setSettingsOpen: (open: boolean) => void;
 }
 
@@ -594,7 +594,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  setHealth: (health: HealthStatus) => {
+  setHealth: (health: HealthStatus | null) => {
     set({ health });
   },
 
