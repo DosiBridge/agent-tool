@@ -119,7 +119,7 @@ export default function CodeBlock({
       </div>
       {/* Shiki highlighted code */}
       <div
-        className="shiki-code-block rounded-b-lg text-xs sm:text-sm mt-0 overflow-x-auto border border-t-0 border-[var(--code-border)]"
+        className="shiki-code-block rounded-b-lg text-xs sm:text-sm mt-0 overflow-x-auto"
         dangerouslySetInnerHTML={{ __html: highlightedCode }}
       />
     </div>

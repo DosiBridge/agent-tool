@@ -580,12 +580,14 @@ button {
 /* Shiki code block styling */
 .shiki-code-block {
   border-radius: 0 0 0.5rem 0.5rem;
-  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-top: none;
+  overflow: hidden;
 }
 
 .shiki-code-block pre {
   margin: 0 !important;
-  padding: 1rem !important;
+  padding: 0 !important;
   background: transparent !important;
   border: none !important;
   border-radius: 0 !important;
@@ -609,7 +611,8 @@ button {
   padding: 1rem !important;
   background: transparent !important;
   overflow-x: auto;
-  border-radius: 0 0 0.5rem 0.5rem;
+  border-radius: 0 !important;
+  display: block;
 }
 
 .shiki-code-block .shiki code {
@@ -623,11 +626,7 @@ button {
   font-size: inherit !important;
   line-height: 1.6 !important;
   color: inherit !important;
-}
-
-/* Shiki syntax highlighting colors - ensure proper contrast */
-.shiki-code-block .shiki span {
-  color: inherit;
+  white-space: pre;
 }
 
 /* Dark mode adjustments for Shiki */
