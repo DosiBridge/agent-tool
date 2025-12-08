@@ -23,6 +23,7 @@ async def test_llm_config(config_dict: dict) -> tuple[bool, str]:
         
     Returns:
         Tuple of (success: bool, message: str)
+        Note: Returns True for rate limit/quota errors since the API key is valid
     """
     try:
         # Create LLM instance
@@ -48,20 +49,67 @@ async def test_llm_config(config_dict: dict) -> tuple[bool, str]:
     except ImportError as e:
         return False, f"Missing required package: {str(e)}"
     except ValueError as e:
+        # ValueError can be raised by llm_factory for quota errors
+        error_msg = str(e).lower()
+        rate_limit_indicators = [
+            "rate limit",
+            "quota exceeded",
+            "429",
+            "quota",
+            "billing",
+            "plan and billing",
+            "resource_exhausted"
+        ]
+        
+        # Check if it's a rate limit/quota error
+        is_rate_limit_error = any(indicator in error_msg for indicator in rate_limit_indicators)
+        
+        if is_rate_limit_error:
+            # For rate limit errors, return success with a warning message
+            # The API key is valid, just the account has hit limits
+            original_error = str(e)
+            return True, f"API key appears valid but account has rate limit/quota issues: {original_error}. You can still save this configuration and use it later when limits reset."
+        
+        # For other ValueError, return failure
         return False, str(e)
     except Exception as e:
-        error_msg = str(e)
-        # Provide more helpful error messages
-        if "API key" in error_msg.lower() or "authentication" in error_msg.lower() or "401" in error_msg or "403" in error_msg:
-            return False, f"Invalid API key or authentication failed: {error_msg[:200]}"
-        elif "model" in error_msg.lower() and ("not found" in error_msg.lower() or "invalid" in error_msg.lower() or "404" in error_msg):
-            return False, f"Invalid model name: {error_msg[:200]}"
-        elif "connection" in error_msg.lower() or "timeout" in error_msg.lower() or "refused" in error_msg.lower():
-            return False, f"Connection error: {error_msg[:200]}"
-        elif "quota" in error_msg.lower() or "429" in error_msg or "rate limit" in error_msg.lower():
-            return False, f"Rate limit or quota exceeded: {error_msg[:200]}"
+        error_msg = str(e).lower()
+        
+        # Check for rate limit or quota errors - these mean the API key is valid
+        # but the account has exceeded limits. We should allow saving the config.
+        rate_limit_indicators = [
+            "rate limit",
+            "quota exceeded",
+            "429",
+            "quota",
+            "billing",
+            "plan and billing",
+            "resource_exhausted"
+        ]
+        
+        # Check if it's a rate limit/quota error
+        is_rate_limit_error = any(indicator in error_msg for indicator in rate_limit_indicators)
+        
+        if is_rate_limit_error:
+            # For rate limit errors, return success with a warning message
+            # The API key is valid, just the account has hit limits
+            original_error = str(e)
+            return True, f"API key appears valid but account has rate limit/quota issues: {original_error}. You can still save this configuration and use it later when limits reset."
+        
+        # For other errors, return failure with helpful messages
+        if "API key" in error_msg or "authentication" in error_msg or "401" in error_msg or "403" in error_msg:
+            return False, f"Invalid API key or authentication failed: {str(e)[:200]}"
+        elif "not found" in error_msg or "NotFound" in error_msg or "404" in error_msg:
+            # Model not available - provide helpful suggestions
+            if "gemini" in error_msg.lower():
+                return False, f"Gemini model not available: {str(e)[:300]}. Try using 'gemini-1.5-pro' or 'gemini-pro' instead."
+            return False, f"Model not found or not available: {str(e)[:300]}"
+        elif "model" in error_msg and ("invalid" in error_msg):
+            return False, f"Invalid model name: {str(e)[:200]}"
+        elif "connection" in error_msg or "timeout" in error_msg or "refused" in error_msg:
+            return False, f"Connection error: {str(e)[:200]}"
         else:
-            return False, f"Test failed: {error_msg[:200]}"
+            return False, f"Test failed: {str(e)[:200]}"
 
 
 @router.get("/llm-config")
@@ -421,4 +469,264 @@ async def reset_llm_config(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to reset LLM configuration: {str(e)}")
+
+
+@router.get("/llm-config/list")
+async def list_llm_configs(
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List all LLM configurations for the authenticated user.
+    Shows all saved configurations including inactive ones.
+    Always ensures default DeepSeek config is shown (creates it if missing).
+    """
+    try:
+        user_id = current_user.id if current_user else None
+        
+        # Get all configs for this user
+        configs = db.query(LLMConfig).filter(LLMConfig.user_id == user_id).order_by(
+            LLMConfig.active.desc(),
+            LLMConfig.created_at.desc()
+        ).all()
+        
+        # Check if active default DeepSeek exists
+        has_active_default = any(
+            config.active and config.is_default and config.type == "deepseek" 
+            for config in configs
+        )
+        
+        # If no active default DeepSeek, load config to ensure it's created in DB
+        if not has_active_default and user_id is not None:
+            from src.core import Config
+            # This will auto-create default DeepSeek config in database if missing
+            current_config = Config.load_llm_config(db=db, user_id=user_id)
+            
+            # Refresh configs list after potential creation
+            configs = db.query(LLMConfig).filter(LLMConfig.user_id == user_id).order_by(
+                LLMConfig.active.desc(),
+                LLMConfig.created_at.desc()
+            ).all()
+        
+        return {
+            "status": "success",
+            "configs": [config.to_dict(include_api_key=False) for config in configs]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list LLM configurations: {str(e)}")
+
+
+@router.put("/llm-config/{config_id}")
+async def update_llm_config(
+    config_id: int,
+    config: LLMConfigRequest,
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update an existing LLM configuration.
+    """
+    try:
+        user_id = current_user.id if current_user else None
+        
+        # Find the config
+        llm_config = db.query(LLMConfig).filter(
+            LLMConfig.id == config_id,
+            LLMConfig.user_id == user_id
+        ).first()
+        
+        if not llm_config:
+            raise HTTPException(status_code=404, detail="LLM configuration not found")
+        
+        # Use existing config values as defaults if not provided
+        update_type = (config.type or llm_config.type).lower()
+        update_model = config.model or llm_config.model
+        update_api_key = config.api_key if config.api_key is not None else llm_config.api_key
+        update_base_url = config.base_url if config.base_url is not None else llm_config.base_url
+        update_api_base = config.api_base if config.api_base is not None else llm_config.api_base
+        
+        # Build config dict for testing (use updated values)
+        if update_type == "ollama":
+            config_dict = {
+                "type": "ollama",
+                "model": update_model,
+                "base_url": update_base_url or "http://localhost:11434",
+            }
+        elif update_type == "gemini":
+            if not update_model:
+                raise HTTPException(status_code=400, detail="Model name is required for Gemini")
+            if not update_api_key:
+                raise HTTPException(status_code=400, detail="API key is required for Gemini")
+            config_dict = {
+                "type": "gemini",
+                "model": update_model,
+                "api_key": update_api_key,
+            }
+        elif update_type == "groq":
+            if not update_model:
+                raise HTTPException(status_code=400, detail="Model name is required for Groq")
+            if not update_api_key:
+                raise HTTPException(status_code=400, detail="API key is required for Groq")
+            config_dict = {
+                "type": "groq",
+                "model": update_model,
+                "api_key": update_api_key,
+            }
+        elif update_type == "deepseek":
+            if not update_model:
+                raise HTTPException(status_code=400, detail="Model name is required for DeepSeek")
+            if not update_api_key:
+                raise HTTPException(status_code=400, detail="API key is required for DeepSeek")
+            config_dict = {
+                "type": "deepseek",
+                "model": update_model,
+                "api_key": update_api_key,
+                "api_base": update_api_base or "https://api.deepseek.com",
+            }
+        elif update_type == "openrouter":
+            if not update_model:
+                raise HTTPException(status_code=400, detail="Model name is required for OpenRouter")
+            if not update_api_key:
+                raise HTTPException(status_code=400, detail="API key is required for OpenRouter")
+            if "/" not in update_model:
+                raise HTTPException(
+                    status_code=400,
+                    detail="OpenRouter model names must be in format 'provider/model'"
+                )
+            config_dict = {
+                "type": "openrouter",
+                "model": update_model,
+                "api_key": update_api_key,
+                "api_base": update_api_base or "https://openrouter.ai/api/v1",
+            }
+        else:  # OpenAI
+            if not update_model:
+                raise HTTPException(status_code=400, detail="Model name is required for OpenAI")
+            if not update_api_key:
+                raise HTTPException(status_code=400, detail="API key is required for OpenAI")
+            config_dict = {
+                "type": "openai",
+                "model": update_model,
+                "api_key": update_api_key,
+            }
+            if update_api_base:
+                config_dict["api_base"] = update_api_base
+        
+        # Test the configuration if API key or model changed
+        if (config.api_key is not None and config.api_key != llm_config.api_key) or (config.model and config.model != llm_config.model):
+            test_success, test_message = await test_llm_config(config_dict)
+            if not test_success:
+                raise HTTPException(status_code=400, detail=f"LLM configuration test failed: {test_message}")
+        
+        # Update the config with new values
+        llm_config.type = update_type
+        llm_config.model = update_model
+        if config.api_key is not None:
+            llm_config.api_key = update_api_key
+        if config.base_url is not None:
+            llm_config.base_url = update_base_url
+        if config.api_base is not None:
+            llm_config.api_base = update_api_base
+        
+        db.commit()
+        db.refresh(llm_config)
+        
+        return {
+            "status": "success",
+            "message": "LLM configuration updated successfully",
+            "config": llm_config.to_dict()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update LLM configuration: {str(e)}")
+
+
+@router.delete("/llm-config/{config_id}")
+async def delete_llm_config(
+    config_id: int,
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an LLM configuration.
+    Cannot delete the active configuration - must switch first.
+    """
+    try:
+        user_id = current_user.id if current_user else None
+        
+        # Find the config
+        llm_config = db.query(LLMConfig).filter(
+            LLMConfig.id == config_id,
+            LLMConfig.user_id == user_id
+        ).first()
+        
+        if not llm_config:
+            raise HTTPException(status_code=404, detail="LLM configuration not found")
+        
+        # Prevent deleting active config
+        if llm_config.active:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete active configuration. Please switch to another LLM first."
+            )
+        
+        db.delete(llm_config)
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "LLM configuration deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete LLM configuration: {str(e)}")
+
+
+@router.post("/llm-config/{config_id}/switch")
+async def switch_llm_config(
+    config_id: int,
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Switch to/activate a specific LLM configuration.
+    Deactivates all other configs and activates the selected one.
+    """
+    try:
+        user_id = current_user.id if current_user else None
+        
+        # Find the config
+        llm_config = db.query(LLMConfig).filter(
+            LLMConfig.id == config_id,
+            LLMConfig.user_id == user_id
+        ).first()
+        
+        if not llm_config:
+            raise HTTPException(status_code=404, detail="LLM configuration not found")
+        
+        # Deactivate all user configs
+        if user_id:
+            db.query(LLMConfig).filter(LLMConfig.user_id == user_id).update({LLMConfig.active: False})
+        else:
+            db.query(LLMConfig).filter(LLMConfig.user_id.is_(None)).update({LLMConfig.active: False})
+        
+        # Activate the selected config
+        llm_config.active = True
+        db.commit()
+        db.refresh(llm_config)
+        
+        return {
+            "status": "success",
+            "message": f"Switched to {llm_config.type} - {llm_config.model}",
+            "config": llm_config.to_dict()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to switch LLM configuration: {str(e)}")
 

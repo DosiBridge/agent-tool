@@ -17,6 +17,7 @@ from src.services.tools import retrieve_dosiblog_context, load_custom_rag_tools,
 from src.services.advanced_rag import advanced_rag_system
 from src.services.react_agent import create_react_agent
 from src.utils import sanitize_tools_for_gemini
+from src.utils.utils import extract_token_usage, estimate_tokens
 from src.core.constants import CHAT_MODE_AGENT, CHAT_MODE_RAG
 
 
@@ -82,6 +83,17 @@ class ChatService:
             
             answer = result["answer"]
             tools_used = [call["name"] for call in result.get("tool_calls", [])]
+            
+            # Extract token usage from result if available
+            input_tokens = result.get("token_usage", {}).get("input_tokens", 0)
+            output_tokens = result.get("token_usage", {}).get("output_tokens", 0)
+            embedding_tokens = result.get("token_usage", {}).get("embedding_tokens", 0)
+            
+            # Fallback to estimation if not available
+            if input_tokens == 0 and output_tokens == 0:
+                input_text = message
+                input_tokens = estimate_tokens(input_text)
+                output_tokens = estimate_tokens(answer)
         else:
             # Use advanced RAG with retrieval
             if user_id:
@@ -148,11 +160,23 @@ class ChatService:
                 ("human", "{input}"),
             ])
             
-            answer = llm.invoke(prompt.format(
+            response = llm.invoke(prompt.format(
                 context=context,
                 chat_history=history,
                 input=message
-            )).content
+            ))
+            
+            answer = response.content if hasattr(response, 'content') else str(response)
+            
+            # Extract token usage from response
+            input_tokens, output_tokens, embedding_tokens = extract_token_usage(response)
+            
+            # Fallback to estimation if no token usage available
+            if input_tokens == 0 and output_tokens == 0:
+                # Estimate based on input message and context
+                input_text = f"{message} {context}"
+                input_tokens = estimate_tokens(input_text)
+                output_tokens = estimate_tokens(answer)
             
             # Save to history
             session_history.add_user_message(HumanMessage(content=message))
@@ -164,7 +188,12 @@ class ChatService:
             "response": answer,
             "session_id": session_id,
             "mode": CHAT_MODE_RAG,
-            "tools_used": tools_used
+            "tools_used": tools_used,
+            "token_usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "embedding_tokens": embedding_tokens
+            }
         }
     
     @staticmethod
@@ -206,15 +235,28 @@ class ChatService:
             
             # Run agent
             final_answer = ""
+            last_ai_message = None
             async for event in agent.astream({"messages": messages}, stream_mode="values"):
                 last_msg = event["messages"][-1]
                 
                 if isinstance(last_msg, AIMessage):
+                    last_ai_message = last_msg
                     if getattr(last_msg, "tool_calls", None):
                         for call in last_msg.tool_calls:
                             tools_used.append(call['name'])
                     else:
                         final_answer = ChatService._extract_content(last_msg.content)
+            
+            # Extract token usage from last AI message
+            input_tokens, output_tokens, embedding_tokens = 0, 0, 0
+            if last_ai_message:
+                input_tokens, output_tokens, embedding_tokens = extract_token_usage(last_ai_message)
+            
+            # Fallback to estimation if no token usage available
+            if input_tokens == 0 and output_tokens == 0:
+                input_text = message
+                input_tokens = estimate_tokens(input_text)
+                output_tokens = estimate_tokens(final_answer)
             
             # Save to history
             session_history.add_user_message(HumanMessage(content=message))
@@ -224,7 +266,12 @@ class ChatService:
                 "response": final_answer,
                 "session_id": session_id,
                 "mode": CHAT_MODE_AGENT,
-                "tools_used": tools_used
+                "tools_used": tools_used,
+                "token_usage": {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "embedding_tokens": embedding_tokens
+                }
             }
     
     @staticmethod
@@ -279,12 +326,23 @@ class ChatService:
             ("human", "{input}"),
         ])
         
-        answer = llm.invoke(prompt.format(
+        response = llm.invoke(prompt.format(
             tools_context=tools_context,
             context=context,
             chat_history=history,
             input=message
-        )).content
+        ))
+        
+        answer = response.content if hasattr(response, 'content') else str(response)
+        
+        # Extract token usage from response
+        input_tokens, output_tokens, embedding_tokens = extract_token_usage(response)
+        
+        # Fallback to estimation if no token usage available
+        if input_tokens == 0 and output_tokens == 0:
+            input_text = f"{message} {context} {tools_context}"
+            input_tokens = estimate_tokens(input_text)
+            output_tokens = estimate_tokens(answer)
         
         # Save to history
         session_history.add_user_message(HumanMessage(content=message))
@@ -294,7 +352,12 @@ class ChatService:
             "response": answer,
             "session_id": session_id,
             "mode": CHAT_MODE_AGENT,
-            "tools_used": []
+            "tools_used": [],
+            "token_usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "embedding_tokens": embedding_tokens
+            }
         }
     
     @staticmethod

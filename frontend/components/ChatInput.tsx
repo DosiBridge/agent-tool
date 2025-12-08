@@ -242,23 +242,28 @@ export default function ChatInput() {
       return;
     }
 
-    // Check daily limit for authenticated users
+    // Check daily limit only for authenticated users using default LLM
     if (isAuthenticated) {
       try {
         const todayUsage = await getTodayUsage();
-        if (!todayUsage.is_allowed) {
-          toast.error(
-            `Daily limit reached! You have used ${todayUsage.request_count}/${todayUsage.limit} requests today. Please try again tomorrow.`,
-            { duration: 6000 }
-          );
-          return;
+        // Only show warnings/alerts if using default LLM (is_default_llm = true)
+        // Users with custom API keys have unlimited requests
+        if (todayUsage.is_default_llm) {
+          if (!todayUsage.is_allowed) {
+            toast.error(
+              `Daily limit reached! You have used ${todayUsage.request_count}/${todayUsage.limit} requests today. Please try again tomorrow or add your own API key for unlimited requests.`,
+              { duration: 6000 }
+            );
+            return;
+          }
+          if (todayUsage.remaining <= 10 && todayUsage.remaining > 0) {
+            toast(
+              `Warning: Only ${todayUsage.remaining} requests remaining today (${todayUsage.request_count}/${todayUsage.limit} used). Add your own API key for unlimited requests.`,
+              { duration: 4000, icon: "⚠️" }
+            );
+          }
         }
-        if (todayUsage.remaining <= 10) {
-          toast(
-            `Warning: Only ${todayUsage.remaining} requests remaining today (${todayUsage.request_count}/${todayUsage.limit} used)`,
-            { duration: 4000, icon: "⚠️" }
-          );
-        }
+        // If using custom API key (is_default_llm = false), no limit checks needed
       } catch (error) {
         // If usage check fails, allow the request (don't block on error)
         console.warn("Failed to check daily limit:", error);

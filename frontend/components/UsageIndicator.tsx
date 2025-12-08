@@ -41,6 +41,12 @@ export default function UsageIndicator() {
     return null;
   }
 
+  // Only show usage indicator if using default LLM
+  // Users with custom API keys have unlimited requests, so no need to show limit
+  if (!usage.is_default_llm) {
+    return null;
+  }
+
   const percentage = Math.round((usage.request_count / usage.limit) * 100);
   const isNearLimit = usage.request_count >= usage.limit * 0.8;
   const isExceeded = !usage.is_allowed;

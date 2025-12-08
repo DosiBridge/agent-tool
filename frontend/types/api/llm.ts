@@ -20,4 +20,14 @@ export interface LLMConfigResponse {
   is_default?: boolean;
   id?: number;
   user_id?: number;
+  active?: boolean;
+}
+
+export interface LLMConfigListItem extends LLMConfigResponse {
+  id: number;
+  user_id?: number;
+  active: boolean;
+  is_default: boolean;
+  created_at?: string;
+  updated_at?: string;
 }

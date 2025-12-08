@@ -20,6 +20,7 @@ import {
   deleteCollection,
   deleteCustomRAGTool,
   deleteDocument,
+  deleteLLMConfig,
   deleteMCPServer,
   getDocumentsNeedingReview,
   getReviewStatistics,
@@ -27,9 +28,11 @@ import {
   listCollections,
   listCustomRAGTools,
   listDocuments,
+  listLLMConfigs,
   rejectDocument,
   resetLLMConfig,
   setLLMConfig,
+  switchLLMConfig,
   testLLMConfig,
   testMCPServerConnection,
   toggleCustomRAGTool,
@@ -52,6 +55,7 @@ import {
   Loader2,
   Lock,
   Plus,
+  Power,
   Save,
   Server,
   Settings,
@@ -133,6 +137,7 @@ export default function SettingsPanel({
     total: 0,
   });
   const [isUploading, setIsUploading] = useState(false);
+  const [llmConfigs, setLlmConfigs] = useState<any[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [newCollectionDesc, setNewCollectionDesc] = useState("");
@@ -202,10 +207,10 @@ export default function SettingsPanel({
       "llama-3.2-3b-preview",
     ],
     gemini: [
-      "gemini-2.0-flash-exp",
       "gemini-1.5-pro",
-      "gemini-1.5-flash",
       "gemini-pro",
+      "gemini-1.5-flash",
+      "gemini-2.0-flash-exp",
       "gemini-2.5-flash",
       "gemini-2.5-pro",
     ],
@@ -289,6 +294,17 @@ export default function SettingsPanel({
     }
   }, [isAuthenticated]);
 
+  const loadLLMConfigsList = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const result = await listLLMConfigs();
+      setLlmConfigs(result.configs);
+    } catch (err) {
+      console.error("Failed to load LLM configs:", err);
+      setLlmConfigs([]);
+    }
+  }, [isAuthenticated]);
+
   // Compute currentCollectionId early
   const currentCollectionId = propSelectedCollectionId ?? selectedCollectionId;
   const currentUseReact = propUseReact ?? useReact;
@@ -299,6 +315,7 @@ export default function SettingsPanel({
         try {
           await loadMCPServers();
           await loadLLMConfig();
+          await loadLLMConfigsList();
           await loadToolsInfo();
           await loadCustomRAGTools();
           await loadCollections();
@@ -311,6 +328,7 @@ export default function SettingsPanel({
     isOpen,
     loadMCPServers,
     loadLLMConfig,
+    loadLLMConfigsList,
     loadToolsInfo,
     loadCustomRAGTools,
     loadCollections,
@@ -879,10 +897,17 @@ export default function SettingsPanel({
         return;
       }
       
-      // Test passed, now save to database
+      // Test passed (or passed with rate limit warning), now save to database
+      // If there's a warning about rate limits, show it but allow saving
+      if (testResult.message && testResult.message.includes("rate limit") || testResult.message.includes("quota")) {
+        toast.warning(testResult.message);
+      } else {
+        toast.success("LLM configuration tested successfully");
+      }
+      
       await setLLMConfig(llmForm);
-      toast.success("LLM configuration tested and saved successfully");
-      setLlmTestStatus({ valid: true, message: "Configuration saved successfully" });
+      toast.success("LLM configuration saved successfully");
+      setLlmTestStatus({ valid: true, message: testResult.message || "Configuration saved successfully" });
       loadLLMConfig();
       // Reset custom input if model is in suggestions
       const suggestions = modelSuggestions[llmForm.type] || [];
@@ -2024,41 +2049,121 @@ export default function SettingsPanel({
                   </div>
                 </div>
 
-                {/* Current Configuration Display */}
-                {llmConfig && (
-                  <div className="bg-gradient-to-br from-[var(--surface-elevated)] to-[var(--surface)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
-                    <h4 className="text-sm sm:text-base font-semibold text-[var(--text-primary)] mb-3">
-                      Current Configuration
-                    </h4>
-                    <div className="space-y-2 text-xs sm:text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-[var(--text-secondary)]">Provider:</span>
-                        <span className="text-[var(--text-primary)] font-medium">
-                          {llmConfig.type}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-[var(--text-secondary)]">Model:</span>
-                        <span className="text-[var(--text-primary)] font-medium">
-                          {llmConfig.model}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-[var(--text-secondary)]">API Key:</span>
-                        <span className="text-[var(--text-primary)] font-medium">
-                          {llmConfig.has_api_key ? "✓ Configured" : "✗ Not set"}
-                        </span>
-                      </div>
-                      {llmConfig.is_default && (
-                        <div className="mt-3 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                          <p className="text-xs text-yellow-400">
-                            ⚠️ Using default LLM: 100 requests/day limit. Add your own API key for unlimited requests.
-                          </p>
+                {/* Existing LLM Configurations */}
+                <div className="bg-gradient-to-br from-[var(--surface-elevated)] to-[var(--surface)] rounded-xl border border-[var(--border)] p-4 sm:p-5">
+                  <h4 className="text-sm sm:text-base font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                    <Brain className="w-4 h-4 text-[var(--green)]" />
+                    Existing LLM Configurations
+                  </h4>
+                  <p className="text-xs text-[var(--text-secondary)] mb-4">
+                    Manage your LLM configurations - switch, update, or delete saved configurations
+                  </p>
+                  {llmConfigs.length > 0 ? (
+                    <div className="space-y-3">
+                      {llmConfigs.map((config) => (
+                        <div
+                          key={config.id}
+                          className={`p-4 rounded-lg border ${
+                            config.active
+                              ? "bg-[var(--green)]/10 border-[var(--green)]"
+                              : "bg-[var(--surface)] border-[var(--border)]"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="text-sm font-semibold text-[var(--text-primary)] capitalize">
+                                  {config.type}
+                                </span>
+                                {config.active && (
+                                  <span className="px-2 py-0.5 bg-[var(--green)] text-white text-xs rounded-full flex items-center gap-1">
+                                    <Power className="w-3 h-3" />
+                                    Active
+                                  </span>
+                                )}
+                                {config.is_default && (
+                                  <span className="px-2 py-0.5 bg-amber-500/20 text-amber-500 text-xs rounded-full">
+                                    Default
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-sm text-[var(--text-primary)] mb-1">
+                                Model: <span className="font-medium">{config.model}</span>
+                              </div>
+                              <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
+                                <span>
+                                  API Key:{" "}
+                                  {config.has_api_key ? (
+                                    <span className="text-[var(--green)]">✓ Set</span>
+                                  ) : (
+                                    <span className="text-red-500">✗ Not set</span>
+                                  )}
+                                </span>
+                                {config.base_url && (
+                                  <span>Base URL: {config.base_url}</span>
+                                )}
+                                {config.api_base && (
+                                  <span>API Base: {config.api_base}</span>
+                                )}
+                                {config.created_at && (
+                                  <span>
+                                    Created:{" "}
+                                    {new Date(config.created_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 ml-4">
+                              {!config.active && (
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await switchLLMConfig(config.id);
+                                      toast.success("Switched LLM configuration successfully");
+                                      await loadLLMConfigsList();
+                                      await loadLLMConfig();
+                                    } catch (error: any) {
+                                      toast.error(error.message || "Failed to switch LLM configuration");
+                                    }
+                                  }}
+                                  className="p-2 bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg transition-colors"
+                                  title="Switch to this LLM"
+                                >
+                                  <Power className="w-4 h-4 text-[var(--green)]" />
+                                </button>
+                              )}
+                              {!config.active && (
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm("Are you sure you want to delete this LLM configuration?")) {
+                                      return;
+                                    }
+                                    try {
+                                      await deleteLLMConfig(config.id);
+                                      toast.success("LLM configuration deleted successfully");
+                                      await loadLLMConfigsList();
+                                    } catch (error: any) {
+                                      toast.error(error.message || "Failed to delete LLM configuration");
+                                    }
+                                  }}
+                                  className="p-2 bg-[var(--surface)] hover:bg-red-500/10 border border-[var(--border)] rounded-lg transition-colors"
+                                  title="Delete this LLM configuration"
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-500" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="text-center py-8 text-[var(--text-secondary)]">
+                      <Brain className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p>No LLM configurations found. Add one above.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

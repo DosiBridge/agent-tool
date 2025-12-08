@@ -47,7 +47,9 @@ if Base is not None:
                 "api_base": self.api_base,
                 "active": self.active,
                 "is_default": self.is_default,
-                "has_api_key": bool(self.api_key)
+                "has_api_key": bool(self.api_key),
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+                "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             }
             if include_api_key:
                 result["api_key"] = self.api_key

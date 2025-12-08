@@ -215,6 +215,64 @@ class Config:
         # Fallback to default DeepSeek from environment
         # Note: OPENAI_API_KEY is ONLY for embeddings, not for LLM responses
         deepseek_api_key = os.getenv("DEEPSEEK_KEY")
+        
+        # Try to save default DeepSeek config to database if DB is available and user_id is set
+        if DB_AVAILABLE and user_id is not None and db:
+            try:
+                # Check if default DeepSeek config exists for this user
+                existing_default = db.query(LLMConfig).filter(
+                    LLMConfig.user_id == user_id,
+                    LLMConfig.type == "deepseek",
+                    LLMConfig.model == "deepseek-chat",
+                    LLMConfig.is_default == True
+                ).first()
+                
+                if not existing_default:
+                    # Create default DeepSeek config in database for this user
+                    default_llm_config = LLMConfig(
+                        user_id=user_id,
+                        type="deepseek",
+                        model="deepseek-chat",
+                        api_key=deepseek_api_key,
+                        api_base="https://api.deepseek.com",
+                        active=True,
+                        is_default=True
+                    )
+                    db.add(default_llm_config)
+                    try:
+                        db.commit()
+                        db.refresh(default_llm_config)
+                        print(f"✓ Created default DeepSeek LLM config in database for user {user_id}")
+                        return default_llm_config.to_dict(include_api_key=True)
+                    except Exception as commit_error:
+                        db.rollback()
+                        print(f"⚠️  Failed to save default DeepSeek config to database: {commit_error}")
+                elif not existing_default.active:
+                    # Reactivate existing default config
+                    existing_default.active = True
+                    if deepseek_api_key:
+                        existing_default.api_key = deepseek_api_key
+                    try:
+                        db.commit()
+                        db.refresh(existing_default)
+                        print(f"✓ Reactivated default DeepSeek LLM config for user {user_id}")
+                        return existing_default.to_dict(include_api_key=True)
+                    except Exception as commit_error:
+                        db.rollback()
+                        print(f"⚠️  Failed to reactivate default DeepSeek config: {commit_error}")
+                else:
+                    # Use existing active default config
+                    if deepseek_api_key and not existing_default.api_key:
+                        existing_default.api_key = deepseek_api_key
+                        try:
+                            db.commit()
+                        except:
+                            db.rollback()
+                    return existing_default.to_dict(include_api_key=True)
+            except Exception as e:
+                print(f"⚠️  Error managing default DeepSeek config in database: {e}")
+        
+        # Fallback: return config dict (not in database)
         default_config = {
             "type": "deepseek",
             "model": "deepseek-chat",

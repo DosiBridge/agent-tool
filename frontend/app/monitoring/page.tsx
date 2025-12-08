@@ -9,11 +9,19 @@ import {
   getTodayUsage,
   getAPIKeysInfo,
   getPerRequestStats,
+  getIndividualRequests,
   type UsageStats,
   type TodayUsage,
   type APIKeysInfo,
   type PerRequestStats,
+  type IndividualRequest,
 } from "@/lib/api/monitoring";
+import {
+  listLLMConfigs,
+  deleteLLMConfig,
+  switchLLMConfig,
+  type LLMConfigListItem,
+} from "@/lib/api/llm";
 import {
   Activity,
   AlertCircle,
@@ -26,6 +34,10 @@ import {
   TrendingUp,
   XCircle,
   Zap,
+  Brain,
+  Power,
+  Trash2,
+  Edit2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -54,6 +66,11 @@ export default function MonitoringPage() {
   const [todayUsage, setTodayUsage] = useState<TodayUsage | null>(null);
   const [apiKeysInfo, setApiKeysInfo] = useState<APIKeysInfo | null>(null);
   const [perRequestStats, setPerRequestStats] = useState<PerRequestStats[]>([]);
+  const [individualRequests, setIndividualRequests] = useState<IndividualRequest[]>([]);
+  const [requestsTotal, setRequestsTotal] = useState(0);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsOffset, setRequestsOffset] = useState(0);
+  const [llmConfigs, setLlmConfigs] = useState<LLMConfigListItem[]>([]);
   const [selectedDays, setSelectedDays] = useState(7);
   const [groupBy, setGroupBy] = useState<"hour" | "day" | "minute">("hour");
 
@@ -72,21 +89,66 @@ export default function MonitoringPage() {
   const loadMonitoringData = async () => {
     try {
       setLoading(true);
-      const [stats, today, keys, perRequest] = await Promise.all([
+      const [stats, today, keys, perRequest, individual, configs] = await Promise.all([
         getUsageStats(selectedDays),
         getTodayUsage(),
         getAPIKeysInfo(),
         getPerRequestStats(selectedDays, groupBy),
+        getIndividualRequests(selectedDays, 100, 0),
+        listLLMConfigs().catch(() => ({ configs: [] })),
       ]);
       setUsageStats(stats);
       setTodayUsage(today);
       setApiKeysInfo(keys);
       setPerRequestStats(perRequest.requests);
+      setIndividualRequests(individual.requests);
+      setRequestsTotal(individual.total);
+      setRequestsOffset(0);
+      setLlmConfigs(configs.configs);
     } catch (error) {
       console.error("Failed to load monitoring data:", error);
       toast.error("Failed to load monitoring data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteConfig = async (configId: number) => {
+    if (!confirm("Are you sure you want to delete this LLM configuration?")) {
+      return;
+    }
+    try {
+      await deleteLLMConfig(configId);
+      toast.success("LLM configuration deleted successfully");
+      loadMonitoringData();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete LLM configuration");
+    }
+  };
+
+  const handleSwitchConfig = async (configId: number) => {
+    try {
+      await switchLLMConfig(configId);
+      toast.success("Switched LLM configuration successfully");
+      loadMonitoringData();
+      // Reload LLM config in store
+      loadLLMConfig();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to switch LLM configuration");
+    }
+  };
+
+  const loadMoreRequests = async () => {
+    try {
+      setRequestsLoading(true);
+      const data = await getIndividualRequests(selectedDays, 100, requestsOffset + 100);
+      setIndividualRequests((prev) => [...prev, ...data.requests]);
+      setRequestsOffset((prev) => prev + 100);
+    } catch (error) {
+      console.error("Failed to load more requests:", error);
+      toast.error("Failed to load more requests");
+    } finally {
+      setRequestsLoading(false);
     }
   };
 
@@ -105,10 +167,12 @@ export default function MonitoringPage() {
     return null; // Will redirect
   }
 
-  const usagePercentage = todayUsage
+  const usagePercentage = todayUsage && todayUsage.limit > 0
     ? Math.round((todayUsage.request_count / todayUsage.limit) * 100)
     : 0;
-  const isNearLimit = todayUsage ? todayUsage.request_count >= todayUsage.limit * 0.8 : false;
+  const isNearLimit = todayUsage && todayUsage.is_default_llm
+    ? todayUsage.request_count >= todayUsage.limit * 0.8
+    : false;
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
@@ -154,10 +218,16 @@ export default function MonitoringPage() {
                 <Calendar className="w-5 h-5 text-[var(--green)]" />
                 Today&apos;s Usage
               </h2>
-              {isNearLimit && (
+              {todayUsage.is_default_llm && isNearLimit && (
                 <div className="flex items-center gap-2 text-amber-500">
                   <AlertCircle className="w-5 h-5" />
                   <span className="text-sm font-medium">Near Limit</span>
+                </div>
+              )}
+              {!todayUsage.is_default_llm && (
+                <div className="flex items-center gap-2 text-green-500">
+                  <CheckCircle2 className="w-5 h-5" />
+                  <span className="text-sm font-medium">Unlimited</span>
                 </div>
               )}
             </div>
@@ -169,29 +239,47 @@ export default function MonitoringPage() {
                   <span className="text-sm text-[var(--text-secondary)]">Requests</span>
                   <span
                     className={`text-sm font-semibold ${
-                      todayUsage.is_allowed
-                        ? "text-[var(--green)]"
-                        : "text-red-500"
+                      todayUsage.is_default_llm
+                        ? todayUsage.is_allowed
+                          ? "text-[var(--green)]"
+                          : "text-red-500"
+                        : "text-[var(--green)]"
                     }`}
                   >
-                    {todayUsage.request_count} / {todayUsage.limit}
+                    {todayUsage.request_count} {todayUsage.is_default_llm ? `/${todayUsage.limit}` : ""}
                   </span>
                 </div>
-                <div className="w-full bg-[var(--surface)] rounded-full h-3 overflow-hidden">
-                  <div
-                    className={`h-full transition-all ${
-                      todayUsage.is_allowed
-                        ? isNearLimit
-                          ? "bg-amber-500"
-                          : "bg-[var(--green)]"
-                        : "bg-red-500"
-                    }`}
-                    style={{ width: `${Math.min(usagePercentage, 100)}%` }}
-                  />
-                </div>
-                <p className="text-xs text-[var(--text-secondary)] mt-1">
-                  {todayUsage.remaining} requests remaining today
-                </p>
+                {todayUsage.is_default_llm ? (
+                  <>
+                    <div className="w-full bg-[var(--surface)] rounded-full h-3 overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${
+                          todayUsage.is_allowed
+                            ? isNearLimit
+                              ? "bg-amber-500"
+                              : "bg-[var(--green)]"
+                            : "bg-red-500"
+                        }`}
+                        style={{ width: `${Math.min(usagePercentage, 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-[var(--text-secondary)] mt-1">
+                      {todayUsage.remaining} requests remaining today
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-full bg-[var(--surface)] rounded-full h-3 overflow-hidden">
+                      <div
+                        className="h-full bg-[var(--green)]"
+                        style={{ width: "100%" }}
+                      />
+                    </div>
+                    <p className="text-xs text-[var(--text-secondary)] mt-1">
+                      Unlimited requests (using custom API key)
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Tokens */}
@@ -234,7 +322,7 @@ export default function MonitoringPage() {
               </div>
             </div>
 
-            {!todayUsage.is_allowed && (
+            {todayUsage.is_default_llm && !todayUsage.is_allowed && (
               <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
                 <div className="flex items-start gap-3">
                   <XCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -244,7 +332,22 @@ export default function MonitoringPage() {
                     </p>
                     <p className="text-sm text-[var(--text-secondary)] mt-1">
                       You have reached your daily limit of {todayUsage.limit} requests.
-                      Please try again tomorrow.
+                      Please try again tomorrow or add your own API key for unlimited requests.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            {!todayUsage.is_default_llm && (
+              <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-green-500">
+                      Using Custom API Key
+                    </p>
+                    <p className="text-sm text-[var(--text-secondary)] mt-1">
+                      You're using your own API key. No daily request limits apply.
                     </p>
                   </div>
                 </div>
@@ -252,6 +355,102 @@ export default function MonitoringPage() {
             )}
           </div>
         )}
+
+        {/* LLM Configurations Management */}
+        <div className="mb-8 bg-[var(--surface-elevated)] rounded-xl border border-[var(--border)] p-6">
+          <h2 className="text-xl font-semibold text-[var(--text-primary)] flex items-center gap-2 mb-4">
+            <Brain className="w-5 h-5 text-[var(--green)]" />
+            LLM Configurations
+          </h2>
+          <p className="text-sm text-[var(--text-secondary)] mb-4">
+            Manage your LLM configurations - switch, update, or delete saved configurations
+          </p>
+          {llmConfigs.length > 0 ? (
+            <div className="space-y-3">
+              {llmConfigs.map((config) => (
+                <div
+                  key={config.id}
+                  className={`p-4 rounded-lg border ${
+                    config.active
+                      ? "bg-[var(--green)]/10 border-[var(--green)]"
+                      : "bg-[var(--surface)] border-[var(--border)]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm font-semibold text-[var(--text-primary)] capitalize">
+                          {config.type}
+                        </span>
+                        {config.active && (
+                          <span className="px-2 py-0.5 bg-[var(--green)] text-white text-xs rounded-full flex items-center gap-1">
+                            <Power className="w-3 h-3" />
+                            Active
+                          </span>
+                        )}
+                        {config.is_default && (
+                          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-500 text-xs rounded-full">
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-[var(--text-primary)] mb-1">
+                        Model: <span className="font-medium">{config.model}</span>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
+                        <span>
+                          API Key:{" "}
+                          {config.has_api_key ? (
+                            <span className="text-[var(--green)]">✓ Set</span>
+                          ) : (
+                            <span className="text-red-500">✗ Not set</span>
+                          )}
+                        </span>
+                        {config.base_url && (
+                          <span>Base URL: {config.base_url}</span>
+                        )}
+                        {config.api_base && (
+                          <span>API Base: {config.api_base}</span>
+                        )}
+                        {config.created_at && (
+                          <span>
+                            Created:{" "}
+                            {new Date(config.created_at).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 ml-4">
+                      {!config.active && (
+                        <button
+                          onClick={() => handleSwitchConfig(config.id)}
+                          className="p-2 bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg transition-colors"
+                          title="Switch to this LLM"
+                        >
+                          <Power className="w-4 h-4 text-[var(--green)]" />
+                        </button>
+                      )}
+                      {!config.active && (
+                        <button
+                          onClick={() => handleDeleteConfig(config.id)}
+                          className="p-2 bg-[var(--surface)] hover:bg-red-500/10 border border-[var(--border)] rounded-lg transition-colors"
+                          title="Delete this LLM configuration"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-[var(--text-secondary)]">
+              <Brain className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>No LLM configurations found. Add one in Settings.</p>
+            </div>
+          )}
+        </div>
 
         {/* API Keys Information */}
         {apiKeysInfo && (
@@ -987,6 +1186,114 @@ export default function MonitoringPage() {
               <div className="text-center py-8 text-[var(--text-secondary)]">
                 <Zap className="w-12 h-12 mx-auto mb-3 opacity-50" />
                 <p>No usage data available</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Individual Requests Table */}
+        {individualRequests.length > 0 && (
+          <div className="bg-[var(--surface-elevated)] rounded-xl border border-[var(--border)] p-6 mt-8">
+            <h2 className="text-xl font-semibold text-[var(--text-primary)] flex items-center gap-2 mb-4">
+              <Activity className="w-5 h-5 text-[var(--green)]" />
+              Individual Requests
+            </h2>
+            <p className="text-sm text-[var(--text-secondary)] mb-4">
+              Detailed view of each API request with LLM provider, model, and token usage
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[var(--border)]">
+                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                      Time
+                    </th>
+                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                      LLM Provider
+                    </th>
+                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                      Model
+                    </th>
+                    <th className="text-right py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                      Input Tokens
+                    </th>
+                    <th className="text-right py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                      Output Tokens
+                    </th>
+                    <th className="text-right py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                      Embedding Tokens
+                    </th>
+                    <th className="text-right py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                      Total Tokens
+                    </th>
+                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                      Mode
+                    </th>
+                    <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {individualRequests.map((req) => {
+                    const timestamp = new Date(req.request_timestamp);
+                    return (
+                      <tr
+                        key={req.id}
+                        className="border-b border-[var(--border)] hover:bg-[var(--surface)] transition-colors"
+                      >
+                        <td className="py-2 px-3 text-sm text-[var(--text-primary)]">
+                          {timestamp.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-[var(--text-primary)] capitalize">
+                          {req.llm_provider || "N/A"}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-[var(--text-secondary)]">
+                          {req.llm_model || "N/A"}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
+                          {req.input_tokens.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
+                          {req.output_tokens.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
+                          {req.embedding_tokens.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-right font-semibold text-[var(--text-primary)]">
+                          {req.total_tokens.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-[var(--text-secondary)] capitalize">
+                          {req.mode || "N/A"}
+                        </td>
+                        <td className="py-2 px-3 text-sm">
+                          {req.success ? (
+                            <span className="flex items-center gap-1 text-[var(--green)]">
+                              <CheckCircle2 className="w-4 h-4" />
+                              Success
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-red-500">
+                              <XCircle className="w-4 h-4" />
+                              Failed
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {requestsTotal > individualRequests.length && (
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={loadMoreRequests}
+                  disabled={requestsLoading}
+                  className="px-4 py-2 bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {requestsLoading ? "Loading..." : `Load More (${requestsTotal - individualRequests.length} remaining)`}
+                </button>
               </div>
             )}
           </div>

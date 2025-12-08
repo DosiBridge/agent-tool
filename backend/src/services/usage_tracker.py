@@ -44,11 +44,12 @@ class UsageTracker:
         try:
             today_start = UsageTracker.get_today_start()
             
-            # Get today's usage (only count default LLM requests)
+            # Get today's usage - count all requests for default LLM (typically DeepSeek)
+            # We check all requests because the provider might vary, but for default LLM
+            # we want to count all requests made with the default system key
             usage = db.query(APIUsage).filter(
                 APIUsage.user_id == user_id,
-                func.date(APIUsage.usage_date) == today_start.date(),
-                APIUsage.llm_provider == "deepseek"  # Only count default DeepSeek usage
+                func.date(APIUsage.usage_date) == today_start.date()
             ).first()
             
             current_count = usage.request_count if usage else 0

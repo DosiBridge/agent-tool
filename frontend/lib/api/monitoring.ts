@@ -40,6 +40,7 @@ export interface TodayUsage {
   remaining: number;
   limit: number;
   is_allowed: boolean;
+  is_default_llm?: boolean;  // True if using default LLM (100/day limit), false/unlimited for custom API keys
   input_tokens: number;
   output_tokens: number;
   embedding_tokens: number;
@@ -119,6 +120,33 @@ export interface PerRequestStatsResponse {
   };
 }
 
+export interface IndividualRequest {
+  id: number;
+  user_id?: number;
+  request_timestamp: string;
+  llm_provider?: string;
+  llm_model?: string;
+  input_tokens: number;
+  output_tokens: number;
+  embedding_tokens: number;
+  total_tokens: number;
+  mode?: string;
+  session_id?: string;
+  success: boolean;
+  created_at?: string;
+}
+
+export interface IndividualRequestsResponse {
+  status: string;
+  data: {
+    requests: IndividualRequest[];
+    total: number;
+    limit: number;
+    offset: number;
+    has_more: boolean;
+  };
+}
+
 /**
  * Get usage statistics for the current user
  */
@@ -174,6 +202,26 @@ export async function getAPIKeysInfo(): Promise<APIKeysInfo> {
     headers: getAuthHeaders(),
   });
   const data: APIKeysInfoResponse = await handleResponse(response);
+  return data.data;
+}
+
+/**
+ * Get individual API requests with details
+ */
+export async function getIndividualRequests(
+  days: number = 7,
+  limit: number = 100,
+  offset: number = 0
+): Promise<IndividualRequestsResponse["data"]> {
+  const baseUrl = await getApiBaseUrl();
+  const response = await fetch(
+    `${baseUrl}/api/usage/requests?days=${days}&limit=${limit}&offset=${offset}`,
+    {
+      method: "GET",
+      headers: getAuthHeaders(),
+    }
+  );
+  const data: IndividualRequestsResponse = await handleResponse(response);
   return data.data;
 }
 

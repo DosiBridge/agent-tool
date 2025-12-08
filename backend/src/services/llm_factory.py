@@ -143,10 +143,12 @@ def create_llm_from_config(config: dict, streaming: bool = False, temperature: f
             # Common Gemini model names for validation hints
             common_models = [
                 "gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro",
-                "gemini-2.0-flash", "gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+                "gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-flash-lite",
                 "gemini-2.5-pro"
             ]
             
+            # Try to initialize with the model
+            # Note: Some models may require specific API versions
             llm = ChatGoogleGenerativeAI(
                 model=model,
                 google_api_key=api_key,
@@ -158,13 +160,24 @@ def create_llm_from_config(config: dict, streaming: bool = False, temperature: f
         except Exception as e:
             error_msg = str(e)
             
+            # Check for NotFound/404 errors - model not available for current API version
+            if "NotFound" in error_msg or "404" in error_msg or "not found" in error_msg.lower():
+                raise ValueError(
+                    f"Gemini model '{model}' is not available or not found for the current API version. "
+                    f"Try using one of these models instead:\n"
+                    f"- gemini-1.5-pro (most stable)\n"
+                    f"- gemini-1.5-flash (if available in your region)\n"
+                    f"- gemini-pro (legacy)\n"
+                    f"- gemini-2.0-flash-exp (experimental)\n\n"
+                    f"Error details: {error_msg[:300]}"
+                )
             # Provide helpful error messages based on error type
-            if "INVALID_ARGUMENT" in error_msg or "model" in error_msg.lower():
+            elif "INVALID_ARGUMENT" in error_msg or "model" in error_msg.lower():
                 raise ValueError(
                     f"Invalid Gemini model name: '{model}'. "
                     f"Please check the model name. Common models: "
                     f"{', '.join(common_models)}. "
-                    f"Error details: {error_msg}"
+                    f"Error details: {error_msg[:300]}"
                 )
             elif "API_KEY" in error_msg or "authentication" in error_msg.lower() or "API key not valid" in error_msg:
                 raise ValueError(

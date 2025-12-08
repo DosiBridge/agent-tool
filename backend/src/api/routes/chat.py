@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from ..models import ChatRequest, ChatResponse
 from ..exceptions import APIException, ValidationError, UnauthorizedError
 from src.utils import sanitize_tools_for_gemini
+from src.utils.utils import extract_token_usage, estimate_tokens
 from src.utils.logger import app_logger
 from src.core.constants import DAILY_REQUEST_LIMIT
 
@@ -123,15 +124,17 @@ async def chat(
             
             background_tasks.add_task(update_summary_task)
         
-        # Record usage (estimate tokens - actual tracking would require LLM response metadata)
+        # Record usage with actual token counts from LLM response
         # llm_config already loaded above
+        token_usage = result.get("token_usage", {})
         usage_tracker.record_request(
             user_id=user_id,
             db=db,
             llm_provider=llm_config.get("type"),
             llm_model=llm_config.get("model"),
-            input_tokens=len(chat_request.message.split()) * 2,  # Rough estimate
-            output_tokens=len(result.get("response", "").split()) * 2,  # Rough estimate
+            input_tokens=token_usage.get("input_tokens", 0),
+            output_tokens=token_usage.get("output_tokens", 0),
+            embedding_tokens=token_usage.get("embedding_tokens", 0),
             mode=chat_request.mode,
             session_id=chat_request.session_id,
             success=True
@@ -367,8 +370,10 @@ async def chat_stream(
                     
                     # Record usage after successful response
                     llm_config = Config.load_llm_config(db=db, user_id=user_id)
-                    input_tokens = len(chat_request.message.split()) * 2  # Rough estimate
-                    output_tokens = len(full_response.split()) * 2  # Rough estimate
+                    # Try to estimate tokens (streaming doesn't always provide usage metadata)
+                    input_tokens = estimate_tokens(chat_request.message)
+                    output_tokens = estimate_tokens(full_response)
+                    
                     usage_tracker.record_request(
                         user_id=user_id,
                         db=db,
@@ -376,6 +381,7 @@ async def chat_stream(
                         llm_model=llm_config.get("model"),
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
+                        embedding_tokens=0,
                         mode=chat_request.mode,
                         session_id=chat_request.session_id,
                         success=True
@@ -486,10 +492,15 @@ async def chat_stream(
                     last_streamed_length = 0
                     is_thinking = True
                     is_answering = False
+                    last_ai_message = None  # Track last AI message for token extraction
                     
                     try:
                         async for event in agent.astream({"messages": messages}, stream_mode="values"):
                             last_msg = event["messages"][-1]
+                            
+                            # Track last AI message for token usage extraction
+                            if isinstance(last_msg, AIMessage):
+                                last_ai_message = last_msg
                             
                             if isinstance(last_msg, AIMessage):
                                 if getattr(last_msg, "tool_calls", None):
@@ -629,10 +640,18 @@ async def chat_stream(
                         session_history.add_user_message(chat_request.message)
                         session_history.add_ai_message(full_response)
                         
-                        # Record usage after successful response
-                        llm_config = Config.load_llm_config(db=db, user_id=user_id)
-                        input_tokens = len(chat_request.message.split()) * 2  # Rough estimate
-                        output_tokens = len(full_response.split()) * 2  # Rough estimate
+                    # Record usage after successful response
+                    llm_config = Config.load_llm_config(db=db, user_id=user_id)
+                    # Try to extract token usage from last AI message
+                    input_tokens, output_tokens, embedding_tokens = 0, 0, 0
+                    if last_ai_message:
+                        input_tokens, output_tokens, embedding_tokens = extract_token_usage(last_ai_message)
+                    
+                    # Fallback to estimation if not available
+                    if input_tokens == 0 and output_tokens == 0:
+                        input_tokens = estimate_tokens(chat_request.message)
+                        output_tokens = estimate_tokens(full_response)
+                        
                         usage_tracker.record_request(
                             user_id=user_id,
                             db=db,
@@ -640,7 +659,10 @@ async def chat_stream(
                             llm_model=llm_config.get("model"),
                             input_tokens=input_tokens,
                             output_tokens=output_tokens,
-                            mode=chat_request.mode
+                            embedding_tokens=embedding_tokens,
+                            mode=chat_request.mode,
+                            session_id=chat_request.session_id,
+                            success=True
                         )
                     
                     yield f"data: {json.dumps({'chunk': '', 'done': True, 'tools_used': tool_calls_made})}\n\n"
@@ -823,8 +845,9 @@ async def chat_stream(
                                 
                                 # Record usage after successful response
                                 llm_config = Config.load_llm_config(db=db, user_id=user_id)
-                                input_tokens = len(chat_request.message.split()) * 2  # Rough estimate
-                                output_tokens = len(full_response.split()) * 2  # Rough estimate
+                                # Estimate tokens (Ollama streaming doesn't provide usage metadata)
+                                input_tokens = estimate_tokens(chat_request.message)
+                                output_tokens = estimate_tokens(full_response)
                                 usage_tracker.record_request(
                                     user_id=user_id,
                                     db=db,
@@ -832,7 +855,10 @@ async def chat_stream(
                                     llm_model=llm_config.get("model"),
                                     input_tokens=input_tokens,
                                     output_tokens=output_tokens,
-                                    mode=chat_request.mode
+                                    embedding_tokens=0,
+                                    mode=chat_request.mode,
+                                    session_id=chat_request.session_id,
+                                    success=True
                                 )
                             
                             yield f"data: {json.dumps({'chunk': '', 'done': True})}\n\n"
@@ -935,10 +961,15 @@ async def chat_stream(
                         seen_tools = set()  # Track tools we've already sent
                         is_thinking = True
                         is_answering = False
+                        last_ai_message = None  # Track last AI message for token extraction
                         
                         try:
                             async for event in agent.astream({"messages": messages}, stream_mode="values"):
                                 last_msg = event["messages"][-1]
+                                
+                                # Track last AI message for token usage extraction
+                                if isinstance(last_msg, AIMessage):
+                                    last_ai_message = last_msg
                                 
                                 if isinstance(last_msg, AIMessage):
                                     if getattr(last_msg, "tool_calls", None):
@@ -1078,8 +1109,16 @@ async def chat_stream(
                                 
                                 # Record usage after successful response
                                 llm_config = Config.load_llm_config(db=db, user_id=user_id)
-                                input_tokens = len(chat_request.message.split()) * 2  # Rough estimate
-                                output_tokens = len(full_response.split()) * 2  # Rough estimate
+                                # Try to extract token usage from last AI message
+                                input_tokens, output_tokens, embedding_tokens = 0, 0, 0
+                                if last_ai_message:
+                                    input_tokens, output_tokens, embedding_tokens = extract_token_usage(last_ai_message)
+                                
+                                # Fallback to estimation if not available
+                                if input_tokens == 0 and output_tokens == 0:
+                                    input_tokens = estimate_tokens(chat_request.message)
+                                    output_tokens = estimate_tokens(full_response)
+                                
                                 usage_tracker.record_request(
                                     user_id=user_id,
                                     db=db,
@@ -1087,7 +1126,10 @@ async def chat_stream(
                                     llm_model=llm_config.get("model"),
                                     input_tokens=input_tokens,
                                     output_tokens=output_tokens,
-                                    mode=chat_request.mode
+                                    embedding_tokens=embedding_tokens,
+                                    mode=chat_request.mode,
+                                    session_id=chat_request.session_id,
+                                    success=True
                                 )
                         
                         yield f"data: {json.dumps({'chunk': '', 'done': True, 'tools_used': tool_calls_made})}\n\n"
