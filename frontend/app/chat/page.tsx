@@ -20,7 +20,6 @@ import {
   BarChart3,
   ChevronDown,
   FileText,
-  LogOut,
   Menu,
   Plus,
   Settings,
@@ -52,7 +51,6 @@ export default function ChatPage() {
   const authLoading = useStore((state) => state.authLoading);
   const user = useStore((state) => state.user);
   const checkAuth = useStore((state) => state.checkAuth);
-  const handleLogout = useStore((state) => state.handleLogout);
   // Theme is handled by ThemeToggle component
 
   useEffect(() => {
@@ -377,11 +375,9 @@ export default function ChatPage() {
             <div className="hidden sm:block">
               <HealthStatus />
             </div>
-            {isAuthenticated && (
-              <div className="hidden sm:block">
-                <UsageIndicator />
-              </div>
-            )}
+            <div className="hidden sm:block">
+              <UsageIndicator />
+            </div>
             <ThemeToggle />
             {isAuthenticated && (
               <>
@@ -408,16 +404,6 @@ export default function ChatPage() {
                     className="w-4 h-4 text-[var(--text-primary)]"
                     aria-hidden="true"
                   />
-                </button>
-                <button
-                  onClick={async () => {
-                    await handleLogout();
-                  }}
-                  className="p-1.5 bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] backdrop-blur-sm rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--green)] flex items-center justify-center"
-                  aria-label="Logout"
-                  title="Logout"
-                >
-                  <LogOut className="w-4 h-4 text-[var(--text-primary)]" />
                 </button>
               </>
             )}

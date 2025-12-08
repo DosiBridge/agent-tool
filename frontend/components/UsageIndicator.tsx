@@ -3,7 +3,7 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useStore } from "@/lib/store";
 import { getTodayUsage, type TodayUsage } from "@/lib/api/monitoring";
 import { Activity, AlertCircle } from "lucide-react";
@@ -11,39 +11,53 @@ import Link from "next/link";
 
 export default function UsageIndicator() {
   const isAuthenticated = useStore((state) => state.isAuthenticated);
+  const isStreaming = useStore((state) => state.isStreaming);
   const [usage, setUsage] = useState<TodayUsage | null>(null);
   const [loading, setLoading] = useState(true);
+  const prevStreamingRef = useRef<boolean>(false);
+
+  const loadUsage = async () => {
+    // Load usage for both authenticated and unauthenticated users
+    try {
+      const todayUsage = await getTodayUsage();
+      setUsage(todayUsage);
+    } catch (error) {
+      console.error("Failed to load usage:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      setLoading(false);
-      return;
-    }
-
-    const loadUsage = async () => {
-      try {
-        const todayUsage = await getTodayUsage();
-        setUsage(todayUsage);
-      } catch (error) {
-        console.error("Failed to load usage:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadUsage();
-    // Refresh every 30 seconds
-    const interval = setInterval(loadUsage, 30000);
+    // Refresh every 10 seconds for more responsive updates
+    const interval = setInterval(loadUsage, 10000);
     return () => clearInterval(interval);
   }, [isAuthenticated]);
 
-  if (!isAuthenticated || loading || !usage) {
+  // Refresh immediately when streaming stops (chat request completed)
+  useEffect(() => {
+    // When streaming transitions from true to false, a request just completed
+    if (prevStreamingRef.current && !isStreaming) {
+      // Small delay to ensure backend has recorded the usage
+      const timeoutId = setTimeout(() => {
+        loadUsage();
+      }, 1000);
+      prevStreamingRef.current = isStreaming;
+      return () => clearTimeout(timeoutId);
+    }
+    
+    // Update ref for next comparison
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  if (loading || !usage) {
     return null;
   }
 
   // Only show usage indicator if using default LLM
   // Users with custom API keys have unlimited requests, so no need to show limit
-  if (!usage.is_default_llm) {
+  if (!usage.is_default_llm || usage.limit === -1) {
     return null;
   }
 

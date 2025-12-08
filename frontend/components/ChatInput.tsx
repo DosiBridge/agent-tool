@@ -242,32 +242,30 @@ export default function ChatInput() {
       return;
     }
 
-    // Check daily limit only for authenticated users using default LLM
-    if (isAuthenticated) {
-      try {
-        const todayUsage = await getTodayUsage();
-        // Only show warnings/alerts if using default LLM (is_default_llm = true)
-        // Users with custom API keys have unlimited requests
-        if (todayUsage.is_default_llm) {
-          if (!todayUsage.is_allowed) {
-            toast.error(
-              `Daily limit reached! You have used ${todayUsage.request_count}/${todayUsage.limit} requests today. Please try again tomorrow or add your own API key for unlimited requests.`,
-              { duration: 6000 }
-            );
-            return;
-          }
-          if (todayUsage.remaining <= 10 && todayUsage.remaining > 0) {
-            toast(
-              `Warning: Only ${todayUsage.remaining} requests remaining today (${todayUsage.request_count}/${todayUsage.limit} used). Add your own API key for unlimited requests.`,
-              { duration: 4000, icon: "⚠️" }
-            );
-          }
+    // Check daily limit for both authenticated and unauthenticated users using default LLM
+    try {
+      const todayUsage = await getTodayUsage();
+      // Only show warnings/alerts if using default LLM (is_default_llm = true)
+      // Users with custom API keys have unlimited requests
+      if (todayUsage.is_default_llm && todayUsage.limit !== -1) {
+        if (!todayUsage.is_allowed) {
+          const errorMsg = isAuthenticated
+            ? `Daily limit reached! You have used ${todayUsage.request_count}/${todayUsage.limit} requests today. Please try again tomorrow or add your own API key for unlimited requests.`
+            : `Daily limit reached! You have used ${todayUsage.request_count}/${todayUsage.limit} requests today. Please create an account or log in to get 100 requests per day, or add your own API key for unlimited requests.`;
+          toast.error(errorMsg, { duration: 6000 });
+          return;
         }
-        // If using custom API key (is_default_llm = false), no limit checks needed
-      } catch (error) {
-        // If usage check fails, allow the request (don't block on error)
-        console.warn("Failed to check daily limit:", error);
+        if (todayUsage.remaining <= 10 && todayUsage.remaining > 0) {
+          const warningMsg = isAuthenticated
+            ? `Warning: Only ${todayUsage.remaining} requests remaining today (${todayUsage.request_count}/${todayUsage.limit} used). Add your own API key for unlimited requests.`
+            : `Warning: Only ${todayUsage.remaining} requests remaining today (${todayUsage.request_count}/${todayUsage.limit} used). Create an account or log in to get 100 requests per day.`;
+          toast(warningMsg, { duration: 4000, icon: "⚠️" });
+        }
       }
+      // If using custom API key (is_default_llm = false), no limit checks needed
+    } catch (error) {
+      // If usage check fails, allow the request (don't block on error)
+      console.warn("Failed to check daily limit:", error);
     }
 
     const message = input.trim();

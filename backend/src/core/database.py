@@ -396,6 +396,7 @@ def init_db():
                             CREATE TABLE api_usage (
                                 id SERIAL PRIMARY KEY,
                                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                                ip_address VARCHAR(45),
                                 usage_date TIMESTAMP WITH TIME ZONE NOT NULL,
                                 request_count INTEGER DEFAULT 0 NOT NULL,
                                 llm_provider VARCHAR(50),
@@ -406,14 +407,45 @@ def init_db():
                                 mode VARCHAR(20),
                                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                                 updated_at TIMESTAMP WITH TIME ZONE,
-                                UNIQUE(user_id, usage_date)
+                                CONSTRAINT uq_api_usage_user_date UNIQUE (user_id, usage_date)
                             )
                         """)
                     )
                     conn.execute(text("CREATE INDEX idx_api_usage_user_id ON api_usage(user_id)"))
+                    conn.execute(text("CREATE INDEX idx_api_usage_ip_address ON api_usage(ip_address)"))
                     conn.execute(text("CREATE INDEX idx_api_usage_date ON api_usage(usage_date)"))
                     conn.commit()
                     print("✓ Created api_usage table")
+                else:
+                    # Migration: Add ip_address column if it doesn't exist
+                    result = conn.execute(
+                        text("SELECT column_name FROM information_schema.columns "
+                             "WHERE table_name='api_usage' AND column_name='ip_address'")
+                    )
+                    if not result.fetchone():
+                        print("📝 Adding ip_address column to api_usage table...")
+                        conn.execute(
+                            text("ALTER TABLE api_usage "
+                                 "ADD COLUMN ip_address VARCHAR(45)")
+                        )
+                        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_api_usage_ip_address ON api_usage(ip_address)"))
+                        
+                        # Add unique constraint for ip_address + usage_date if it doesn't exist
+                        result = conn.execute(
+                            text("SELECT constraint_name FROM information_schema.table_constraints "
+                                 "WHERE table_name='api_usage' AND constraint_name='uq_api_usage_ip_date'")
+                        )
+                        if not result.fetchone():
+                            try:
+                                conn.execute(
+                                    text("ALTER TABLE api_usage "
+                                         "ADD CONSTRAINT uq_api_usage_ip_date UNIQUE (ip_address, usage_date)")
+                                )
+                            except Exception as e:
+                                print(f"⚠️  Could not add unique constraint (may already exist): {e}")
+                        
+                        conn.commit()
+                        print("✓ Added ip_address column to api_usage table")
                 
                 # Check if api_requests table exists
                 result = conn.execute(

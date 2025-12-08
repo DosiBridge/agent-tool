@@ -1,19 +1,20 @@
 """
 API Usage Monitoring Endpoints
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 from typing import Optional
 from src.core import get_db, User
 from src.core.auth import get_current_user, get_current_active_user
 from src.services.usage_tracker import usage_tracker
-from src.core.constants import DAILY_REQUEST_LIMIT
+from src.core.constants import DAILY_REQUEST_LIMIT, DAILY_REQUEST_LIMIT_UNAUTHENTICATED
 
 router = APIRouter()
 
 
 @router.get("/usage/stats")
 async def get_usage_stats(
+    request: Request,
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db),
     days: int = 7
@@ -22,6 +23,7 @@ async def get_usage_stats(
     Get current user's API usage statistics
     
     Args:
+        request: FastAPI Request object (for IP address)
         current_user: Current authenticated user (optional)
         db: Database session
         days: Number of days to retrieve (default: 7)
@@ -32,7 +34,10 @@ async def get_usage_stats(
     try:
         user_id = current_user.id if current_user else None
         
-        stats = usage_tracker.get_user_usage_stats(user_id, db, days)
+        # Get IP address for unauthenticated users
+        ip_address = usage_tracker.get_client_ip(request) if user_id is None else None
+        
+        stats = usage_tracker.get_user_usage_stats(user_id, db, days, ip_address=ip_address)
         
         return {
             "status": "success",
@@ -44,6 +49,7 @@ async def get_usage_stats(
 
 @router.get("/usage/today")
 async def get_today_usage(
+    request: Request,
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -51,6 +57,7 @@ async def get_today_usage(
     Get today's usage and remaining requests
     
     Args:
+        request: FastAPI Request object (for IP address)
         current_user: Current authenticated user (optional)
         db: Database session
         
@@ -58,7 +65,12 @@ async def get_today_usage(
         Today's usage information
     """
     try:
+        from src.core.constants import DAILY_REQUEST_LIMIT_UNAUTHENTICATED
+        
         user_id = current_user.id if current_user else None
+        
+        # Get IP address for unauthenticated users
+        ip_address = usage_tracker.get_client_ip(request) if user_id is None else None
         
         # Check if user is using default LLM
         from src.core import Config
@@ -77,16 +89,24 @@ async def get_today_usage(
             if active_config and active_config.is_default and active_config.type == "deepseek":
                 is_default_llm = True
         
+        # For unauthenticated users, always use default LLM (limited to 30/day)
+        if user_id is None:
+            is_default_llm = True
+        
         # Only check daily limit if using default LLM
         if is_default_llm:
-            is_allowed, current_count, remaining = usage_tracker.check_daily_limit(user_id, db, is_default_llm=True)
+            is_allowed, current_count, remaining = usage_tracker.check_daily_limit(
+                user_id, db, is_default_llm=True, ip_address=ip_address
+            )
+            limit = DAILY_REQUEST_LIMIT_UNAUTHENTICATED if user_id is None else DAILY_REQUEST_LIMIT
         else:
             # Using custom API key - unlimited requests
             is_allowed = True
             current_count = 0
             remaining = -1  # -1 means unlimited
+            limit = -1
         
-        stats = usage_tracker.get_user_usage_stats(user_id, db, days=1)
+        stats = usage_tracker.get_user_usage_stats(user_id, db, days=1, ip_address=ip_address)
         today_stats = stats.get("today", {})
         
         return {
@@ -94,7 +114,7 @@ async def get_today_usage(
             "data": {
                 "request_count": current_count,
                 "remaining": remaining,
-                "limit": DAILY_REQUEST_LIMIT if is_default_llm else -1,  # -1 means unlimited
+                "limit": limit,  # -1 means unlimited
                 "is_allowed": is_allowed,
                 "is_default_llm": is_default_llm,  # Add flag to indicate if using default LLM
                 "input_tokens": today_stats.get("input_tokens", 0),
@@ -172,6 +192,7 @@ async def get_api_keys_info(
 
 @router.get("/usage/per-request")
 async def get_per_request_stats(
+    request: Request,
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db),
     days: int = 7,
@@ -181,6 +202,7 @@ async def get_per_request_stats(
     Get per-request statistics grouped by time period
     
     Args:
+        request: FastAPI Request object (for IP address)
         current_user: Current authenticated user (optional)
         db: Database session
         days: Number of days to retrieve (default: 7)
@@ -195,7 +217,10 @@ async def get_per_request_stats(
         
         user_id = current_user.id if current_user else None
         
-        stats = usage_tracker.get_per_request_stats(user_id, db, days, group_by)
+        # Get IP address for unauthenticated users
+        ip_address = usage_tracker.get_client_ip(request) if user_id is None else None
+        
+        stats = usage_tracker.get_per_request_stats(user_id, db, days, group_by, ip_address=ip_address)
         
         return {
             "status": "success",
@@ -209,6 +234,7 @@ async def get_per_request_stats(
 
 @router.get("/usage/requests")
 async def get_individual_requests(
+    request: Request,
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db),
     days: int = 7,
@@ -219,6 +245,7 @@ async def get_individual_requests(
     Get individual API requests with details
     
     Args:
+        request: FastAPI Request object (for IP address)
         current_user: Current authenticated user (optional)
         db: Database session
         days: Number of days to retrieve (default: 7)
@@ -227,6 +254,12 @@ async def get_individual_requests(
         
     Returns:
         List of individual API requests with LLM provider, model, tokens, etc.
+        
+    Note:
+        For unauthenticated users, requests are filtered by user_id=None. Since APIRequest
+        doesn't have an ip_address field, all anonymous requests are returned. This may
+        include requests from other anonymous users. Consider adding ip_address field to
+        APIRequest model for better tracking.
     """
     try:
         from datetime import timedelta
@@ -240,7 +273,8 @@ async def get_individual_requests(
                     "requests": [],
                     "total": 0,
                     "limit": limit,
-                    "offset": offset
+                    "offset": offset,
+                    "has_more": False
                 }
             }
         
@@ -256,10 +290,20 @@ async def get_individual_requests(
         start_date = today_start - timedelta(days=days - 1)
         
         # Query individual requests
-        query = db.query(APIRequest).filter(
-            APIRequest.user_id == user_id,
-            APIRequest.request_timestamp >= start_date
-        )
+        # Note: For unauthenticated users, we filter by user_id=None
+        # Since APIRequest doesn't have ip_address field, we can't filter by IP
+        # This means all anonymous users' requests are returned together
+        # This is a limitation that could be fixed by adding ip_address to APIRequest
+        if user_id is None:
+            query = db.query(APIRequest).filter(
+                APIRequest.user_id.is_(None),
+                APIRequest.request_timestamp >= start_date
+            )
+        else:
+            query = db.query(APIRequest).filter(
+                APIRequest.user_id == user_id,
+                APIRequest.request_timestamp >= start_date
+            )
         
         # Get total count
         total = query.count()

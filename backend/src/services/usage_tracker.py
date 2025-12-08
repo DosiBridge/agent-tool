@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from src.core import get_db_context, DB_AVAILABLE
 from src.core.models import APIUsage, APIRequest, User
-from src.core.constants import DAILY_REQUEST_LIMIT
+from src.core.constants import DAILY_REQUEST_LIMIT, DAILY_REQUEST_LIMIT_UNAUTHENTICATED
 
 
 class UsageTracker:
@@ -21,21 +21,42 @@ class UsageTracker:
         return datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
     
     @staticmethod
-    def check_daily_limit(user_id: Optional[int], db: Session, is_default_llm: bool = False) -> Tuple[bool, int, int]:
+    def get_client_ip(request) -> Optional[str]:
+        """Get client IP address from request"""
+        if not request:
+            return None
+        # Check for forwarded IP (when behind proxy/load balancer)
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            # X-Forwarded-For can contain multiple IPs, get the first one
+            return forwarded_for.split(",")[0].strip()
+        # Check for real IP header
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip.strip()
+        # Fallback to direct client IP
+        if request.client:
+            return request.client.host
+        return None
+    
+    @staticmethod
+    def check_daily_limit(user_id: Optional[int], db: Session, is_default_llm: bool = False, ip_address: Optional[str] = None) -> Tuple[bool, int, int]:
         """
         Check if user has exceeded daily request limit
         
         Args:
             user_id: User ID (None for anonymous users)
             db: Database session
-            is_default_llm: True if using default DeepSeek LLM (100/day limit), False for custom API keys (unlimited)
+            is_default_llm: True if using default DeepSeek LLM, False for custom API keys (unlimited)
+            ip_address: IP address for anonymous users (required when user_id is None)
             
         Returns:
             Tuple of (is_allowed, current_count, limit)
         """
         if not DB_AVAILABLE:
             # If database not available, allow all requests
-            return True, 0, DAILY_REQUEST_LIMIT
+            limit = DAILY_REQUEST_LIMIT_UNAUTHENTICATED if user_id is None else DAILY_REQUEST_LIMIT
+            return True, 0, limit
         
         # If using custom API key (not default LLM), no limit
         if not is_default_llm:
@@ -44,23 +65,39 @@ class UsageTracker:
         try:
             today_start = UsageTracker.get_today_start()
             
-            # Get today's usage - count all requests for default LLM (typically DeepSeek)
-            # We check all requests because the provider might vary, but for default LLM
-            # we want to count all requests made with the default system key
-            usage = db.query(APIUsage).filter(
-                APIUsage.user_id == user_id,
-                func.date(APIUsage.usage_date) == today_start.date()
-            ).first()
+            # Determine the limit based on authentication status
+            if user_id is None:
+                # Unauthenticated user - 30 requests per day
+                limit = DAILY_REQUEST_LIMIT_UNAUTHENTICATED
+                if not ip_address:
+                    # If no IP, allow but warn
+                    return True, 0, limit
+                
+                # Query by IP address for anonymous users
+                usage = db.query(APIUsage).filter(
+                    APIUsage.user_id.is_(None),
+                    APIUsage.ip_address == ip_address,
+                    func.date(APIUsage.usage_date) == today_start.date()
+                ).first()
+            else:
+                # Authenticated user - 100 requests per day
+                limit = DAILY_REQUEST_LIMIT
+                # Query by user_id for authenticated users
+                usage = db.query(APIUsage).filter(
+                    APIUsage.user_id == user_id,
+                    func.date(APIUsage.usage_date) == today_start.date()
+                ).first()
             
             current_count = usage.request_count if usage else 0
-            is_allowed = current_count < DAILY_REQUEST_LIMIT
-            remaining = max(0, DAILY_REQUEST_LIMIT - current_count)
+            is_allowed = current_count < limit
+            remaining = max(0, limit - current_count)
             
             return is_allowed, current_count, remaining
         except Exception as e:
             print(f"⚠️  Error checking daily limit: {e}")
             # On error, allow the request
-            return True, 0, DAILY_REQUEST_LIMIT
+            limit = DAILY_REQUEST_LIMIT_UNAUTHENTICATED if user_id is None else DAILY_REQUEST_LIMIT
+            return True, 0, limit
     
     @staticmethod
     def record_request(
@@ -73,7 +110,8 @@ class UsageTracker:
         embedding_tokens: int = 0,
         mode: Optional[str] = None,
         session_id: Optional[str] = None,
-        success: bool = True
+        success: bool = True,
+        ip_address: Optional[str] = None
     ) -> bool:
         """
         Record an API request (both daily aggregate and individual request)
@@ -120,10 +158,22 @@ class UsageTracker:
                 db.add(api_request)
             
             # Get or create today's usage record (for daily aggregates)
-            usage = db.query(APIUsage).filter(
-                APIUsage.user_id == user_id,
-                func.date(APIUsage.usage_date) == today_start.date()
-            ).first()
+            if user_id is None:
+                # For anonymous users, query by IP address
+                if not ip_address:
+                    # If no IP, skip recording (shouldn't happen, but handle gracefully)
+                    return False
+                usage = db.query(APIUsage).filter(
+                    APIUsage.user_id.is_(None),
+                    APIUsage.ip_address == ip_address,
+                    func.date(APIUsage.usage_date) == today_start.date()
+                ).first()
+            else:
+                # For authenticated users, query by user_id
+                usage = db.query(APIUsage).filter(
+                    APIUsage.user_id == user_id,
+                    func.date(APIUsage.usage_date) == today_start.date()
+                ).first()
             
             if usage:
                 # Update existing record
@@ -141,6 +191,7 @@ class UsageTracker:
                 # Create new record
                 usage = APIUsage(
                     user_id=user_id,
+                    ip_address=ip_address if user_id is None else None,
                     usage_date=today_start,
                     request_count=1,
                     llm_provider=llm_provider,
@@ -163,7 +214,8 @@ class UsageTracker:
     def get_user_usage_stats(
         user_id: Optional[int],
         db: Session,
-        days: int = 7
+        days: int = 7,
+        ip_address: Optional[str] = None
     ) -> Dict:
         """
         Get usage statistics for a user
@@ -172,36 +224,61 @@ class UsageTracker:
             user_id: User ID (None for anonymous users)
             db: Database session
             days: Number of days to retrieve
+            ip_address: IP address for anonymous users (required when user_id is None)
             
         Returns:
             Dictionary with usage statistics
         """
         if not DB_AVAILABLE:
+            limit = DAILY_REQUEST_LIMIT_UNAUTHENTICATED if user_id is None else DAILY_REQUEST_LIMIT
             return {
-                "today": {"request_count": 0, "remaining": DAILY_REQUEST_LIMIT},
+                "today": {"request_count": 0, "remaining": limit},
                 "recent_days": [],
                 "total_requests": 0,
-                "total_tokens": 0
+                "total_tokens": 0,
+                "days_analyzed": days
             }
         
         try:
             today_start = UsageTracker.get_today_start()
             start_date = today_start - timedelta(days=days - 1)
+            limit = DAILY_REQUEST_LIMIT_UNAUTHENTICATED if user_id is None else DAILY_REQUEST_LIMIT
             
             # Get today's usage
-            today_usage = db.query(APIUsage).filter(
-                APIUsage.user_id == user_id,
-                func.date(APIUsage.usage_date) == today_start.date()
-            ).first()
+            if user_id is None:
+                if not ip_address:
+                    return {
+                        "today": {"request_count": 0, "remaining": limit},
+                        "recent_days": [],
+                        "total_requests": 0,
+                        "total_tokens": 0
+                    }
+                today_usage = db.query(APIUsage).filter(
+                    APIUsage.user_id.is_(None),
+                    APIUsage.ip_address == ip_address,
+                    func.date(APIUsage.usage_date) == today_start.date()
+                ).first()
+                
+                # Get recent days usage
+                recent_usage = db.query(APIUsage).filter(
+                    APIUsage.user_id.is_(None),
+                    APIUsage.ip_address == ip_address,
+                    APIUsage.usage_date >= start_date
+                ).order_by(APIUsage.usage_date.desc()).all()
+            else:
+                today_usage = db.query(APIUsage).filter(
+                    APIUsage.user_id == user_id,
+                    func.date(APIUsage.usage_date) == today_start.date()
+                ).first()
+                
+                # Get recent days usage
+                recent_usage = db.query(APIUsage).filter(
+                    APIUsage.user_id == user_id,
+                    APIUsage.usage_date >= start_date
+                ).order_by(APIUsage.usage_date.desc()).all()
             
             today_count = today_usage.request_count if today_usage else 0
-            today_remaining = max(0, DAILY_REQUEST_LIMIT - today_count)
-            
-            # Get recent days usage
-            recent_usage = db.query(APIUsage).filter(
-                APIUsage.user_id == user_id,
-                APIUsage.usage_date >= start_date
-            ).order_by(APIUsage.usage_date.desc()).all()
+            today_remaining = max(0, limit - today_count)
             
             recent_days = [usage.to_dict() for usage in recent_usage]
             
@@ -216,7 +293,7 @@ class UsageTracker:
                 "today": {
                     "request_count": today_count,
                     "remaining": today_remaining,
-                    "limit": DAILY_REQUEST_LIMIT,
+                    "limit": limit,
                     "input_tokens": today_usage.input_tokens if today_usage else 0,
                     "output_tokens": today_usage.output_tokens if today_usage else 0,
                     "embedding_tokens": today_usage.embedding_tokens if today_usage else 0,
@@ -230,11 +307,13 @@ class UsageTracker:
             }
         except Exception as e:
             print(f"⚠️  Error getting usage stats: {e}")
+            limit = DAILY_REQUEST_LIMIT_UNAUTHENTICATED if user_id is None else DAILY_REQUEST_LIMIT
             return {
-                "today": {"request_count": 0, "remaining": DAILY_REQUEST_LIMIT},
+                "today": {"request_count": 0, "remaining": limit},
                 "recent_days": [],
                 "total_requests": 0,
-                "total_tokens": 0
+                "total_tokens": 0,
+                "days_analyzed": days
             }
     
     @staticmethod
@@ -277,7 +356,8 @@ class UsageTracker:
         user_id: Optional[int],
         db: Session,
         days: int = 7,
-        group_by: str = "hour"  # "hour", "day", "minute"
+        group_by: str = "hour",  # "hour", "day", "minute"
+        ip_address: Optional[str] = None
     ) -> Dict:
         """
         Get per-request statistics grouped by time period
@@ -295,7 +375,8 @@ class UsageTracker:
             return {
                 "requests": [],
                 "total_requests": 0,
-                "group_by": group_by
+                "group_by": group_by,
+                "days": days
             }
         
         try:
@@ -304,10 +385,26 @@ class UsageTracker:
             start_date = today_start - timedelta(days=days - 1)
             
             # Get all individual requests
-            requests = db.query(APIRequest).filter(
-                APIRequest.user_id == user_id,
-                APIRequest.request_timestamp >= start_date
-            ).order_by(APIRequest.request_timestamp.asc()).all()
+            if user_id is None:
+                if not ip_address:
+                    return {
+                        "requests": [],
+                        "total_requests": 0,
+                        "group_by": group_by,
+                        "days": days
+                    }
+                # For anonymous users, we need to track by IP - but APIRequest doesn't have IP field
+                # For now, query all anonymous requests (user_id is None)
+                # In future, we might add ip_address to APIRequest as well
+                requests = db.query(APIRequest).filter(
+                    APIRequest.user_id.is_(None),
+                    APIRequest.request_timestamp >= start_date
+                ).order_by(APIRequest.request_timestamp.asc()).all()
+            else:
+                requests = db.query(APIRequest).filter(
+                    APIRequest.user_id == user_id,
+                    APIRequest.request_timestamp >= start_date
+                ).order_by(APIRequest.request_timestamp.asc()).all()
             
             # Group requests by time period
             grouped_requests = {}
@@ -369,7 +466,8 @@ class UsageTracker:
             return {
                 "requests": [],
                 "total_requests": 0,
-                "group_by": group_by
+                "group_by": group_by,
+                "days": days
             }
 
 

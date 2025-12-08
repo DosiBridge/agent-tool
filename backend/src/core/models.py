@@ -424,6 +424,7 @@ if Base is not None:
         
         id = Column(Integer, primary_key=True, index=True)
         user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)  # Nullable for anonymous users
+        ip_address = Column(String(45), nullable=True, index=True)  # IP address for anonymous users (IPv6 max length)
         usage_date = Column(DateTime(timezone=True), nullable=False, index=True)  # Date of usage (normalized to start of day)
         request_count = Column(Integer, default=0, nullable=False)  # Number of requests today
         llm_provider = Column(String(50), nullable=True)  # Which LLM provider was used (deepseek, openai, gemini, etc.)
@@ -438,9 +439,10 @@ if Base is not None:
         # Relationship
         user = relationship("User", backref="api_usage")
         
-        # Unique constraint on user_id + usage_date
+        # Unique constraint: user_id + usage_date (for authenticated) or ip_address + usage_date (for anonymous)
         __table_args__ = (
             UniqueConstraint('user_id', 'usage_date', name='uq_api_usage_user_date'),
+            UniqueConstraint('ip_address', 'usage_date', name='uq_api_usage_ip_date'),
         )
         
         def to_dict(self) -> dict:
@@ -448,6 +450,7 @@ if Base is not None:
             return {
                 "id": self.id,
                 "user_id": self.user_id,
+                "ip_address": self.ip_address,
                 "usage_date": self.usage_date.isoformat() if self.usage_date else None,
                 "request_count": self.request_count,
                 "llm_provider": self.llm_provider,

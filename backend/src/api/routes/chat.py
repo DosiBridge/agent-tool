@@ -54,6 +54,9 @@ async def chat(
     try:
         user_id = current_user.id if current_user else None
         
+        # Get IP address for unauthenticated users
+        ip_address = usage_tracker.get_client_ip(request) if user_id is None else None
+        
         # RAG mode requires authentication (Agent mode works without login)
         if chat_request.mode == "rag" and not current_user:
             app_logger.warning(
@@ -71,17 +74,25 @@ async def chat(
             not llm_config.get("api_key")  # Using system default DeepSeek
         )
         
-        # Check daily rate limit (100 requests per day for default LLM, unlimited for custom API keys)
-        is_allowed, current_count, remaining = usage_tracker.check_daily_limit(user_id, db, is_default_llm=is_default_llm)
+        # Check daily rate limit
+        # - Authenticated users: 100/day for default LLM, unlimited for custom keys
+        # - Unauthenticated users: 30/day
+        limit = DAILY_REQUEST_LIMIT_UNAUTHENTICATED if user_id is None else DAILY_REQUEST_LIMIT
+        is_allowed, current_count, remaining = usage_tracker.check_daily_limit(
+            user_id, db, is_default_llm=is_default_llm, ip_address=ip_address
+        )
         if not is_allowed:
+            limit_msg = limit if is_default_llm else "unlimited"
             app_logger.warning(
                 "Daily rate limit exceeded",
-                {"user_id": user_id, "current_count": current_count, "limit": DAILY_REQUEST_LIMIT, "is_default_llm": is_default_llm}
+                {"user_id": user_id, "ip_address": ip_address, "current_count": current_count, "limit": limit, "is_default_llm": is_default_llm}
             )
-            raise HTTPException(
-                status_code=429,
-                detail=f"Daily request limit exceeded. You have used {current_count}/{DAILY_REQUEST_LIMIT} requests today with the default LLM. Please add your own API key or try again tomorrow."
-            )
+            error_msg = f"Daily request limit exceeded. You have used {current_count}/{limit} requests today."
+            if user_id is None:
+                error_msg += " Please create an account or log in to get 100 requests per day, or add your own API key for unlimited requests."
+            else:
+                error_msg += " Please add your own API key for unlimited requests or try again tomorrow."
+            raise HTTPException(status_code=429, detail=error_msg)
         
         app_logger.info(
             "Processing chat request",
@@ -137,7 +148,8 @@ async def chat(
             embedding_tokens=token_usage.get("embedding_tokens", 0),
             mode=chat_request.mode,
             session_id=chat_request.session_id,
-            success=True
+            success=True,
+            ip_address=ip_address
         )
         
         app_logger.info(
@@ -183,6 +195,9 @@ async def chat_stream(
         stream_completed = False
         user_id = current_user.id if current_user else None
         
+        # Get IP address for unauthenticated users
+        ip_address = usage_tracker.get_client_ip(request) if user_id is None else None
+        
         # RAG mode requires authentication (Agent mode works without login)
         if chat_request.mode == "rag" and not current_user:
             yield f"data: {json.dumps({'chunk': '', 'done': True, 'error': 'Authentication required for RAG mode. Please log in to upload documents and query them.'})}\n\n"
@@ -195,14 +210,25 @@ async def chat_stream(
             not llm_config.get("api_key")  # Using system default DeepSeek
         )
         
-        # Check daily rate limit (100 requests per day for default LLM, unlimited for custom API keys)
-        is_allowed, current_count, remaining = usage_tracker.check_daily_limit(user_id, db, is_default_llm=is_default_llm)
+        # Check daily rate limit
+        # - Authenticated users: 100/day for default LLM, unlimited for custom keys
+        # - Unauthenticated users: 30/day
+        from src.core.constants import DAILY_REQUEST_LIMIT_UNAUTHENTICATED
+        limit = DAILY_REQUEST_LIMIT_UNAUTHENTICATED if user_id is None else DAILY_REQUEST_LIMIT
+        is_allowed, current_count, remaining = usage_tracker.check_daily_limit(
+            user_id, db, is_default_llm=is_default_llm, ip_address=ip_address
+        )
         if not is_allowed:
             app_logger.warning(
                 "Daily rate limit exceeded (streaming)",
-                {"user_id": user_id, "current_count": current_count, "limit": DAILY_REQUEST_LIMIT, "is_default_llm": is_default_llm}
+                {"user_id": user_id, "ip_address": ip_address, "current_count": current_count, "limit": limit, "is_default_llm": is_default_llm}
             )
-            yield f"data: {json.dumps({'chunk': '', 'done': True, 'error': f'Daily request limit exceeded. You have used {current_count}/{DAILY_REQUEST_LIMIT} requests today with the default LLM. Please add your own API key or try again tomorrow.'})}\n\n"
+            error_msg = f"Daily request limit exceeded. You have used {current_count}/{limit} requests today."
+            if user_id is None:
+                error_msg += " Please create an account or log in to get 100 requests per day, or add your own API key for unlimited requests."
+            else:
+                error_msg += " Please add your own API key for unlimited requests or try again tomorrow."
+            yield f"data: {json.dumps({'chunk': '', 'done': True, 'error': error_msg})}\n\n"
             return
         
         try:
@@ -384,7 +410,8 @@ async def chat_stream(
                         embedding_tokens=0,
                         mode=chat_request.mode,
                         session_id=chat_request.session_id,
-                        success=True
+                        success=True,
+                        ip_address=ip_address
                     )
                 
                 yield f"data: {json.dumps({'chunk': '', 'done': True})}\n\n"
@@ -662,7 +689,8 @@ async def chat_stream(
                             embedding_tokens=embedding_tokens,
                             mode=chat_request.mode,
                             session_id=chat_request.session_id,
-                            success=True
+                            success=True,
+                            ip_address=ip_address
                         )
                     
                     yield f"data: {json.dumps({'chunk': '', 'done': True, 'tools_used': tool_calls_made})}\n\n"

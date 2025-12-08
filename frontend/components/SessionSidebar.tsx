@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   ChevronRight,
   Edit2,
+  LogOut,
   MessageSquare,
   Plus,
   Save,
@@ -45,6 +46,7 @@ export default function SessionSidebar({
   const setCurrentSession = useStore((state) => state.setCurrentSession);
   const createNewSession = useStore((state) => state.createNewSession);
   const updateSessionTitle = useStore((state) => state.updateSessionTitle);
+  const handleLogout = useStore((state) => state.handleLogout);
 
   useEffect(() => {
     loadSessions();
@@ -60,9 +62,14 @@ export default function SessionSidebar({
   const [isButtonHovered, setIsButtonHovered] = useState(false);
 
   // Check if we're on desktop (>= 768px)
+  // Initialize as false to match server render, then update on client
   const [isDesktop, setIsDesktop] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // Mark as mounted to prevent hydration mismatch
+    setMounted(true);
+    
     const checkDesktop = () => {
       setIsDesktop(window.innerWidth >= 768);
     };
@@ -72,11 +79,18 @@ export default function SessionSidebar({
   }, []);
 
   // On desktop, sidebar is expanded if open OR hovered (sidebar or button)
-  const isExpanded = isOpen || (isDesktop && (isHovered || isButtonHovered));
+  // Only use desktop behavior after component has mounted to prevent hydration mismatch
+  // Always use isOpen for initial render to ensure server/client match
+  const isExpanded = mounted 
+    ? (isOpen || (isDesktop && (isHovered || isButtonHovered)))
+    : isOpen;
 
   // Show sidebar when it's explicitly open OR when hovering on desktop
-  const shouldShowSidebar =
-    isOpen || (isDesktop && (isHovered || isButtonHovered));
+  // Only use desktop behavior after component has mounted to prevent hydration mismatch
+  // Always use isOpen for initial render to ensure server/client match
+  const shouldShowSidebar = mounted
+    ? (isOpen || (isDesktop && (isHovered || isButtonHovered)))
+    : isOpen;
 
   const handleDeleteSession = async (
     sessionId: string,
@@ -191,7 +205,8 @@ export default function SessionSidebar({
   return (
     <>
       {/* Fixed Toggle Button - Always visible when sidebar is closed and not hovered */}
-      {!shouldShowSidebar && (
+      {/* Only render after mount to prevent hydration mismatch */}
+      {mounted && !shouldShowSidebar && (
         <div
           className="fixed left-0 top-1/2 -translate-y-1/2 z-50"
           onMouseEnter={() => {
@@ -222,7 +237,8 @@ export default function SessionSidebar({
       )}
 
       {/* Overlay - shown when sidebar is open on mobile */}
-      {isOpen && (
+      {/* Only render after mount to prevent hydration mismatch on mobile */}
+      {mounted && isOpen && (
         <div
           className="fixed inset-0 bg-[var(--modal-overlay)] z-40 md:hidden"
           onClick={onClose}
@@ -233,7 +249,7 @@ export default function SessionSidebar({
       {/* Sidebar */}
       <div
         onMouseEnter={() => {
-          if (isDesktop) {
+          if (mounted && isDesktop) {
             setIsHovered(true);
             setIsButtonHovered(true); // Keep button hovered when sidebar is hovered
           }
@@ -573,7 +589,7 @@ export default function SessionSidebar({
         {/* Profile Section at Bottom */}
         <div className="mt-auto border-t border-[var(--sidebar-border)] shrink-0">
           {isAuthenticated ? (
-            <div className={`p-2 sm:p-3 ${!isExpanded ? "p-2" : ""}`}>
+            <div className="p-2 sm:p-3 space-y-2">
               <div
                 className={`flex items-center ${
                   isExpanded
@@ -603,6 +619,28 @@ export default function SessionSidebar({
                   </div>
                 )}
               </div>
+              {/* Logout Button */}
+              <button
+                onClick={async () => {
+                  await handleLogout();
+                  onClose?.();
+                }}
+                className={`w-full flex items-center ${
+                  isExpanded
+                    ? "justify-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5"
+                    : "justify-center px-2 py-2"
+                } bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 border border-red-600/30 hover:border-red-600/50 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-red-500/50 font-medium text-sm touch-manipulation`}
+                aria-label="Logout"
+              >
+                <LogOut className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span
+                  className={`truncate transition-opacity duration-300 ${
+                    isExpanded ? "opacity-100" : "opacity-0 w-0 overflow-hidden"
+                  }`}
+                >
+                  Logout
+                </span>
+              </button>
             </div>
           ) : (
             isExpanded && (

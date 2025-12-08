@@ -78,18 +78,15 @@ export default function MonitoringPage() {
   const [requestsTotal, setRequestsTotal] = useState(0);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsOffset, setRequestsOffset] = useState(0);
+  const [requestsHasMore, setRequestsHasMore] = useState(false);
   const [llmConfigs, setLlmConfigs] = useState<LLMConfigListItem[]>([]);
   const [selectedDays, setSelectedDays] = useState(7);
   const [groupBy, setGroupBy] = useState<"hour" | "day" | "minute">("hour");
 
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      // Redirect to login if not authenticated
-      router.push("/login");
-      return;
-    }
-
-    if (isAuthenticated) {
+    // Allow both authenticated and unauthenticated users to view monitoring
+    // Unauthenticated users can see their own usage (tracked by IP)
+    if (!authLoading) {
       loadMonitoringData();
     }
   }, [isAuthenticated, authLoading, router, selectedDays, groupBy]);
@@ -97,22 +94,44 @@ export default function MonitoringPage() {
   const loadMonitoringData = async () => {
     try {
       setLoading(true);
-      const [stats, today, keys, perRequest, individual, configs] = await Promise.all([
-        getUsageStats(selectedDays),
-        getTodayUsage(),
-        getAPIKeysInfo(),
-        getPerRequestStats(selectedDays, groupBy),
-        getIndividualRequests(selectedDays, 100, 0),
-        listLLMConfigs().catch(() => ({ configs: [] })),
-      ]);
-      setUsageStats(stats);
-      setTodayUsage(today);
-      setApiKeysInfo(keys);
-      setPerRequestStats(perRequest.requests);
-      setIndividualRequests(individual.requests);
-      setRequestsTotal(individual.total);
-      setRequestsOffset(0);
-      setLlmConfigs(configs.configs);
+      
+      // For unauthenticated users, only load basic usage stats
+      if (isAuthenticated) {
+        const [stats, today, keys, perRequest, individual, configs] = await Promise.all([
+          getUsageStats(selectedDays),
+          getTodayUsage(),
+          getAPIKeysInfo().catch(() => null),
+          getPerRequestStats(selectedDays, groupBy),
+          getIndividualRequests(selectedDays, 100, 0),
+          listLLMConfigs().catch(() => ({ configs: [] })),
+        ]);
+        setUsageStats(stats);
+        setTodayUsage(today);
+        setApiKeysInfo(keys);
+        setPerRequestStats(perRequest.requests);
+        setIndividualRequests(individual.requests);
+        setRequestsTotal(individual.total);
+        setRequestsOffset(0);
+        setRequestsHasMore(individual.has_more || false);
+        setLlmConfigs(configs.configs);
+      } else {
+        // For unauthenticated users, only load basic usage data
+        const [stats, today, perRequest, individual] = await Promise.all([
+          getUsageStats(selectedDays).catch(() => null),
+          getTodayUsage(),
+          getPerRequestStats(selectedDays, groupBy).catch(() => ({ requests: [] })),
+          getIndividualRequests(selectedDays, 100, 0).catch(() => ({ requests: [], total: 0, has_more: false })),
+        ]);
+        setUsageStats(stats);
+        setTodayUsage(today);
+        setApiKeysInfo(null);
+        setPerRequestStats(perRequest.requests);
+        setIndividualRequests(individual.requests);
+        setRequestsTotal(individual.total);
+        setRequestsOffset(0);
+        setRequestsHasMore(individual.has_more || false);
+        setLlmConfigs([]);
+      }
     } catch (error) {
       console.error("Failed to load monitoring data:", error);
       toast.error("Failed to load monitoring data");
@@ -140,7 +159,7 @@ export default function MonitoringPage() {
       toast.success("Switched LLM configuration successfully");
       loadMonitoringData();
       // Reload LLM config in store
-      loadLLMConfig();
+      useStore.getState().loadLLMConfig();
     } catch (error: any) {
       toast.error(error.message || "Failed to switch LLM configuration");
     }
@@ -152,6 +171,7 @@ export default function MonitoringPage() {
       const data = await getIndividualRequests(selectedDays, 100, requestsOffset + 100);
       setIndividualRequests((prev) => [...prev, ...data.requests]);
       setRequestsOffset((prev) => prev + 100);
+      setRequestsHasMore(data.has_more || false);
     } catch (error) {
       console.error("Failed to load more requests:", error);
       toast.error("Failed to load more requests");
@@ -169,10 +189,6 @@ export default function MonitoringPage() {
         </div>
       </div>
     );
-  }
-
-  if (!isAuthenticated) {
-    return null; // Will redirect
   }
 
   const usagePercentage = todayUsage && todayUsage.limit > 0
@@ -202,7 +218,9 @@ export default function MonitoringPage() {
                   API Usage Monitoring
                 </h1>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">
-                  Monitor your API key usage and request limits
+                  {isAuthenticated 
+                    ? "Monitor your API key usage and request limits"
+                    : "View your usage and request limits (30 requests/day for unauthenticated users)"}
                 </p>
               </div>
             </div>
@@ -340,7 +358,9 @@ export default function MonitoringPage() {
                     </p>
                     <p className="text-sm text-[var(--text-secondary)] mt-1">
                       You have reached your daily limit of {todayUsage.limit} requests.
-                      Please try again tomorrow or add your own API key for unlimited requests.
+                      {isAuthenticated 
+                        ? " Please try again tomorrow or add your own API key for unlimited requests."
+                        : " Please create an account or log in to get 100 requests per day, or add your own API key for unlimited requests."}
                     </p>
                   </div>
                 </div>
@@ -364,15 +384,16 @@ export default function MonitoringPage() {
           </div>
         )}
 
-        {/* LLM Configurations Management */}
-        <div className="mb-8 bg-[var(--surface-elevated)] rounded-xl border border-[var(--border)] p-6">
-          <h2 className="text-xl font-semibold text-[var(--text-primary)] flex items-center gap-2 mb-4">
-            <Brain className="w-5 h-5 text-[var(--green)]" />
-            LLM Configurations
-          </h2>
-          <p className="text-sm text-[var(--text-secondary)] mb-4">
-            Manage your LLM configurations - switch, update, or delete saved configurations
-          </p>
+        {/* LLM Configurations Management - Only for authenticated users */}
+        {isAuthenticated && (
+          <div className="mb-8 bg-[var(--surface-elevated)] rounded-xl border border-[var(--border)] p-6">
+            <h2 className="text-xl font-semibold text-[var(--text-primary)] flex items-center gap-2 mb-4">
+              <Brain className="w-5 h-5 text-[var(--green)]" />
+              LLM Configurations
+            </h2>
+            <p className="text-sm text-[var(--text-secondary)] mb-4">
+              Manage your LLM configurations - switch, update, or delete saved configurations
+            </p>
           {llmConfigs.length > 0 ? (
             <div className="space-y-3">
               {llmConfigs.map((config) => (
@@ -458,9 +479,10 @@ export default function MonitoringPage() {
               <p>No LLM configurations found. Add one in Settings.</p>
             </div>
           )}
-        </div>
+          </div>
+        )}
 
-        {/* API Keys Information */}
+        {/* API Keys Information - Only for authenticated users */}
         {apiKeysInfo && (
           <div className="mb-8 bg-[var(--surface-elevated)] rounded-xl border border-[var(--border)] p-6">
             <h2 className="text-xl font-semibold text-[var(--text-primary)] flex items-center gap-2 mb-4">
@@ -1484,14 +1506,16 @@ export default function MonitoringPage() {
                 </tbody>
               </table>
             </div>
-            {requestsTotal > individualRequests.length && (
+            {requestsHasMore && (
               <div className="mt-4 flex justify-center">
                 <button
                   onClick={loadMoreRequests}
                   disabled={requestsLoading}
                   className="px-4 py-2 bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {requestsLoading ? "Loading..." : `Load More (${requestsTotal - individualRequests.length} remaining)`}
+                  {requestsLoading 
+                    ? "Loading..." 
+                    : `Load More (${requestsTotal - individualRequests.length} remaining)`}
                 </button>
               </div>
             )}

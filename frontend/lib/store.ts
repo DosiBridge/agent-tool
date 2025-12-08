@@ -220,13 +220,14 @@ export const useStore = create<AppState>((set, get) => ({
       const currentMode = get().mode;
       const currentMessages = get().messages; // Keep messages for agent mode
 
-      // Clear all MCP-related data
+      // Clear all MCP-related data and health status
       set({
         user: null,
         isAuthenticated: false,
         messages: currentMode === "rag" ? [] : currentMessages, // Keep messages for agent mode, clear for RAG
         sessions: [],
         mcpServers: [], // Clear MCP servers list on logout
+        health: null, // Clear health status on logout
         mode: currentMode === "rag" ? "agent" : currentMode, // Switch to agent mode if in RAG (agent works without login)
         isStreaming: false, // Stop any ongoing streaming
         isLoading: false, // Stop any ongoing loading

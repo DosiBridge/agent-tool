@@ -6,7 +6,8 @@ RATE_LIMIT_CHAT = "100/minute"
 RATE_LIMIT_DEFAULT = "200/minute"
 
 # Daily usage limits
-DAILY_REQUEST_LIMIT = 100  # Maximum requests per user per day
+DAILY_REQUEST_LIMIT = 100  # Maximum requests per authenticated user per day (default LLM)
+DAILY_REQUEST_LIMIT_UNAUTHENTICATED = 30  # Maximum requests per unauthenticated user per day
 
 # Session defaults
 DEFAULT_SESSION_ID = "default"
