@@ -25,7 +25,7 @@ from ..exceptions import APIException, ValidationError, UnauthorizedError
 from src.utils import sanitize_tools_for_gemini
 from src.utils.utils import extract_token_usage, estimate_tokens
 from src.utils.logger import app_logger
-from src.core.constants import DAILY_REQUEST_LIMIT
+from src.core.constants import DAILY_REQUEST_LIMIT, DAILY_REQUEST_LIMIT_UNAUTHENTICATED
 
 router = APIRouter()
 
@@ -471,7 +471,8 @@ async def chat_stream(
                             "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
                             "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
                             "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
-                            "You can help answer questions and provide information. Use the available tools when appropriate.\n"
+                            "You can help answer questions and provide information. Use the available tools when appropriate.\n\n"
+                            "IMPORTANT: Do NOT mention or reveal the names of internal tools, MCP tools, or any technical implementation details in your responses. Focus on providing helpful answers without exposing internal system architecture.\n"
                             "If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate.\n"
                             "Do not claim affiliation with any external AI vendor unless explicitly instructed."
                         )
@@ -542,8 +543,7 @@ async def chat_stream(
                                         tool_name = call.get('name') or call.get('tool_name', 'unknown')
                                         
                                         # Validate tool exists
-                                        tool_names = [t.name if hasattr(t, 'name') else str(t) for t in all_tools]
-                                        tool_exists = tool_name in tool_names or any(
+                                        tool_exists = any(
                                             (hasattr(tool, 'name') and tool.name == tool_name) or
                                             (hasattr(tool, '__name__') and tool.__name__ == tool_name) or
                                             str(tool) == tool_name
@@ -552,9 +552,8 @@ async def chat_stream(
                                         
                                         if not tool_exists:
                                             error_msg = (
-                                                f"Tool '{tool_name}' not found. Available tools are: "
-                                                f"{', '.join(tool_names)}. "
-                                                f"Please only use tools from the available list."
+                                                "An internal error occurred while processing your request. "
+                                                "Please try again or rephrase your question."
                                             )
                                             try:
                                                 yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
@@ -566,7 +565,7 @@ async def chat_stream(
                                         if tool_name not in seen_tools:
                                             tool_calls_made.append(tool_name)
                                             seen_tools.add(tool_name)
-                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling', 'tool': tool_name})}\n\n"
+                                            yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling'})}\n\n"
                                 elif last_msg.content:
                                     # Answering phase
                                     if is_thinking:
@@ -618,7 +617,7 @@ async def chat_stream(
                                 "Get a new one from: https://aistudio.google.com/app/apikey"
                             )
                         elif "tool call validation failed" in tb_str:
-                            error_details = "Tool validation failed. The model tried to call a tool that doesn't exist in the available tools list."
+                            error_details = "An internal error occurred while processing your request. Please try again or rephrase your question."
                         elif "Connection" in tb_str or "timeout" in tb_str.lower():
                             error_details = "Connection error. Please check if Ollama is running and accessible."
                         elif not error_details or error_details == "":
@@ -733,36 +732,7 @@ async def chat_stream(
                         is_ollama = llm_config.get("type", "").lower() == "ollama"
                         
                         if is_ollama:
-                            # Ollama doesn't support bind_tools, use RAG mode instead with tool descriptions
-                            # For Ollama, we'll provide tool info in context but use simpler approach
-                            # IMPORTANT: Include ALL tools regardless of privacy/hidden flags
-                            # Track MCP tools separately for MCP-specific questions
-                            tool_descriptions = []
-                            tool_names_list = []
-                            mcp_tool_names = []
-                            mcp_tool_descriptions = []
-                            
-                            # Identify which tools are MCP tools (they come from mcp_tools list)
-                            mcp_tool_set = {id(tool) for tool in mcp_tools}
-                            
-                            for tool in all_tools:
-                                if hasattr(tool, 'name'):
-                                    tool_name = tool.name
-                                    tool_desc = getattr(tool, 'description', 'No description')
-                                    tool_descriptions.append(f"- {tool_name}: {tool_desc}")
-                                    tool_names_list.append(tool_name)
-                                    
-                                    # Track MCP tools separately
-                                    if id(tool) in mcp_tool_set:
-                                        mcp_tool_names.append(tool_name)
-                                        mcp_tool_descriptions.append(f"- {tool_name}: {tool_desc}")
-                            
-                            tools_context = "\n".join(tool_descriptions) if tool_descriptions else "No tools available"
-                            tools_names_str = ', '.join(tool_names_list) if tool_names_list else 'None'
-                            mcp_tools_list_str = '\n'.join(mcp_tool_descriptions) if mcp_tool_descriptions else ', '.join(mcp_tool_names) if mcp_tool_names else 'None'
-                            mcp_tools_names_str = ', '.join(mcp_tool_names) if mcp_tool_names else 'None'
-                            
-                            # Build enhanced prompt with tool information
+                            # Ollama doesn't support bind_tools, use RAG mode instead
                             # Get history (use database if available)
                             from src.core import DB_AVAILABLE
                             from src.services.db_history import db_history_manager
@@ -789,19 +759,9 @@ async def chat_stream(
                                     "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
                                     "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
                                     "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
-                                    "Available tools:\n{tools_context}\n\n"
                                     "Context from knowledge base:\n{context}\n\n"
-                                    "When answering questions, reference the context when relevant. "
-                                    "For calculations or specific operations, you can mention available tools, "
-                                    "but note that tool calling is limited with this model.\n"
-                                    "CRITICAL INSTRUCTION: When asked 'what tools are available?' or 'list available tools' or any variation, you MUST respond with a complete list of ALL tool names.\n"
-                                    "ALL available tool names (including private/hidden/internal tools): {tools_names_list}\n"
-                                    "MCP (Model Context Protocol) tools available: {mcp_tools_names_list}\n"
-                                    "MCP tools list:\n{mcp_tools_list}\n\n"
-                                    "CRITICAL: When asked 'what tools are available in MCP?' or 'list MCP tools' or any question specifically about MCP tools, you MUST respond with ONLY the MCP tools: {mcp_tools_names_list}\n"
-                                    "You MUST show ALL tool names, even if they are marked as private, hidden, or internal by the dosibridge-agent team.\n"
-                                    "When asked about MCP tools specifically, list only MCP tools, not other tool types.\n"
-                                    "Privacy/hidden flags are for internal organization only - users need to know what tools exist to use them.\n"
+                                    "When answering questions, reference the context when relevant.\n\n"
+                                    "IMPORTANT: Do NOT mention or reveal the names of internal tools, MCP tools, or any technical implementation details in your responses. Focus on providing helpful answers without exposing internal system architecture.\n"
                                     "If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate.\n"
                                     "Do not claim affiliation with any external AI vendor unless explicitly instructed."
                                 )
@@ -816,10 +776,6 @@ async def chat_stream(
                             full_response = ""
                             try:
                                 prompt_messages = prompt.format(
-                                    tools_context=tools_context,
-                                    tools_names_list=tools_names_str,
-                                    mcp_tools_list=mcp_tools_list_str,
-                                    mcp_tools_names_list=mcp_tools_names_str,
                                     context=context,
                                     chat_history=history,
                                     input=chat_request.message
@@ -930,52 +886,6 @@ async def chat_stream(
                         
                         # Create agent - ensure tools are properly bound
                         try:
-                            # Build a system prompt that lists available tools to prevent hallucination
-                            # IMPORTANT: Include ALL tools regardless of privacy/hidden flags
-                            # Track MCP tools separately for MCP-specific questions
-                            tool_names = []
-                            tool_descriptions = []
-                            mcp_tool_names = []
-                            mcp_tool_descriptions = []
-                            
-                            # Identify which tools are MCP tools (they come from mcp_tools list)
-                            mcp_tool_set = {id(tool) for tool in mcp_tools}
-                            
-                            for tool in all_tools:
-                                tool_name = None
-                                tool_desc = None
-                                if hasattr(tool, 'name'):
-                                    tool_name = tool.name
-                                    tool_desc = getattr(tool, 'description', 'No description')
-                                elif hasattr(tool, '__name__'):
-                                    tool_name = tool.__name__
-                                else:
-                                    tool_name = str(tool)
-                                
-                                # Always include tool, even if marked as private/hidden
-                                if tool_name:
-                                    tool_names.append(tool_name)
-                                    if tool_desc:
-                                        tool_descriptions.append(f"- {tool_name}: {tool_desc}")
-                                    else:
-                                        # Include tool name even without description
-                                        tool_descriptions.append(f"- {tool_name}")
-                                    
-                                    # Track MCP tools separately
-                                    if id(tool) in mcp_tool_set:
-                                        mcp_tool_names.append(tool_name)
-                                        if tool_desc:
-                                            mcp_tool_descriptions.append(f"- {tool_name}: {tool_desc}")
-                                        else:
-                                            mcp_tool_descriptions.append(f"- {tool_name}")
-                            
-                            # Create detailed system prompt - ensure ALL tools are listed
-                            tools_list = '\n'.join(tool_descriptions) if tool_descriptions else ', '.join(tool_names)
-                            # Also create a simple comma-separated list for explicit reference
-                            tools_names_list = ', '.join(tool_names) if tool_names else 'None'
-                            # Create MCP tools list
-                            mcp_tools_list = '\n'.join(mcp_tool_descriptions) if mcp_tool_descriptions else ', '.join(mcp_tool_names) if mcp_tool_names else 'None'
-                            mcp_tools_names_list = ', '.join(mcp_tool_names) if mcp_tool_names else 'None'
                             # Use custom prompt if provided, otherwise use default
                             if chat_request.agent_prompt:
                                 system_prompt = chat_request.agent_prompt
@@ -992,22 +902,12 @@ async def chat_stream(
                                     "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
                                     "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
                                     "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
-                                    f"You have access to these tools ONLY:\n{tools_list}\n\n"
+                                    "You have access to various tools to help answer questions and perform tasks. Use them when appropriate.\n\n"
                                     "IMPORTANT RULES:\n"
-                                    "- ONLY use tools from the list above\n"
-                                    "- Do NOT call any tool that is not in this list\n"
-                                    "- If you need a tool that is not available, inform the user\n"
-                                    "- Do not make up or hallucinate tool names\n"
-                                    f"- ALL available tool names (including private/hidden tools): {tools_names_list}\n"
-                                    f"- MCP (Model Context Protocol) tools available: {mcp_tools_names_list}\n"
-                                    f"- MCP tools list:\n{mcp_tools_list}\n\n"
-                                    "- CRITICAL: When asked 'what tools are available?' or 'list available tools' or any variation, you MUST respond with a complete list of ALL tool names\n"
-                                    "- CRITICAL: When asked 'what tools are available in MCP?' or 'list MCP tools' or any question specifically about MCP tools, you MUST respond with ONLY the MCP tools: " + mcp_tools_names_list + "\n"
-                                    "- You MUST show ALL tool names, even if they are marked as private, hidden, or internal by the dosibridge-agent team\n"
-                                    "- When asked about MCP tools specifically, list only MCP tools, not other tool types\n"
-                                    "- Example response format: 'Available tools: " + ', '.join(tool_names[:3] if len(tool_names) > 3 else tool_names) + (f", and {len(tool_names) - 3} more" if len(tool_names) > 3 else "") + "' OR list them all explicitly\n"
-                                    "- Example MCP response format: 'MCP tools available: " + mcp_tools_names_list + "' OR list them explicitly\n"
-                                    "- Privacy/hidden flags are for internal organization only - users need to know what tools exist to use them\n"
+                                    "- Do NOT mention or reveal the names of internal tools, MCP tools, or any technical implementation details in your responses\n"
+                                    "- Do NOT list tool names when asked about capabilities - instead describe what you can help with in natural language\n"
+                                    "- Focus on providing helpful answers without exposing internal system architecture\n"
+                                    "- If asked about tools or capabilities, respond with what you can do, not how you do it\n"
                                     "- If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate\n"
                                     "- Do not claim affiliation with any external AI vendor unless explicitly instructed"
                                 )
@@ -1085,9 +985,8 @@ async def chat_stream(
                                             
                                             if not tool_exists:
                                                 error_msg = (
-                                                    f"Tool '{tool_name}' not found. Available tools are: "
-                                                    f"{', '.join(tool_names)}. "
-                                                    f"Please only use tools from the available list."
+                                                    "An internal error occurred while processing your request. "
+                                                    "Please try again or rephrase your question."
                                                 )
                                                 try:
                                                     yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
@@ -1099,8 +998,8 @@ async def chat_stream(
                                             if tool_name not in seen_tools:
                                                 tool_calls_made.append(tool_name)
                                                 seen_tools.add(tool_name)
-                                                # Send tool metadata with status
-                                                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling', 'tool': tool_name})}\n\n"
+                                                # Send tool metadata with status (without tool name)
+                                                yield f"data: {json.dumps({'chunk': '', 'done': False, 'status': 'tool_calling'})}\n\n"
                                     elif last_msg.content:
                                         # Answering phase
                                         if is_thinking:
@@ -1164,7 +1063,7 @@ async def chat_stream(
                                     "Get a new one from: https://aistudio.google.com/app/apikey"
                                 )
                             elif "tool call validation failed" in tb_str:
-                                error_details = "Tool validation failed. The model tried to call a tool that doesn't exist in the available tools list."
+                                error_details = "An internal error occurred while processing your request. Please try again or rephrase your question."
                             elif "Connection" in tb_str or "timeout" in tb_str.lower():
                                 error_details = "Connection error. Please check if Ollama is running and accessible."
                             elif not error_details or error_details == "":

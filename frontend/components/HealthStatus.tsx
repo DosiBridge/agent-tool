@@ -76,7 +76,7 @@ export default function HealthStatus() {
       // MCP servers changed - ping immediately for updated health status
       // Also trigger a health check directly
       const loadHealth = useStore.getState().loadHealth;
-      healthWebSocket.ping();
+        healthWebSocket.ping();
       // Also load health directly for immediate update
       loadHealth();
     }

@@ -420,9 +420,9 @@ export default function MessageBubble({
                             border: `1px solid ${isDarkMode ? "#3e3e3e" : "#e1e4e8"}`,
                             padding: "0.125em 0.25em",
                             borderRadius: "0.25rem",
-                          }}
-                          {...props}
-                        >
+                            }}
+                            {...props}
+                          >
                           {children}
                         </code>
                       );

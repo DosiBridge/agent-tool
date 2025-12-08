@@ -31,9 +31,10 @@ export default function CodeBlock({
       setIsLoading(true);
       try {
         // Use codeToHtml which handles highlighter creation internally
+        // Always use dark theme for code blocks in both light and dark modes
         const html = await codeToHtml(code, {
           lang: language || "text",
-          theme: isDarkMode ? "github-dark-default" : "github-light-default",
+          theme: "github-dark-default",
         });
         if (mounted) {
           setHighlightedCode(html);
@@ -60,7 +61,7 @@ export default function CodeBlock({
     return () => {
       mounted = false;
     };
-  }, [code, language, isDarkMode]);
+  }, [code, language]); // Removed isDarkMode dependency since we always use dark theme
 
   const handleCopy = async () => {
     try {
@@ -82,10 +83,10 @@ export default function CodeBlock({
           </span>
           <div className="w-16 h-4 bg-[var(--surface-hover)] rounded animate-pulse" />
         </div>
-        <div className="bg-[var(--code-bg)] border border-[var(--code-border)] rounded-b-lg p-4">
+        <div className="bg-[#0d1117] border border-[var(--code-border)] rounded-b-lg p-4">
           <div className="space-y-2">
-            <div className="h-4 bg-[var(--surface-hover)] rounded w-3/4 animate-pulse" />
-            <div className="h-4 bg-[var(--surface-hover)] rounded w-1/2 animate-pulse" />
+            <div className="h-4 bg-[#21262d] rounded w-3/4 animate-pulse" />
+            <div className="h-4 bg-[#21262d] rounded w-1/2 animate-pulse" />
           </div>
         </div>
       </div>

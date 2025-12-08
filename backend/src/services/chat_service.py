@@ -289,19 +289,6 @@ class ChatService:
         """Fallback for Ollama which doesn't support bind_tools"""
         from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
         
-        # IMPORTANT: Include ALL tools regardless of privacy/hidden flags
-        tool_descriptions = []
-        tool_names_list = []
-        for tool in all_tools:
-            if hasattr(tool, 'name'):
-                tool_name = tool.name
-                tool_desc = getattr(tool, 'description', 'No description')
-                tool_descriptions.append(f"- {tool_name}: {tool_desc}")
-                tool_names_list.append(tool_name)
-        
-        tools_context = "\n".join(tool_descriptions) if tool_descriptions else "No tools available"
-        tools_names_str = ', '.join(tool_names_list) if tool_names_list else 'None'
-        
         if DB_AVAILABLE and user_id and db:
             history = db_history_manager.get_session_messages(session_id, user_id, db)
             session_history = db_history_manager.get_session_history(session_id, user_id, db)
@@ -327,13 +314,9 @@ class ChatService:
                 "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
                 "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
                 "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
-                "Available tools:\n{tools_context}\n\n"
                 "Context:\n{context}\n\n"
-                "Use the context to answer questions accurately.\n"
-                "CRITICAL INSTRUCTION: When asked 'what tools are available?' or 'list available tools' or any variation, you MUST respond with a complete list of ALL tool names.\n"
-                "ALL available tool names (including private/hidden/internal tools): {tools_names_list}\n"
-                "You MUST show ALL tool names, even if they are marked as private, hidden, or internal by the dosibridge-agent team.\n"
-                "Privacy/hidden flags are for internal organization only - users need to know what tools exist to use them.\n"
+                "Use the context to answer questions accurately.\n\n"
+                "IMPORTANT: Do NOT mention or reveal the names of internal tools, MCP tools, or any technical implementation details in your responses. Focus on providing helpful answers without exposing internal system architecture.\n"
                 "If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate.\n"
                 "Do not claim affiliation with any external AI vendor unless explicitly instructed."
             )
@@ -345,8 +328,6 @@ class ChatService:
         ])
         
         response = llm.invoke(prompt.format(
-            tools_context=tools_context,
-            tools_names_list=tools_names_str,
             context=context,
             chat_history=history,
             input=message
@@ -359,7 +340,7 @@ class ChatService:
         
         # Fallback to estimation if no token usage available
         if input_tokens == 0 and output_tokens == 0:
-            input_text = f"{message} {context} {tools_context}"
+            input_text = f"{message} {context}"
             input_tokens = estimate_tokens(input_text)
             output_tokens = estimate_tokens(answer)
         
@@ -382,19 +363,6 @@ class ChatService:
     @staticmethod
     def _create_agent(llm, tools: list, llm_config: dict, agent_prompt: Optional[str] = None):
         """Create LangChain agent with tools"""
-        tool_names = []
-        tool_descriptions = []
-        for tool in tools:
-            if hasattr(tool, 'name'):
-                tool_names.append(tool.name)
-                tool_desc = getattr(tool, 'description', '')
-                if tool_desc:
-                    tool_descriptions.append(f"- {tool.name}: {tool_desc}")
-            elif hasattr(tool, '__name__'):
-                tool_names.append(tool.__name__)
-        
-        tools_list = '\n'.join(tool_descriptions) if tool_descriptions else ', '.join(tool_names)
-        
         # Use custom prompt if provided, otherwise use default
         if agent_prompt:
             system_prompt = agent_prompt
@@ -411,11 +379,14 @@ class ChatService:
                 "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
                 "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
                 "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
-                f"You have access to these tools ONLY:\n{tools_list}\n\n"
+                "You have access to various tools to help answer questions and perform tasks. Use them when appropriate.\n\n"
                 "IMPORTANT RULES:\n"
-                "- ONLY use tools from this exact list. Do not call any tool that is not in this list.\n"
-                "- If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate.\n"
-                "- Do not claim affiliation with any external AI vendor unless explicitly instructed."
+                "- Do NOT mention or reveal the names of internal tools, MCP tools, or any technical implementation details in your responses\n"
+                "- Do NOT list tool names when asked about capabilities - instead describe what you can help with in natural language\n"
+                "- Focus on providing helpful answers without exposing internal system architecture\n"
+                "- If asked about tools or capabilities, respond with what you can do, not how you do it\n"
+                "- If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate\n"
+                "- Do not claim affiliation with any external AI vendor unless explicitly instructed"
             )
         
         # Sanitize tools for Gemini compatibility

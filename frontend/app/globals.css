@@ -629,14 +629,9 @@ button {
   white-space: pre;
 }
 
-/* Dark mode adjustments for Shiki */
-.dark .shiki-code-block .shiki {
+/* Always use dark theme background for code blocks in both light and dark modes */
+.shiki-code-block .shiki {
   background: #0d1117 !important;
-}
-
-/* Light mode adjustments for Shiki */
-:not(.dark) .shiki-code-block .shiki {
-  background: #ffffff !important;
 }
 
 /* Scrollbar styling */
