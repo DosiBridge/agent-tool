@@ -8,26 +8,42 @@ import {
   getUsageStats,
   getTodayUsage,
   getAPIKeysInfo,
+  getPerRequestStats,
   type UsageStats,
   type TodayUsage,
   type APIKeysInfo,
+  type PerRequestStats,
 } from "@/lib/api/monitoring";
 import {
   Activity,
   AlertCircle,
+  ArrowLeft,
+  BarChart3,
+  Calendar,
   CheckCircle2,
+  Database,
   Key,
   TrendingUp,
   XCircle,
   Zap,
-  BarChart3,
-  Calendar,
-  Database,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  ComposedChart,
+} from "recharts";
 
 export default function MonitoringPage() {
   const router = useRouter();
@@ -37,7 +53,9 @@ export default function MonitoringPage() {
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [todayUsage, setTodayUsage] = useState<TodayUsage | null>(null);
   const [apiKeysInfo, setApiKeysInfo] = useState<APIKeysInfo | null>(null);
+  const [perRequestStats, setPerRequestStats] = useState<PerRequestStats[]>([]);
   const [selectedDays, setSelectedDays] = useState(7);
+  const [groupBy, setGroupBy] = useState<"hour" | "day" | "minute">("hour");
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -49,19 +67,21 @@ export default function MonitoringPage() {
     if (isAuthenticated) {
       loadMonitoringData();
     }
-  }, [isAuthenticated, authLoading, router, selectedDays]);
+  }, [isAuthenticated, authLoading, router, selectedDays, groupBy]);
 
   const loadMonitoringData = async () => {
     try {
       setLoading(true);
-      const [stats, today, keys] = await Promise.all([
+      const [stats, today, keys, perRequest] = await Promise.all([
         getUsageStats(selectedDays),
         getTodayUsage(),
         getAPIKeysInfo(),
+        getPerRequestStats(selectedDays, groupBy),
       ]);
       setUsageStats(stats);
       setTodayUsage(today);
       setApiKeysInfo(keys);
+      setPerRequestStats(perRequest.requests);
     } catch (error) {
       console.error("Failed to load monitoring data:", error);
       toast.error("Failed to load monitoring data");
@@ -327,11 +347,16 @@ export default function MonitoringPage() {
             </div>
 
             {/* Summary Stats */}
-            <div className="grid md:grid-cols-3 gap-4 mb-6">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <div className="p-4 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
                 <div className="text-sm text-[var(--text-secondary)] mb-1">Total Requests</div>
                 <div className="text-2xl font-bold text-[var(--text-primary)]">
                   {usageStats.total_requests}
+                </div>
+                <div className="text-xs text-[var(--text-secondary)] mt-1">
+                  {usageStats.days_analyzed > 0
+                    ? `${Math.round(usageStats.total_requests / usageStats.days_analyzed)} per day`
+                    : "0 per day"}
                 </div>
               </div>
               <div className="p-4 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
@@ -339,14 +364,513 @@ export default function MonitoringPage() {
                 <div className="text-2xl font-bold text-[var(--text-primary)]">
                   {usageStats.total_tokens.toLocaleString()}
                 </div>
+                <div className="text-xs text-[var(--text-secondary)] mt-1">
+                  {usageStats.total_requests > 0
+                    ? `${Math.round(usageStats.total_tokens / usageStats.total_requests).toLocaleString()} per request`
+                    : "0 per request"}
+                </div>
+              </div>
+              <div className="p-4 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
+                <div className="text-sm text-[var(--text-secondary)] mb-1">Valid Requests</div>
+                <div className="text-2xl font-bold text-[var(--text-primary)]">
+                  {usageStats.recent_days
+                    .filter((day) => day.total_tokens > 0)
+                    .reduce((sum, day) => sum + day.request_count, 0)}
+                </div>
+                <div className="text-xs text-[var(--text-secondary)] mt-1">
+                  {usageStats.total_requests > 0
+                    ? `${Math.round(
+                        (usageStats.recent_days
+                          .filter((day) => day.total_tokens > 0)
+                          .reduce((sum, day) => sum + day.request_count, 0) /
+                          usageStats.total_requests) *
+                          100
+                      )}% success rate`
+                    : "0% success rate"}
+                </div>
               </div>
               <div className="p-4 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
                 <div className="text-sm text-[var(--text-secondary)] mb-1">Days Analyzed</div>
                 <div className="text-2xl font-bold text-[var(--text-primary)]">
                   {usageStats.days_analyzed}
                 </div>
+                <div className="text-xs text-[var(--text-secondary)] mt-1">
+                  Last {selectedDays} days
+                </div>
               </div>
             </div>
+
+            {/* Per Request Metrics */}
+            <div className="mb-6 bg-[var(--surface-elevated)] rounded-xl border border-[var(--border)] p-6">
+              <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                <Activity className="w-5 h-5 text-[var(--green)]" />
+                Per Request Metrics
+              </h3>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="p-4 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
+                  <div className="text-sm text-[var(--text-secondary)] mb-2">Average Tokens per Request</div>
+                  <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">
+                    {usageStats.total_requests > 0
+                      ? Math.round(usageStats.total_tokens / usageStats.total_requests).toLocaleString()
+                      : 0}
+                  </div>
+                  <div className="text-xs text-[var(--text-secondary)] space-y-1">
+                    <div className="flex justify-between">
+                      <span>Input:</span>
+                      <span>
+                        {usageStats.total_requests > 0
+                          ? Math.round(
+                              usageStats.recent_days.reduce(
+                                (sum, day) => sum + day.input_tokens,
+                                0
+                              ) / usageStats.total_requests
+                            ).toLocaleString()
+                          : 0}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Output:</span>
+                      <span>
+                        {usageStats.total_requests > 0
+                          ? Math.round(
+                              usageStats.recent_days.reduce(
+                                (sum, day) => sum + day.output_tokens,
+                                0
+                              ) / usageStats.total_requests
+                            ).toLocaleString()
+                          : 0}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Embedding:</span>
+                      <span>
+                        {usageStats.total_requests > 0
+                          ? Math.round(
+                              usageStats.recent_days.reduce(
+                                (sum, day) => sum + day.embedding_tokens,
+                                0
+                              ) / usageStats.total_requests
+                            ).toLocaleString()
+                          : 0}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-4 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
+                  <div className="text-sm text-[var(--text-secondary)] mb-2">Requests per Day</div>
+                  <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">
+                    {usageStats.days_analyzed > 0
+                      ? Math.round(usageStats.total_requests / usageStats.days_analyzed)
+                      : 0}
+                  </div>
+                  <div className="text-xs text-[var(--text-secondary)] space-y-1">
+                    <div className="flex justify-between">
+                      <span>Max:</span>
+                      <span>
+                        {usageStats.recent_days.length > 0
+                          ? Math.max(...usageStats.recent_days.map((day) => day.request_count))
+                          : 0}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Min:</span>
+                      <span>
+                        {usageStats.recent_days.length > 0
+                          ? Math.min(...usageStats.recent_days.map((day) => day.request_count))
+                          : 0}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Total:</span>
+                      <span>{usageStats.total_requests}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-4 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
+                  <div className="text-sm text-[var(--text-secondary)] mb-2">Valid Data Rate</div>
+                  <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">
+                    {usageStats.total_requests > 0
+                      ? Math.round(
+                          (usageStats.recent_days
+                            .filter((day) => day.total_tokens > 0)
+                            .reduce((sum, day) => sum + day.request_count, 0) /
+                            usageStats.total_requests) *
+                            100
+                        )
+                      : 0}
+                    <span className="text-lg">%</span>
+                  </div>
+                  <div className="text-xs text-[var(--text-secondary)] space-y-1">
+                    <div className="flex justify-between">
+                      <span>Valid:</span>
+                      <span className="text-[var(--green)]">
+                        {usageStats.recent_days
+                          .filter((day) => day.total_tokens > 0)
+                          .reduce((sum, day) => sum + day.request_count, 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Invalid:</span>
+                      <span className="text-red-500">
+                        {usageStats.recent_days
+                          .filter((day) => day.total_tokens === 0 && day.request_count > 0)
+                          .reduce((sum, day) => sum + day.request_count, 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Total:</span>
+                      <span>{usageStats.total_requests}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Charts Section */}
+            {usageStats.recent_days.length > 0 && (
+              <div className="grid lg:grid-cols-2 gap-6 mb-6">
+                {/* Requests Over Time Chart */}
+                <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-4">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">
+                    Requests Over Time
+                  </h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart
+                      data={usageStats.recent_days.map((day) => ({
+                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        }),
+                        requests: day.request_count,
+                      }))}
+                      margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#9ca3af"
+                        style={{ fontSize: "12px" }}
+                      />
+                      <YAxis stroke="#9ca3af" style={{ fontSize: "12px" }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#1f2937",
+                          border: "1px solid #374151",
+                          borderRadius: "8px",
+                          color: "#f3f4f6",
+                        }}
+                      />
+                      <Legend wrapperStyle={{ color: "#f3f4f6" }} />
+                      <Line
+                        type="monotone"
+                        dataKey="requests"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        dot={{ fill: "#10b981", r: 4 }}
+                        name="Requests"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Tokens Over Time Chart */}
+                <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-4">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">
+                    Tokens Over Time
+                  </h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart
+                      data={usageStats.recent_days.map((day) => ({
+                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        }),
+                        input: day.input_tokens,
+                        output: day.output_tokens,
+                        embedding: day.embedding_tokens,
+                        total: day.total_tokens,
+                      }))}
+                      margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#9ca3af"
+                        style={{ fontSize: "12px" }}
+                      />
+                      <YAxis stroke="#9ca3af" style={{ fontSize: "12px" }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#1f2937",
+                          border: "1px solid #374151",
+                          borderRadius: "8px",
+                          color: "#f3f4f6",
+                        }}
+                        formatter={(value: number) => value.toLocaleString()}
+                      />
+                      <Legend wrapperStyle={{ color: "#f3f4f6" }} />
+                      <Line
+                        type="monotone"
+                        dataKey="input"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        dot={{ fill: "#3b82f6", r: 3 }}
+                        name="Input Tokens"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="output"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        dot={{ fill: "#10b981", r: 3 }}
+                        name="Output Tokens"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="embedding"
+                        stroke="#f59e0b"
+                        strokeWidth={2}
+                        dot={{ fill: "#f59e0b", r: 3 }}
+                        name="Embedding Tokens"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="total"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        dot={{ fill: "#10b981", r: 4 }}
+                        name="Total Tokens"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Daily Requests Bar Chart */}
+                <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-4">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">
+                    Daily Requests Breakdown
+                  </h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart
+                      data={usageStats.recent_days.map((day) => ({
+                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        }),
+                        requests: day.request_count,
+                      }))}
+                      margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#9ca3af"
+                        style={{ fontSize: "12px" }}
+                      />
+                      <YAxis stroke="#9ca3af" style={{ fontSize: "12px" }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#1f2937",
+                          border: "1px solid #374151",
+                          borderRadius: "8px",
+                          color: "#f3f4f6",
+                        }}
+                      />
+                      <Legend wrapperStyle={{ color: "#f3f4f6" }} />
+                      <Bar dataKey="requests" fill="#10b981" name="Requests" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Combined Requests & Tokens Chart */}
+                <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-4">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">
+                    Requests vs Total Tokens
+                  </h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <ComposedChart
+                      data={usageStats.recent_days.map((day) => ({
+                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        }),
+                        requests: day.request_count,
+                        tokens: Math.round(day.total_tokens / 1000), // Convert to thousands for better scale
+                      }))}
+                      margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#9ca3af"
+                        style={{ fontSize: "12px" }}
+                      />
+                      <YAxis
+                        yAxisId="left"
+                        stroke="#9ca3af"
+                        style={{ fontSize: "12px" }}
+                      />
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        stroke="#9ca3af"
+                        style={{ fontSize: "12px" }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#1f2937",
+                          border: "1px solid #374151",
+                          borderRadius: "8px",
+                          color: "#f3f4f6",
+                        }}
+                        formatter={(value: number, name: string) => {
+                          if (name === "tokens") {
+                            return `${value}K tokens`;
+                          }
+                          return value;
+                        }}
+                      />
+                      <Legend wrapperStyle={{ color: "#f3f4f6" }} />
+                      <Bar
+                        yAxisId="left"
+                        dataKey="requests"
+                        fill="#10b981"
+                        name="Requests"
+                      />
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="tokens"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        dot={{ fill: "#3b82f6", r: 4 }}
+                        name="Tokens (K)"
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Tokens Per Request Chart */}
+                <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-4">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">
+                    Average Tokens Per Request
+                  </h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart
+                      data={usageStats.recent_days.map((day) => ({
+                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        }),
+                        avgTokensPerRequest:
+                          day.request_count > 0
+                            ? Math.round(day.total_tokens / day.request_count)
+                            : 0,
+                        inputPerRequest:
+                          day.request_count > 0
+                            ? Math.round(day.input_tokens / day.request_count)
+                            : 0,
+                        outputPerRequest:
+                          day.request_count > 0
+                            ? Math.round(day.output_tokens / day.request_count)
+                            : 0,
+                      }))}
+                      margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#9ca3af"
+                        style={{ fontSize: "12px" }}
+                      />
+                      <YAxis stroke="#9ca3af" style={{ fontSize: "12px" }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#1f2937",
+                          border: "1px solid #374151",
+                          borderRadius: "8px",
+                          color: "#f3f4f6",
+                        }}
+                        formatter={(value: number) => value.toLocaleString()}
+                      />
+                      <Legend wrapperStyle={{ color: "#f3f4f6" }} />
+                      <Line
+                        type="monotone"
+                        dataKey="avgTokensPerRequest"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        dot={{ fill: "#10b981", r: 4 }}
+                        name="Avg Total Tokens/Request"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="inputPerRequest"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        dot={{ fill: "#3b82f6", r: 3 }}
+                        name="Avg Input Tokens/Request"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="outputPerRequest"
+                        stroke="#f59e0b"
+                        strokeWidth={2}
+                        dot={{ fill: "#f59e0b", r: 3 }}
+                        name="Avg Output Tokens/Request"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Valid Requests Chart */}
+                <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-4">
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-4">
+                    Valid Requests vs Total Requests
+                  </h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <ComposedChart
+                      data={usageStats.recent_days.map((day) => {
+                        // Valid requests are those that resulted in token usage
+                        // If tokens > 0, we consider requests as valid (at least some)
+                        // If tokens = 0 but requests > 0, those are likely invalid/failed
+                        const validRequests = day.total_tokens > 0 ? day.request_count : 0;
+                        const invalidRequests =
+                          day.total_tokens === 0 && day.request_count > 0 ? day.request_count : 0;
+                        return {
+                          date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          }),
+                          valid: validRequests,
+                          invalid: invalidRequests,
+                          total: day.request_count,
+                        };
+                      })}
+                      margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#9ca3af"
+                        style={{ fontSize: "12px" }}
+                      />
+                      <YAxis stroke="#9ca3af" style={{ fontSize: "12px" }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#1f2937",
+                          border: "1px solid #374151",
+                          borderRadius: "8px",
+                          color: "#f3f4f6",
+                        }}
+                      />
+                      <Legend wrapperStyle={{ color: "#f3f4f6" }} />
+                      <Bar dataKey="valid" stackId="a" fill="#10b981" name="Valid Requests" />
+                      <Bar dataKey="invalid" stackId="a" fill="#ef4444" name="Invalid Requests" />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
 
             {/* Daily Breakdown */}
             {usageStats.recent_days.length > 0 ? (
@@ -375,6 +899,12 @@ export default function MonitoringPage() {
                         </th>
                         <th className="text-right py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
                           Total Tokens
+                        </th>
+                        <th className="text-right py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                          Tokens/Request
+                        </th>
+                        <th className="text-right py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
+                          Valid Requests
                         </th>
                         <th className="text-left py-2 px-3 text-sm font-semibold text-[var(--text-secondary)]">
                           Provider
@@ -421,6 +951,25 @@ export default function MonitoringPage() {
                             <td className="py-2 px-3 text-sm text-right font-semibold text-[var(--text-primary)]">
                               {day.total_tokens.toLocaleString()}
                             </td>
+                            <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
+                              {day.request_count > 0
+                                ? Math.round(day.total_tokens / day.request_count).toLocaleString()
+                                : 0}
+                            </td>
+                            <td className="py-2 px-3 text-sm text-right text-[var(--text-primary)]">
+                              <span
+                                className={
+                                  day.total_tokens > 0 ? "text-[var(--green)]" : "text-red-500"
+                                }
+                              >
+                                {day.total_tokens > 0 ? day.request_count : 0}
+                              </span>
+                              {day.request_count > 0 && (
+                                <span className="text-[var(--text-secondary)] ml-1">
+                                  / {day.request_count}
+                                </span>
+                              )}
+                            </td>
                             <td className="py-2 px-3 text-sm text-[var(--text-secondary)] capitalize">
                               {day.llm_provider || "N/A"}
                             </td>
@@ -440,6 +989,105 @@ export default function MonitoringPage() {
                 <p>No usage data available</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Per Request Data by Time */}
+        {perRequestStats.length > 0 && (
+          <div className="bg-[var(--surface-elevated)] rounded-xl border border-[var(--border)] p-6 mt-8">
+            <h2 className="text-xl font-semibold text-[var(--text-primary)] flex items-center gap-2 mb-4">
+              <TrendingUp className="w-5 h-5 text-[var(--green)]" />
+              Requests Per {groupBy.charAt(0).toUpperCase() + groupBy.slice(1)}
+            </h2>
+            <ResponsiveContainer width="100%" height={400}>
+              <ComposedChart
+                data={perRequestStats.map((stat) => ({
+                  timestamp: stat.timestamp,
+                  requests: stat.request_count,
+                  tokens: Math.round(stat.total_tokens / 1000), // Convert to thousands
+                  avgTokensPerRequest: stat.avg_tokens_per_request,
+                  valid: stat.valid_requests,
+                  invalid: stat.invalid_requests,
+                }))}
+                margin={{ top: 5, right: 20, left: 0, bottom: 60 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                <XAxis
+                  dataKey="timestamp"
+                  stroke="#9ca3af"
+                  style={{ fontSize: "11px" }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                />
+                <YAxis
+                  yAxisId="left"
+                  stroke="#9ca3af"
+                  style={{ fontSize: "12px" }}
+                  label={{ value: "Requests", angle: -90, position: "insideLeft" }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  stroke="#9ca3af"
+                  style={{ fontSize: "12px" }}
+                  label={{ value: "Tokens (K)", angle: 90, position: "insideRight" }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#1f2937",
+                    border: "1px solid #374151",
+                    borderRadius: "8px",
+                    color: "#f3f4f6",
+                  }}
+                  formatter={(value: number, name: string) => {
+                    if (name === "tokens") {
+                      return `${value}K tokens`;
+                    }
+                    return value;
+                  }}
+                />
+                <Legend wrapperStyle={{ color: "#f3f4f6" }} />
+                <Bar
+                  yAxisId="left"
+                  dataKey="requests"
+                  fill="#10b981"
+                  name="Total Requests"
+                />
+                <Bar
+                  yAxisId="left"
+                  dataKey="valid"
+                  stackId="a"
+                  fill="#10b981"
+                  name="Valid Requests"
+                />
+                <Bar
+                  yAxisId="left"
+                  dataKey="invalid"
+                  stackId="a"
+                  fill="#ef4444"
+                  name="Invalid Requests"
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="tokens"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={{ fill: "#3b82f6", r: 3 }}
+                  name="Total Tokens (K)"
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="avgTokensPerRequest"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  dot={{ fill: "#f59e0b", r: 3 }}
+                  name="Avg Tokens/Request"
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
         )}
       </main>

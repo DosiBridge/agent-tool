@@ -7,7 +7,7 @@ from typing import Optional, Dict, List, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from src.core import get_db_context, DB_AVAILABLE
-from src.core.models import APIUsage, User
+from src.core.models import APIUsage, APIRequest, User
 from src.core.constants import DAILY_REQUEST_LIMIT
 
 
@@ -64,10 +64,12 @@ class UsageTracker:
         input_tokens: int = 0,
         output_tokens: int = 0,
         embedding_tokens: int = 0,
-        mode: Optional[str] = None
+        mode: Optional[str] = None,
+        session_id: Optional[str] = None,
+        success: bool = True
     ) -> bool:
         """
-        Record an API request
+        Record an API request (both daily aggregate and individual request)
         
         Args:
             user_id: User ID (None for anonymous users)
@@ -78,6 +80,8 @@ class UsageTracker:
             output_tokens: Output tokens consumed
             embedding_tokens: Embedding tokens consumed (OpenAI)
             mode: Chat mode ("agent" or "rag")
+            session_id: Session ID if available
+            success: Whether the request was successful
             
         Returns:
             True if recorded successfully
@@ -86,9 +90,29 @@ class UsageTracker:
             return False
         
         try:
+            from datetime import datetime, timezone
+            request_timestamp = datetime.now(timezone.utc)
             today_start = UsageTracker.get_today_start()
+            total_tokens = input_tokens + output_tokens + embedding_tokens
             
-            # Get or create today's usage record
+            # Record individual request
+            if APIRequest:
+                api_request = APIRequest(
+                    user_id=user_id,
+                    request_timestamp=request_timestamp,
+                    llm_provider=llm_provider,
+                    llm_model=llm_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    embedding_tokens=embedding_tokens,
+                    total_tokens=total_tokens,
+                    mode=mode,
+                    session_id=session_id,
+                    success=success
+                )
+                db.add(api_request)
+            
+            # Get or create today's usage record (for daily aggregates)
             usage = db.query(APIUsage).filter(
                 APIUsage.user_id == user_id,
                 func.date(APIUsage.usage_date) == today_start.date()
@@ -240,6 +264,106 @@ class UsageTracker:
         except Exception as e:
             print(f"⚠️  Error getting all users usage stats: {e}")
             return []
+    
+    @staticmethod
+    def get_per_request_stats(
+        user_id: Optional[int],
+        db: Session,
+        days: int = 7,
+        group_by: str = "hour"  # "hour", "day", "minute"
+    ) -> Dict:
+        """
+        Get per-request statistics grouped by time period
+        
+        Args:
+            user_id: User ID (None for anonymous users)
+            db: Database session
+            days: Number of days to retrieve
+            group_by: Grouping period ("hour", "day", "minute")
+            
+        Returns:
+            Dictionary with per-request statistics grouped by time period
+        """
+        if not DB_AVAILABLE or not APIRequest:
+            return {
+                "requests": [],
+                "total_requests": 0,
+                "group_by": group_by
+            }
+        
+        try:
+            from datetime import datetime, timedelta, timezone
+            today_start = UsageTracker.get_today_start()
+            start_date = today_start - timedelta(days=days - 1)
+            
+            # Get all individual requests
+            requests = db.query(APIRequest).filter(
+                APIRequest.user_id == user_id,
+                APIRequest.request_timestamp >= start_date
+            ).order_by(APIRequest.request_timestamp.asc()).all()
+            
+            # Group requests by time period
+            grouped_requests = {}
+            for req in requests:
+                timestamp = req.request_timestamp
+                
+                # Group by selected period
+                if group_by == "hour":
+                    key = timestamp.strftime("%Y-%m-%d %H:00")
+                elif group_by == "day":
+                    key = timestamp.strftime("%Y-%m-%d")
+                elif group_by == "minute":
+                    key = timestamp.strftime("%Y-%m-%d %H:%M")
+                else:
+                    key = timestamp.strftime("%Y-%m-%d")
+                
+                if key not in grouped_requests:
+                    grouped_requests[key] = {
+                        "timestamp": key,
+                        "request_count": 0,
+                        "total_tokens": 0,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "embedding_tokens": 0,
+                        "valid_requests": 0,
+                        "invalid_requests": 0,
+                        "avg_tokens_per_request": 0,
+                    }
+                
+                grouped_requests[key]["request_count"] += 1
+                grouped_requests[key]["total_tokens"] += req.total_tokens
+                grouped_requests[key]["input_tokens"] += req.input_tokens
+                grouped_requests[key]["output_tokens"] += req.output_tokens
+                grouped_requests[key]["embedding_tokens"] += req.embedding_tokens
+                
+                if req.success and req.total_tokens > 0:
+                    grouped_requests[key]["valid_requests"] += 1
+                else:
+                    grouped_requests[key]["invalid_requests"] += 1
+            
+            # Calculate averages and format
+            requests_list = []
+            for key in sorted(grouped_requests.keys()):
+                group = grouped_requests[key]
+                if group["request_count"] > 0:
+                    group["avg_tokens_per_request"] = round(
+                        group["total_tokens"] / group["request_count"]
+                    )
+                requests_list.append(group)
+            
+            return {
+                "requests": requests_list,
+                "total_requests": len(requests),
+                "group_by": group_by,
+                "days": days
+            }
+        except Exception as e:
+            print(f"⚠️  Error getting per-request stats: {e}")
+            return {
+                "requests": [],
+                "total_requests": 0,
+                "group_by": group_by
+            }
 
 
 # Global instance

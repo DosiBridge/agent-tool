@@ -125,7 +125,9 @@ async def chat(
             llm_model=llm_config.get("model"),
             input_tokens=len(chat_request.message.split()) * 2,  # Rough estimate
             output_tokens=len(result.get("response", "").split()) * 2,  # Rough estimate
-            mode=chat_request.mode
+            mode=chat_request.mode,
+            session_id=chat_request.session_id,
+            success=True
         )
         
         app_logger.info(
@@ -360,7 +362,9 @@ async def chat_stream(
                         llm_model=llm_config.get("model"),
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
-                        mode=chat_request.mode
+                        mode=chat_request.mode,
+                        session_id=chat_request.session_id,
+                        success=True
                     )
                 
                 yield f"data: {json.dumps({'chunk': '', 'done': True})}\n\n"

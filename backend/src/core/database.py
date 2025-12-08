@@ -400,6 +400,39 @@ def init_db():
                     conn.execute(text("CREATE INDEX idx_api_usage_date ON api_usage(usage_date)"))
                     conn.commit()
                     print("✓ Created api_usage table")
+                
+                # Check if api_requests table exists
+                result = conn.execute(
+                    text("SELECT table_name FROM information_schema.tables "
+                         "WHERE table_name='api_requests'")
+                )
+                if not result.fetchone():
+                    print("📝 Creating api_requests table...")
+                    conn.execute(
+                        text("""
+                            CREATE TABLE api_requests (
+                                id SERIAL PRIMARY KEY,
+                                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                                request_timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                                llm_provider VARCHAR(50),
+                                llm_model VARCHAR(100),
+                                input_tokens INTEGER DEFAULT 0 NOT NULL,
+                                output_tokens INTEGER DEFAULT 0 NOT NULL,
+                                embedding_tokens INTEGER DEFAULT 0 NOT NULL,
+                                total_tokens INTEGER DEFAULT 0 NOT NULL,
+                                mode VARCHAR(20),
+                                session_id VARCHAR(255),
+                                success BOOLEAN DEFAULT TRUE NOT NULL,
+                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """)
+                    )
+                    conn.execute(text("CREATE INDEX idx_api_requests_user_id ON api_requests(user_id)"))
+                    conn.execute(text("CREATE INDEX idx_api_requests_timestamp ON api_requests(request_timestamp)"))
+                    conn.execute(text("CREATE INDEX idx_api_requests_session_id ON api_requests(session_id)"))
+                    conn.execute(text("CREATE INDEX idx_api_requests_created_at ON api_requests(created_at)"))
+                    conn.commit()
+                    print("✓ Created api_requests table")
         except Exception as e:
             print(f"⚠️  Migration check failed (this is okay if columns already exist): {e}")
     except Exception as e:

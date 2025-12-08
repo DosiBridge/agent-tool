@@ -21,6 +21,7 @@
     "react-hot-toast": "^2.6.0",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.0",
+    "recharts": "^3.5.1",
     "tailwind-merge": "^2.5.4",
     "zustand": "^5.0.8"
   },

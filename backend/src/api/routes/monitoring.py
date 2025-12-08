@@ -155,3 +155,40 @@ async def get_api_keys_info(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get API keys info: {str(e)}")
 
+
+@router.get("/usage/per-request")
+async def get_per_request_stats(
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    days: int = 7,
+    group_by: str = "hour"  # "hour", "day", "minute"
+):
+    """
+    Get per-request statistics grouped by time period
+    
+    Args:
+        current_user: Current authenticated user (optional)
+        db: Database session
+        days: Number of days to retrieve (default: 7)
+        group_by: Grouping period - "hour", "day", or "minute" (default: "hour")
+        
+    Returns:
+        Per-request statistics grouped by time period
+    """
+    try:
+        if group_by not in ["hour", "day", "minute"]:
+            raise HTTPException(status_code=400, detail="group_by must be 'hour', 'day', or 'minute'")
+        
+        user_id = current_user.id if current_user else None
+        
+        stats = usage_tracker.get_per_request_stats(user_id, db, days, group_by)
+        
+        return {
+            "status": "success",
+            "data": stats
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get per-request stats: {str(e)}")
+

@@ -454,6 +454,45 @@ if Base is not None:
                 "created_at": self.created_at.isoformat() if self.created_at else None,
                 "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             }
+
+    class APIRequest(Base):
+        """Individual API request tracking model for per-request analytics"""
+        __tablename__ = "api_requests"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)  # Nullable for anonymous users
+        request_timestamp = Column(DateTime(timezone=True), nullable=False, index=True)  # Exact timestamp of the request
+        llm_provider = Column(String(50), nullable=True)  # Which LLM provider was used
+        llm_model = Column(String(100), nullable=True)  # Which model was used
+        input_tokens = Column(Integer, default=0, nullable=False)  # Input tokens for this request
+        output_tokens = Column(Integer, default=0, nullable=False)  # Output tokens for this request
+        embedding_tokens = Column(Integer, default=0, nullable=False)  # Embedding tokens for this request
+        total_tokens = Column(Integer, default=0, nullable=False)  # Total tokens for this request
+        mode = Column(String(20), nullable=True)  # "agent" or "rag"
+        session_id = Column(String(255), nullable=True, index=True)  # Session ID if available
+        success = Column(Boolean, default=True, nullable=False)  # Whether the request was successful
+        created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+        
+        # Relationship
+        user = relationship("User", backref="api_requests")
+        
+        def to_dict(self) -> dict:
+            """Convert model to dictionary"""
+            return {
+                "id": self.id,
+                "user_id": self.user_id,
+                "request_timestamp": self.request_timestamp.isoformat() if self.request_timestamp else None,
+                "llm_provider": self.llm_provider,
+                "llm_model": self.llm_model,
+                "input_tokens": self.input_tokens,
+                "output_tokens": self.output_tokens,
+                "embedding_tokens": self.embedding_tokens,
+                "total_tokens": self.total_tokens,
+                "mode": self.mode,
+                "session_id": self.session_id,
+                "success": self.success,
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+            }
 else:
     # Dummy classes when database is not available
     LLMConfig = None  # type: ignore
@@ -462,6 +501,7 @@ else:
     Conversation = None  # type: ignore
     Message = None  # type: ignore
     DocumentCollection = None  # type: ignore
+    APIRequest = None  # type: ignore
     Document = None  # type: ignore
     DocumentChunk = None  # type: ignore
     CustomRAGTool = None  # type: ignore

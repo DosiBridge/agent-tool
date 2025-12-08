@@ -97,6 +97,28 @@ export interface APIKeysInfoResponse {
   data: APIKeysInfo;
 }
 
+export interface PerRequestStats {
+  timestamp: string;
+  request_count: number;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  embedding_tokens: number;
+  valid_requests: number;
+  invalid_requests: number;
+  avg_tokens_per_request: number;
+}
+
+export interface PerRequestStatsResponse {
+  status: string;
+  data: {
+    requests: PerRequestStats[];
+    total_requests: number;
+    group_by: string;
+    days: number;
+  };
+}
+
 /**
  * Get usage statistics for the current user
  */
@@ -107,6 +129,25 @@ export async function getUsageStats(days: number = 7): Promise<UsageStats> {
     headers: getAuthHeaders(),
   });
   const data: UsageStatsResponse = await handleResponse(response);
+  return data.data;
+}
+
+/**
+ * Get per-request statistics grouped by time period
+ */
+export async function getPerRequestStats(
+  days: number = 7,
+  groupBy: "hour" | "day" | "minute" = "hour"
+): Promise<PerRequestStatsResponse["data"]> {
+  const baseUrl = await getApiBaseUrl();
+  const response = await fetch(
+    `${baseUrl}/api/usage/per-request?days=${days}&group_by=${groupBy}`,
+    {
+      method: "GET",
+      headers: getAuthHeaders(),
+    }
+  );
+  const data: PerRequestStatsResponse = await handleResponse(response);
   return data.data;
 }
 
