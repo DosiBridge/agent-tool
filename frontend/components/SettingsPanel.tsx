@@ -111,6 +111,13 @@ export default function SettingsPanel() {
   const [llmConfigs, setLlmConfigs] = useState<LLMConfigListItem[]>([]);
   const [loadingConfigs, setLoadingConfigs] = useState(false);
   const [editingLLMConfig, setEditingLLMConfig] = useState<number | null>(null);
+  const [isSavingLLM, setIsSavingLLM] = useState(false);
+  const [switchingConfigId, setSwitchingConfigId] = useState<number | null>(null);
+  const [deletingConfigId, setDeletingConfigId] = useState<number | null>(null);
+  const [isSavingServer, setIsSavingServer] = useState(false);
+  const [togglingServerName, setTogglingServerName] = useState<string | null>(null);
+  const [deletingServerName, setDeletingServerName] = useState<string | null>(null);
+  const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
 
   // Load existing LLM config into form
   useEffect(() => {
@@ -149,6 +156,7 @@ export default function SettingsPanel() {
   };
 
   const handleAddServer = async () => {
+    setIsSavingServer(true);
     try {
       await api.addMCPServer({
         name: serverForm.name,
@@ -168,11 +176,14 @@ export default function SettingsPanel() {
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to add server");
+    } finally {
+      setIsSavingServer(false);
     }
   };
 
   const handleUpdateServer = async () => {
     if (!editingServer) return;
+    setIsSavingServer(true);
     try {
       await api.updateMCPServer(editingServer, {
         name: serverForm.name,
@@ -186,27 +197,35 @@ export default function SettingsPanel() {
       setEditingServer(null);
     } catch (error) {
       toast.error("Failed to update server");
+    } finally {
+      setIsSavingServer(false);
     }
   };
 
   const handleDeleteServer = async (name: string) => {
     if (!confirm("Are you sure you want to remove this server?")) return;
+    setDeletingServerName(name);
     try {
       await api.deleteMCPServer(name);
       await loadMCPServers();
       toast.success("Server removed");
     } catch (error) {
       toast.error("Failed to remove server");
+    } finally {
+      setDeletingServerName(null);
     }
   };
 
   const handleToggleServer = async (name: string) => {
+    setTogglingServerName(name);
     try {
       await api.toggleMCPServer(name);
       await loadMCPServers();
       toast.success("Server status updated");
     } catch (error) {
       toast.error("Failed to toggle server status");
+    } finally {
+      setTogglingServerName(null);
     }
   };
 
@@ -224,6 +243,7 @@ export default function SettingsPanel() {
 
   // LLM Config Actions
   const handleSaveLLMConfig = async () => {
+    setIsSavingLLM(true);
     try {
       await api.setLLMConfig(llmForm as any);
       await loadLLMConfig();
@@ -239,11 +259,14 @@ export default function SettingsPanel() {
       setEditingLLMConfig(null);
     } catch (error) {
       toast.error("Failed to save LLM configuration");
+    } finally {
+      setIsSavingLLM(false);
     }
   };
 
   const handleUpdateLLMConfig = async () => {
     if (!editingLLMConfig) return;
+    setIsSavingLLM(true);
     try {
       await updateLLMConfig(editingLLMConfig, llmForm as any);
       await loadLLMConfig();
@@ -259,6 +282,8 @@ export default function SettingsPanel() {
       setEditingLLMConfig(null);
     } catch (error: any) {
       toast.error(error.message || "Failed to update LLM configuration");
+    } finally {
+      setIsSavingLLM(false);
     }
   };
 
@@ -299,6 +324,7 @@ export default function SettingsPanel() {
   };
 
   const handleSwitchConfig = async (configId: number) => {
+    setSwitchingConfigId(configId);
     try {
       await switchLLMConfig(configId);
       toast.success("Switched LLM configuration successfully");
@@ -306,6 +332,8 @@ export default function SettingsPanel() {
       await loadLLMConfig();
     } catch (error: any) {
       toast.error(error.message || "Failed to switch LLM configuration");
+    } finally {
+      setSwitchingConfigId(null);
     }
   };
 
@@ -313,12 +341,18 @@ export default function SettingsPanel() {
     if (!confirm("Are you sure you want to delete this LLM configuration?")) {
       return;
     }
+    if (!confirm("Are you sure you want to delete this LLM configuration?")) {
+      return;
+    }
+    setDeletingConfigId(configId);
     try {
       await deleteLLMConfig(configId);
       toast.success("LLM configuration deleted successfully");
       await loadLLMConfigsList();
     } catch (error: any) {
       toast.error(error.message || "Failed to delete LLM configuration");
+    } finally {
+      setDeletingConfigId(null);
     }
   };
 
@@ -354,6 +388,7 @@ export default function SettingsPanel() {
 
   const handleDeleteDocument = async (id: number) => {
     if (!confirm("Are you sure you want to delete this document? This cannot be undone.")) return;
+    setDeletingDocId(id);
     try {
       await api.deleteDocument(id);
       toast.success("Document deleted");
@@ -361,6 +396,8 @@ export default function SettingsPanel() {
       refreshStats();
     } catch (error) {
       toast.error("Failed to delete document");
+    } finally {
+      setDeletingDocId(null);
     }
   };
 
@@ -558,8 +595,13 @@ export default function SettingsPanel() {
                       <button
                         onClick={editingLLMConfig ? handleUpdateLLMConfig : handleSaveLLMConfig}
                         className={`${editingLLMConfig ? "flex-1" : "w-full"} bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2`}
+                        disabled={isSavingLLM}
                       >
-                        <Check className="w-4 h-4" />
+                        {isSavingLLM ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Check className="w-4 h-4" />
+                        )}
                         {editingLLMConfig ? "Update Configuration" : "Save Configuration"}
                       </button>
                     </div>
@@ -646,8 +688,13 @@ export default function SettingsPanel() {
                                     onClick={() => handleSwitchConfig(config.id)}
                                     className="p-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
                                     title="Switch to this LLM"
+                                    disabled={switchingConfigId === config.id}
                                   >
-                                    <Power className="w-4 h-4 text-indigo-400" />
+                                    {switchingConfigId === config.id ? (
+                                      <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                                    ) : (
+                                      <Power className="w-4 h-4 text-indigo-400" />
+                                    )}
                                   </button>
                                 )}
                                 {!config.active && !config.is_default && (
@@ -655,8 +702,13 @@ export default function SettingsPanel() {
                                     onClick={() => handleDeleteConfig(config.id)}
                                     className="p-2 bg-zinc-800 hover:bg-red-500/10 border border-zinc-700 rounded-lg transition-colors"
                                     title="Delete this LLM configuration"
+                                    disabled={deletingConfigId === config.id}
                                   >
-                                    <Trash2 className="w-4 h-4 text-red-500" />
+                                    {deletingConfigId === config.id ? (
+                                      <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                                    ) : (
+                                      <Trash2 className="w-4 h-4 text-red-500" />
+                                    )}
                                   </button>
                                 )}
                               </div>
@@ -735,8 +787,10 @@ export default function SettingsPanel() {
                     <div className="pt-4 flex gap-3">
                       <button
                         onClick={editingServer ? handleUpdateServer : handleAddServer}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+                        disabled={isSavingServer}
                       >
+                        {isSavingServer && <Loader2 className="w-3 h-3 animate-spin" />}
                         {editingServer ? 'Update Server' : 'Add Server'}
                       </button>
                       <button
@@ -794,8 +848,13 @@ export default function SettingsPanel() {
                                 : "text-zinc-500 hover:text-green-400 hover:bg-zinc-800"
                             )}
                             title={server.enabled ? "Disable server" : "Enable server"}
+                            disabled={togglingServerName === server.name}
                           >
-                            <Power className="w-4 h-4" />
+                            {togglingServerName === server.name ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
+                            ) : (
+                              <Power className="w-4 h-4" />
+                            )}
                           </button>
                           <button
                             onClick={() => startEditing(server)}
@@ -805,9 +864,15 @@ export default function SettingsPanel() {
                           </button>
                           <button
                             onClick={() => handleDeleteServer(server.name)}
-                            className="p-2 text-zinc-400 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-colors"
+                            className="p-2 hover:bg-red-500/10 hover:text-red-400 text-zinc-500 rounded-lg transition-colors"
+                            title="Remove server"
+                            disabled={deletingServerName === server.name}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            {deletingServerName === server.name ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
                           </button>
                         </div>
                       </div>

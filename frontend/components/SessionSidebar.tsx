@@ -32,6 +32,9 @@ export default function SessionSidebar({
   onToggle,
 }: SessionSidebarProps) {
   const [open, setOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
 
   const sessions = useStore((state) => state.sessions);
   const currentSessionId = useStore((state) => state.currentSessionId);
@@ -47,10 +50,22 @@ export default function SessionSidebar({
     {
       label: "New Chat",
       href: "#",
-      icon: (
+      icon: creatingSession ? (
+        <div className="h-5 w-5 flex items-center justify-center">
+          <div className="w-4 h-4 border-2 border-neutral-200 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : (
         <IconPlus className="text-neutral-200 h-5 w-5 flex-shrink-0" />
       ),
-      onClick: () => createNewSession(),
+      onClick: async () => {
+        if (creatingSession) return;
+        setCreatingSession(true);
+        try {
+          await createNewSession();
+        } finally {
+          setCreatingSession(false);
+        }
+      },
     },
     {
       label: "Settings",
@@ -122,14 +137,24 @@ export default function SessionSidebar({
                     />
                     {open && (
                       <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
-                          deleteSession(session.session_id);
+                          if (deletingSessionId === session.session_id) return;
+                          setDeletingSessionId(session.session_id);
+                          try {
+                            await deleteSession(session.session_id);
+                          } finally {
+                            setDeletingSessionId(null);
+                          }
                         }}
                         className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-white/10 rounded-md z-10"
                         aria-label="Delete session"
                       >
-                        <IconTrash className="w-4 h-4 text-red-400" />
+                        {deletingSessionId === session.session_id ? (
+                          <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <IconTrash className="w-4 h-4 text-red-400" />
+                        )}
                       </button>
                     )}
                   </div>
@@ -158,12 +183,23 @@ export default function SessionSidebar({
                     ),
                   }}
                 />
-                <div onClick={(e) => { e.preventDefault(); logout(); }} className="w-full">
+                <div onClick={async (e) => {
+                  e.preventDefault();
+                  if (isLoggingOut) return;
+                  setIsLoggingOut(true);
+                  try { await logout(); } finally { setIsLoggingOut(false); }
+                }} className="w-full">
                   <SidebarLink
                     link={{
-                      label: "Logout",
+                      label: isLoggingOut ? "Logging out..." : "Logout",
                       href: "#",
-                      icon: <IconLogout className="text-neutral-200 h-5 w-5 flex-shrink-0" />,
+                      icon: isLoggingOut ? (
+                        <div className="h-5 w-5 flex items-center justify-center">
+                          <div className="w-4 h-4 border-2 border-neutral-200 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : (
+                        <IconLogout className="text-neutral-200 h-5 w-5 flex-shrink-0" />
+                      ),
                     }}
                   />
                 </div>

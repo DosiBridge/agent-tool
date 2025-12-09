@@ -57,9 +57,14 @@ export default function CollectionManager({ onCollectionsChange }: CollectionMan
         }
     };
 
+    const [deletingId, setDeletingId] = useState<number | null>(null);
+
+    // ... (existing code)
+
     const handleDelete = async (id: number) => {
         if (!confirm("Are you sure? This will not delete the documents, only the collection tag.")) return;
 
+        setDeletingId(id);
         try {
             await deleteCollection(id);
             toast.success("Collection deleted");
@@ -67,8 +72,14 @@ export default function CollectionManager({ onCollectionsChange }: CollectionMan
             onCollectionsChange?.();
         } catch (error) {
             toast.error("Failed to delete collection");
+        } finally {
+            setDeletingId(null);
         }
     };
+
+    // ... (in render)
+
+
 
     return (
         <div className="space-y-6">
@@ -154,10 +165,15 @@ export default function CollectionManager({ onCollectionsChange }: CollectionMan
 
                             <button
                                 onClick={() => handleDelete(col.id)}
-                                className="p-2 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                className="p-2 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-100"
                                 title="Delete collection"
+                                disabled={deletingId === col.id}
                             >
-                                <Trash2 className="w-4 h-4" />
+                                {deletingId === col.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                                ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                )}
                             </button>
                         </div>
                     ))}

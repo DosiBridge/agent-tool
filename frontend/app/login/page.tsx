@@ -4,12 +4,14 @@
 "use client";
 
 import { useStore } from "@/lib/store";
-import { Bot, Loader2 } from "lucide-react";
+import { Bot, Loader2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { Spotlight } from "@/components/ui/Spotlight";
+import { BackgroundBeams } from "@/components/ui/background-beams";
+import Input from "@/components/ui/Input";
+import { Label } from "@/components/ui/Label";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -27,155 +29,109 @@ export default function LoginPage() {
   }, [isAuthenticated, router]);
 
   const validateForm = (): string | null => {
-    if (!email.trim()) {
-      return "Email is required";
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      return "Please enter a valid email address";
-    }
-    if (!password) {
-      return "Password is required";
-    }
+    if (!email.trim()) return "Email is required";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return "Invalid email address";
+    if (!password) return "Password is required";
     return null;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Client-side validation
-    const validationError = validateForm();
-    if (validationError) {
-      toast.error(validationError);
+    const error = validateForm();
+    if (error) {
+      toast.error(error);
       return;
     }
 
     setLoading(true);
-
     try {
       await handleLogin({ email: email.trim(), password });
-      toast.success("Logged in successfully!", {
-        duration: 2000, // Auto-hide after 2 seconds
-      });
+      toast.success("Welcome back!");
       router.push("/chat");
     } catch (error: any) {
-      // Extract error message from backend response
-      const errorMessage =
-        error?.message ||
-        error?.detail ||
-        error?.toString() ||
-        "Login failed. Please check your email and password.";
-      toast.error(errorMessage);
+      const msg = error?.message || "Login failed. Please check your credentials.";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 relative z-10 bg-black/[0.96] antialiased bg-grid-white/[0.02] overflow-hidden">
-      <Spotlight
-        className="-top-40 left-0 md:left-60 md:-top-20"
-        fill="white"
-      />
-      <div className="max-w-md w-full">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-3 group">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:shadow-indigo-500/40 transition-shadow">
-              <Bot className="w-7 h-7 text-white" />
+    <div className="min-h-screen w-full bg-zinc-950 relative flex flex-col items-center justify-center p-4 overflow-hidden antialiased">
+      <BackgroundBeams className="opacity-50" />
+
+      <div className="relative z-10 w-full max-w-md">
+        {/* Header */}
+        <div className="text-center mb-8 space-y-2">
+          <Link href="/" className="inline-flex items-center gap-2 group mb-6">
+            <div className="p-2 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/20 group-hover:shadow-indigo-500/40 transition-shadow">
+              <Bot className="w-6 h-6 text-white" />
             </div>
-            <div className="flex flex-col text-left">
-              <span className="text-2xl font-bold text-gradient-space">
-                DosiBridge Agent
-              </span>
-              <span className="text-xs text-gray-400">by dosibridge.com</span>
-            </div>
+            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
+              DosiBridge Agent
+            </span>
           </Link>
+          <h1 className="text-3xl font-bold tracking-tight text-white/90">
+            Welcome back
+          </h1>
+          <p className="text-zinc-400 text-sm">
+            Sign in to your intelligent workspace
+          </p>
         </div>
 
-        {/* Login Form */}
-        <div className="glass-card rounded-2xl p-8 shadow-2xl backdrop-blur-xl">
-          <h1 className="text-2xl font-bold mb-2 text-center text-white">Welcome Back</h1>
-          <p className="text-gray-400 text-center mb-8">
-            Sign in to access your intelligent agent workspace
-          </p>
-
+        {/* Card */}
+        <div className="bg-zinc-900/50 backdrop-blur-xl border border-white/10 p-8 rounded-2xl shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-gray-300 mb-2"
-              >
-                Email
-              </label>
-              <input
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
                 id="email"
                 type="email"
+                placeholder="Ex. john@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                required
                 disabled={loading}
-                autoComplete="email"
-                className="w-full px-4 py-3 bg-[#1a1b38]/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all disabled:opacity-50"
-                placeholder="you@example.com"
               />
             </div>
 
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-gray-300 mb-2"
-              >
-                Password
-              </label>
-              <input
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                {/* Optional: Add Forgot Password link here later */}
+              </div>
+              <Input
                 id="password"
                 type="password"
+                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required
                 disabled={loading}
-                autoComplete="current-password"
-                className="w-full px-4 py-3 bg-[#1a1b38]/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all disabled:opacity-50"
-                placeholder="••••••••"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-xl font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
+              className="w-full h-11 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-lg font-medium transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Signing in...</span>
-                </>
-              ) : (
-                "Sign In"
-              )}
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Sign In"}
             </button>
           </form>
 
-          <div className="mt-8 text-center">
-            <p className="text-gray-400 text-sm">
-              Don't have an account?{" "}
-              <Link
-                href="/register"
-                className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
-              >
-                Create one
-              </Link>
-            </p>
-          </div>
-
-          <div className="mt-6 text-center">
-            <Link
-              href="/"
-              className="text-sm text-gray-500 hover:text-indigo-400 transition-colors inline-flex items-center gap-1"
-            >
-              <span>←</span> Back to home
+          <div className="mt-8 text-center text-sm">
+            <span className="text-zinc-400">Don't have an account? </span>
+            <Link href="/register" className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
+              Create an account
             </Link>
           </div>
+        </div>
+
+        {/* Footer */}
+        <div className="mt-8 text-center">
+          <Link href="/" className="text-xs text-zinc-500 hover:text-zinc-300 flex items-center justify-center gap-1 transition-colors">
+            <ArrowLeft className="w-3 h-3" />
+            Back to home
+          </Link>
         </div>
       </div>
     </div>

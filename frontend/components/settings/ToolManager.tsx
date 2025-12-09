@@ -102,17 +102,27 @@ export default function ToolManager() {
         }
     };
 
+    const [deletingId, setDeletingId] = useState<number | null>(null);
+
+    // ... (existing code)
+
     const handleDelete = async (id: number) => {
         if (!confirm("Are you sure you want to delete this tool?")) return;
-
+        setDeletingId(id);
         try {
             await deleteCustomRAGTool(id);
             toast.success("Tool deleted");
             loadData();
         } catch (error) {
             toast.error("Failed to delete tool");
+        } finally {
+            setDeletingId(null);
         }
     };
+
+    // ... (in render)
+
+
 
     const handleToggle = async (id: number) => {
         try {
@@ -276,8 +286,13 @@ export default function ToolManager() {
                                     onClick={() => handleDelete(tool.id)}
                                     className="p-2 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-colors"
                                     title="Delete tool"
+                                    disabled={deletingId === tool.id}
                                 >
-                                    <Trash2 className="w-4 h-4" />
+                                    {deletingId === tool.id ? (
+                                        <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                                    ) : (
+                                        <Trash2 className="w-4 h-4" />
+                                    )}
                                 </button>
                             </div>
                         </div>
