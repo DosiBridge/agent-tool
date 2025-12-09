@@ -1,6 +1,7 @@
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import RuntimeConfigLoader from "@/components/RuntimeConfigLoader";
 import ThemeProvider from "@/components/ThemeProvider";
+import ImpersonationBanner from "@/components/ImpersonationBanner";
 import StarBackground from "@/components/StarBackground";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
@@ -165,6 +166,7 @@ export default function RootLayout({
         />
         <ThemeProvider />
         <RuntimeConfigLoader />
+        <ImpersonationBanner />
         <ErrorBoundary>{children}</ErrorBoundary>
       </body>
     </html>

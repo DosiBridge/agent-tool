@@ -471,6 +471,91 @@ class UsageTracker:
             }
 
 
+    @staticmethod
+    def get_system_usage_history(
+        db: Session,
+        days: int = 7,
+        group_by: str = "day"  # "hour", "day"
+    ) -> Dict:
+        """
+        Get system-wide usage history (all users combined)
+        
+        Args:
+            db: Database session
+            days: Number of days to retrieve
+            group_by: Grouping period ("hour", "day")
+            
+        Returns:
+            Dictionary with system usage history
+        """
+        if not DB_AVAILABLE or not APIRequest:
+            return {
+                "history": [],
+                "total_requests": 0,
+                "days": days
+            }
+        
+        try:
+            from datetime import datetime, timedelta
+            today_start = UsageTracker.get_today_start()
+            start_date = today_start - timedelta(days=days - 1)
+            
+            # Query all requests within the time range
+            requests = db.query(APIRequest).filter(
+                APIRequest.request_timestamp >= start_date
+            ).order_by(APIRequest.request_timestamp.asc()).all()
+            
+            # Group requests by time period
+            grouped_data = {}
+            
+            # Initialize all days in range with 0 to ensure continuous chart
+            for i in range(days):
+                current_date = start_date + timedelta(days=i)
+                date_key = current_date.strftime("%Y-%m-%d")
+                grouped_data[date_key] = {
+                    "date": date_key,
+                    "requests": 0,
+                    "tokens": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "embedding_tokens": 0,
+                    "errors": 0
+                }
+
+            for req in requests:
+                timestamp = req.request_timestamp
+                # For now we only support daily grouping for the main chart
+                key = timestamp.strftime("%Y-%m-%d")
+                
+                if key in grouped_data:
+                    grouped_data[key]["requests"] += 1
+                    grouped_data[key]["tokens"] += req.total_tokens
+                    grouped_data[key]["input_tokens"] += req.input_tokens
+                    grouped_data[key]["output_tokens"] += req.output_tokens
+                    grouped_data[key]["embedding_tokens"] += req.embedding_tokens
+                    
+                    if not req.success:
+                        grouped_data[key]["errors"] += 1
+            
+            # Convert to list and sort
+            history_list = sorted(grouped_data.values(), key=lambda x: x["date"])
+            
+            total_requests = sum(item["requests"] for item in history_list)
+            
+            return {
+                "history": history_list,
+                "total_requests": total_requests,
+                "days": days
+            }
+        except Exception as e:
+            print(f"⚠️  Error getting system usage history: {e}")
+            return {
+                "history": [],
+                "total_requests": 0,
+                "days": days
+            }
+
+
 # Global instance
 usage_tracker = UsageTracker()
 

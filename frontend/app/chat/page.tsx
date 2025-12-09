@@ -353,7 +353,7 @@ export default function ChatPage() {
               <div className="hidden sm:block">
                 <HealthStatus />
               </div>
-              <div className="hidden sm:block">
+              <div>
                 <UsageIndicator />
               </div>
               {isAuthenticated && (

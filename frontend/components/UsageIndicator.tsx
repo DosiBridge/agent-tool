@@ -46,7 +46,7 @@ export default function UsageIndicator() {
       prevStreamingRef.current = isStreaming;
       return () => clearTimeout(timeoutId);
     }
-    
+
     // Update ref for next comparison
     prevStreamingRef.current = isStreaming;
   }, [isStreaming]);
@@ -66,30 +66,42 @@ export default function UsageIndicator() {
   const isExceeded = !usage.is_allowed;
 
   return (
-    <Link
-      href="/monitoring"
-      className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] transition-colors group"
-      title={`${usage.remaining} requests remaining today (${usage.request_count}/${usage.limit} used)`}
-    >
-      {isExceeded ? (
-        <AlertCircle className="w-3.5 h-3.5 text-red-500" />
-      ) : isNearLimit ? (
-        <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-      ) : (
-        <Activity className="w-3.5 h-3.5 text-[var(--green)]" />
-      )}
-      <span
-        className={`text-xs font-medium ${
-          isExceeded
-            ? "text-red-500"
-            : isNearLimit
-            ? "text-amber-500"
-            : "text-[var(--text-secondary)]"
-        }`}
+    <div className="flex items-center gap-2">
+      <Link
+        href="/monitoring"
+        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] transition-colors group"
+        title={`${usage.remaining} requests remaining today (${usage.request_count}/${usage.limit} used)`}
       >
-        {usage.remaining}/{usage.limit}
-      </span>
-    </Link>
+        {isExceeded ? (
+          <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+        ) : isNearLimit ? (
+          <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+        ) : (
+          <Activity className="w-3.5 h-3.5 text-[var(--green)]" />
+        )}
+        <span
+          className={`text-xs font-medium ${isExceeded
+              ? "text-red-500"
+              : isNearLimit
+                ? "text-amber-500"
+                : "text-[var(--text-secondary)]"
+            }`}
+        >
+          {usage.remaining}/{usage.limit}
+        </span>
+      </Link>
+
+      {/* Token Usage Indicator */}
+      <Link
+        href="/monitoring"
+        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-elevated)]/80 hover:bg-[var(--surface-hover)] transition-colors group"
+        title={`${usage.total_tokens.toLocaleString()} tokens used today`}
+      >
+        <span className="text-xs font-medium text-[var(--text-secondary)]">
+          {(usage.total_tokens / 1000).toFixed(1)}k Tok
+        </span>
+      </Link>
+    </div>
   );
 }
 

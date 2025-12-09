@@ -7,12 +7,13 @@ import { useStore } from "@/lib/store";
 import {
   getUsageStats,
   getTodayUsage,
-  getAPIKeysInfo,
+  getApiKeysInfo,
   getPerRequestStats,
   getIndividualRequests,
   type UsageStats,
+  type UsageStatsResponse,
   type TodayUsage,
-  type APIKeysInfo,
+  type ApiKeysInfo,
   type PerRequestStats,
   type IndividualRequest,
 } from "@/lib/api/monitoring";
@@ -75,9 +76,9 @@ export default function MonitoringPage() {
   const isAuthenticated = useStore((state) => state.isAuthenticated);
   const authLoading = useStore((state) => state.authLoading);
   const [loading, setLoading] = useState(true);
-  const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
+  const [usageStats, setUsageStats] = useState<UsageStatsResponse | null>(null);
   const [todayUsage, setTodayUsage] = useState<TodayUsage | null>(null);
-  const [apiKeysInfo, setApiKeysInfo] = useState<APIKeysInfo | null>(null);
+  const [apiKeysInfo, setApiKeysInfo] = useState<ApiKeysInfo | null>(null);
   const [perRequestStats, setPerRequestStats] = useState<PerRequestStats[]>([]);
   const [individualRequests, setIndividualRequests] = useState<IndividualRequest[]>([]);
   const [requestsTotal, setRequestsTotal] = useState(0);
@@ -128,7 +129,7 @@ export default function MonitoringPage() {
         const [stats, today, keys, perRequest, individual, configs] = await Promise.all([
           getUsageStats(selectedDays),
           getTodayUsage(),
-          getAPIKeysInfo().catch(() => null),
+          getApiKeysInfo().catch(() => null),
           getPerRequestStats(selectedDays, groupBy),
           getIndividualRequests(selectedDays, requestsLimit, 0),
           listLLMConfigs().catch(() => ({ configs: [] })),
@@ -850,7 +851,7 @@ export default function MonitoringPage() {
                   >
                     <LineChart
                       data={usageStats.recent_days.map((day) => ({
-                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                        date: new Date(day.date).toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
                         }),
@@ -921,7 +922,7 @@ export default function MonitoringPage() {
                   >
                     <LineChart
                       data={usageStats.recent_days.map((day) => ({
-                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                        date: new Date(day.date).toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
                         }),
@@ -996,8 +997,8 @@ export default function MonitoringPage() {
                     </h3>
                     <p className="text-xs text-[var(--text-secondary)]">
                       {usageStats.recent_days.length > 0 && (() => {
-                        const firstDate = new Date(usageStats.recent_days[0].usage_date);
-                        const lastDate = new Date(usageStats.recent_days[usageStats.recent_days.length - 1].usage_date);
+                        const firstDate = new Date(usageStats.recent_days[0].date);
+                        const lastDate = new Date(usageStats.recent_days[usageStats.recent_days.length - 1].date);
                         return `${firstDate.toLocaleDateString("en-US", { month: "long", day: "numeric" })} - ${lastDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
                       })()}
                     </p>
@@ -1013,7 +1014,7 @@ export default function MonitoringPage() {
                   >
                     <LineChart
                       data={usageStats.recent_days.map((day) => ({
-                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                        date: new Date(day.date).toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
                         }),
@@ -1092,7 +1093,7 @@ export default function MonitoringPage() {
                   >
                     <ComposedChart
                       data={usageStats.recent_days.map((day) => ({
-                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                        date: new Date(day.date).toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
                         }),
@@ -1182,7 +1183,7 @@ export default function MonitoringPage() {
                   >
                     <LineChart
                       data={usageStats.recent_days.map((day) => ({
-                        date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                        date: new Date(day.date).toLocaleDateString("en-US", {
                           month: "short",
                           day: "numeric",
                         }),
@@ -1306,7 +1307,7 @@ export default function MonitoringPage() {
                         const invalidRequests =
                           day.total_tokens === 0 && day.request_count > 0 ? day.request_count : 0;
                         return {
-                          date: new Date(day.usage_date).toLocaleDateString("en-US", {
+                          date: new Date(day.date).toLocaleDateString("en-US", {
                             month: "short",
                             day: "numeric",
                           }),
@@ -1414,12 +1415,12 @@ export default function MonitoringPage() {
                       {usageStats.recent_days
                         .slice((dailyPage - 1) * dailyLimit, dailyPage * dailyLimit)
                         .map((day) => {
-                          const date = new Date(day.usage_date);
+                          const date = new Date(day.date);
                           const isToday =
                             date.toDateString() === new Date().toDateString();
                           return (
                             <tr
-                              key={day.id}
+                              key={day.date}
                               className={`border-b border-[var(--border)] ${isToday ? "bg-[var(--green)]/5" : ""
                                 }`}
                             >
@@ -1669,12 +1670,12 @@ export default function MonitoringPage() {
             >
               <ComposedChart
                 data={perRequestStats.map((stat) => ({
-                  timestamp: stat.timestamp,
+                  timestamp: stat.timestamp || stat.period,
                   requests: stat.request_count,
                   tokens: Math.round(stat.total_tokens / 1000), // Convert to thousands
                   avgTokensPerRequest: stat.avg_tokens_per_request,
-                  valid: stat.valid_requests,
-                  invalid: stat.invalid_requests,
+                  valid: stat.valid_requests || 0,
+                  invalid: stat.invalid_requests || 0,
                 }))}
                 margin={{ top: 5, right: 20, left: 0, bottom: 60 }}
               >

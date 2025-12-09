@@ -92,6 +92,18 @@ export function getAuthHeaders(): HeadersInit {
   const headers: HeadersInit = { "Content-Type": "application/json" };
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
+
+    // Check for active impersonation
+    // We import dynamically or use global hook to avoid circular dependency
+    try {
+      const { useStore } = require('../store');
+      const impersonatedId = useStore.getState().impersonatedUserId;
+      if (impersonatedId) {
+        headers['X-Impersonate-User'] = impersonatedId;
+      }
+    } catch (e) {
+      // Store might not be initialized or accessible
+    }
   }
   return headers;
 }

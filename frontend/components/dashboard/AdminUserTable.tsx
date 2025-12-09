@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, Shield, User as UserIcon, Ban, CheckCircle, Search } from 'lucide-react';
+import { Loader2, Shield, User as UserIcon, Ban, CheckCircle, Search, LogIn } from 'lucide-react';
 import { listUsers, blockUser, unblockUser, AdminUser } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
@@ -134,25 +134,39 @@ export default function AdminUserTable() {
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                     {user.role !== 'superadmin' && (
-                                        <button
-                                            onClick={() => handleToggleBlock(user)}
-                                            disabled={processingId === user.id}
-                                            className={cn(
-                                                "p-1.5 rounded transition-colors disabled:opacity-50",
-                                                user.is_active
-                                                    ? "text-zinc-500 hover:text-red-400 hover:bg-red-500/10"
-                                                    : "text-zinc-500 hover:text-green-400 hover:bg-green-500/10"
-                                            )}
-                                            title={user.is_active ? "Block User" : "Unblock User"}
-                                        >
-                                            {processingId === user.id ? (
-                                                <Loader2 className="w-4 h-4 animate-spin" />
-                                            ) : user.is_active ? (
-                                                <Ban className="w-4 h-4" />
-                                            ) : (
-                                                <CheckCircle className="w-4 h-4" />
-                                            )}
-                                        </button>
+                                        <div className="flex items-center justify-end gap-1">
+                                            <button
+                                                onClick={() => {
+                                                    // Start impersonating
+                                                    const { useStore } = require('@/lib/store');
+                                                    useStore.getState().setImpersonatedUserId(user.id.toString());
+                                                    toast.success(`Switched to ${user.name}`);
+                                                }}
+                                                className="p-1.5 rounded transition-colors text-zinc-500 hover:text-indigo-400 hover:bg-indigo-500/10"
+                                                title={`Switch to ${user.name}`}
+                                            >
+                                                <LogIn className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={() => handleToggleBlock(user)}
+                                                disabled={processingId === user.id}
+                                                className={cn(
+                                                    "p-1.5 rounded transition-colors disabled:opacity-50",
+                                                    user.is_active
+                                                        ? "text-zinc-500 hover:text-red-400 hover:bg-red-500/10"
+                                                        : "text-zinc-500 hover:text-green-400 hover:bg-green-500/10"
+                                                )}
+                                                title={user.is_active ? "Block User" : "Unblock User"}
+                                            >
+                                                {processingId === user.id ? (
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                ) : user.is_active ? (
+                                                    <Ban className="w-4 h-4" />
+                                                ) : (
+                                                    <CheckCircle className="w-4 h-4" />
+                                                )}
+                                            </button>
+                                        </div>
                                     )}
                                 </td>
                             </tr>

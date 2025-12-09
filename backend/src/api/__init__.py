@@ -119,7 +119,7 @@ app.include_router(mcp_routes_router, prefix="/api", tags=["mcp-routes"])
 app.include_router(documents_router, prefix="/api", tags=["documents"])
 app.include_router(websocket_router, prefix="/api", tags=["websocket"])
 app.include_router(custom_rag_tools_router, prefix="/api", tags=["custom-rag-tools"])
-app.include_router(monitoring_router, prefix="/api", tags=["monitoring"])
+app.include_router(monitoring_router, prefix="/api/monitoring", tags=["monitoring"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 
 # Setup MCP routes

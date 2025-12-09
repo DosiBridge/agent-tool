@@ -31,6 +31,7 @@ import {
   saveStoredMessages,
   StoredMessage,
   updateStoredSessionTitle,
+  clearAllStoredSessions,
 } from "./sessionStorage";
 
 export interface Message {
@@ -110,7 +111,7 @@ interface AppState {
   loadSession: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   createNewSession: () => void;
-  updateSessionTitle: (sessionId: string, title: string) => void;
+  updateSessionTitle: (sessionId: string, title: string) => Promise<void>;
   saveCurrentSessionMessages: () => void;
 
   // Settings actions
@@ -119,6 +120,10 @@ interface AppState {
   loadHealth: () => Promise<void>;
   setHealth: (health: HealthStatus | null) => void;
   setSettingsOpen: (open: boolean) => void;
+
+  // Impersonation
+  impersonatedUserId: string | null;
+  setImpersonatedUserId: (userId: string | null) => void;
 }
 
 const generateId = () =>
@@ -146,6 +151,36 @@ export const useStore = create<AppState>((set, get) => ({
   llmConfig: null,
   health: null,
   settingsOpen: false,
+
+  // Impersonation (Superadmin)
+  impersonatedUserId: null,
+  setImpersonatedUserId: (userId: string | null) => {
+    // Clear local storage as requested to ensure fresh state
+    clearAllStoredSessions();
+
+    // Reset state to avoid showing stale data while loading
+    set({
+      impersonatedUserId: userId,
+      messages: [],
+      sessions: [],
+      currentSessionId: "default",
+      mcpServers: [],
+      llmConfig: null,
+      health: null
+    });
+
+    // Create a fresh default session in storage so app doesn't crash on reload
+    getOrCreateDefaultSession();
+
+    // Reload data when switching users
+    const isAuthenticated = get().isAuthenticated;
+    if (isAuthenticated) {
+      setTimeout(() => {
+        get().checkAuth(); // Re-fetch user profile (will return target user)
+        // checkAuth will automatically trigger loadSessions() and loadMCPServers()
+      }, 100);
+    }
+  },
 
   // Initialize: ensure default session exists and load it
   ...(() => {
@@ -216,32 +251,31 @@ export const useStore = create<AppState>((set, get) => ({
 
   handleLogout: async () => {
     try {
-      // Save current session before logout
-      get().saveCurrentSessionMessages();
       await logout();
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
-      // Don't clear browser storage on logout - keep sessions for when user logs back in
-      // But clear MCP servers and reset mode (Agent mode works without login)
-      const currentMode = get().mode;
-      const currentMessages = get().messages; // Keep messages for agent mode
+      // Clear all messages and session history from local storage
+      clearAllStoredSessions();
 
       // Clear all MCP-related data and health status
       set({
         user: null,
         isAuthenticated: false,
-        messages: currentMode === "rag" ? [] : currentMessages, // Keep messages for agent mode, clear for RAG
-        sessions: [],
+        messages: [], // Clear all messages on logout
+        sessions: [], // Clear all sessions on logout
+        currentSessionId: "default", // Reset to default session
         mcpServers: [], // Clear MCP servers list on logout
         health: null, // Clear health status on logout
-        mode: currentMode === "rag" ? "agent" : currentMode, // Switch to agent mode if in RAG (agent works without login)
+        mode: "agent", // Reset to agent mode
         isStreaming: false, // Stop any ongoing streaming
         isLoading: false, // Stop any ongoing loading
+        useReact: false, // Reset RAG settings
+        selectedCollectionId: null, // Reset RAG collection
       });
 
-      // Reload sessions from browser storage
-      get().loadSessions();
+      // Create a fresh default session for agent mode
+      getOrCreateDefaultSession();
 
       // Note: WebSocket will automatically disconnect and reconnect via useEffect in page.tsx
       // when isAuthenticated changes to false
@@ -303,8 +337,23 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  updateSessionTitle: (sessionId: string, title: string) => {
+  updateSessionTitle: async (sessionId: string, title: string) => {
+    // Update in local storage
     updateStoredSessionTitle(sessionId, title);
+
+    // Update in backend if authenticated
+    const isAuthenticated = get().isAuthenticated;
+    if (isAuthenticated) {
+      try {
+        const { updateSession } = await import("./api/sessions");
+        await updateSession(sessionId, title);
+      } catch (error) {
+        console.error("Failed to update session title in backend:", error);
+        // Continue anyway since we updated locally
+      }
+    }
+
+    // Reload sessions to reflect changes
     get().loadSessions();
   },
 

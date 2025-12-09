@@ -45,3 +45,13 @@ export async function listSessions(): Promise<{ sessions: Session[] }> {
   });
   return handleResponse<{ sessions: Session[] }>(response);
 }
+
+export async function updateSession(sessionId: string, title: string): Promise<{ status: string; message: string; title: string }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/session/${sessionId}`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ title }),
+  });
+  return handleResponse<{ status: string; message: string; title: string }>(response);
+}

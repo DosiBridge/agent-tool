@@ -18,6 +18,20 @@ export interface SystemStats {
   total_mcp_servers: number;
 }
 
+export interface SystemUsageHistory {
+  history: {
+    date: string;
+    requests: number;
+    tokens: number;
+    input_tokens: number;
+    output_tokens: number;
+    embedding_tokens: number;
+    errors: number;
+  }[];
+  total_requests: number;
+  days: number;
+}
+
 export const listUsers = async (): Promise<AdminUser[]> => {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/admin/users`, {
@@ -60,4 +74,12 @@ export const getSystemStats = async (): Promise<SystemStats> => {
     headers: getAuthHeaders(),
   });
   return handleResponse<SystemStats>(response);
+};
+
+export const getSystemUsageHistory = async (days: number = 7): Promise<SystemUsageHistory> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/system/usage-history?days=${days}`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse<SystemUsageHistory>(response);
 };

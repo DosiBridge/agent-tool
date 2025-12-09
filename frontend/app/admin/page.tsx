@@ -4,14 +4,22 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import {
-  listAllUsers,
+  listUsers,
   blockUser,
   unblockUser,
   getSystemStats,
   type AdminUser,
   type SystemStats,
 } from "@/lib/api/admin";
-import { Shield, Users, Lock, Unlock, Search, TrendingUp, FileText, Server, MessageSquare } from "lucide-react";
+import { Shield, Users, Lock, Unlock, Search, TrendingUp, FileText, Server, MessageSquare, Brain, Edit2, Power, Trash2, Check, X } from "lucide-react";
+import {
+  listLLMConfigs,
+  deleteLLMConfig,
+  switchLLMConfig,
+  updateLLMConfig,
+  type LLMConfigListItem,
+} from "@/lib/api/llm";
+import toast from "react-hot-toast";
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -21,6 +29,20 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [llmConfigs, setLlmConfigs] = useState<LLMConfigListItem[]>([]);
+  const [editingLLMConfig, setEditingLLMConfig] = useState<LLMConfigListItem | null>(null);
+  const [llmEditForm, setLlmEditForm] = useState<{
+    type: string;
+    model: string;
+    api_key: string;
+    api_base: string;
+  }>({
+    type: "openai",
+    model: "gpt-4o",
+    api_key: "",
+    api_base: "",
+  });
+  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     // Check if user is authenticated and is superadmin
@@ -35,12 +57,14 @@ export default function AdminDashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersData, statsData] = await Promise.all([
-        listAllUsers(),
+      const [usersData, statsData, configs] = await Promise.all([
+        listUsers(),
         getSystemStats(),
+        listLLMConfigs().catch(() => ({ configs: [] })),
       ]);
       setUsers(usersData);
       setStats(statsData);
+      setLlmConfigs(configs.configs || []);
     } catch (error: any) {
       console.error("Failed to load admin data:", error);
       if (error.status === 403) {
@@ -80,6 +104,67 @@ export default function AdminDashboard() {
       user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleDeleteConfig = async (configId: number) => {
+    if (!confirm("Are you sure you want to delete this LLM configuration?")) {
+      return;
+    }
+    try {
+      await deleteLLMConfig(configId);
+      toast.success("LLM configuration deleted successfully");
+      loadData();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete LLM configuration");
+    }
+  };
+
+  const handleSwitchConfig = async (configId: number) => {
+    try {
+      await switchLLMConfig(configId);
+      toast.success("Switched LLM configuration successfully");
+      loadData();
+      // Reload LLM config in store
+      useStore.getState().loadLLMConfig();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to switch LLM configuration");
+    }
+  };
+
+  const handleEditConfig = (config: LLMConfigListItem) => {
+    setEditingLLMConfig(config);
+    setLlmEditForm({
+      type: config.type,
+      model: config.model,
+      api_key: "", // Security: Don't populate API key back
+      api_base: config.api_base || "",
+    });
+    setShowApiKey(false);
+  };
+
+  const handleUpdateLLMConfig = async () => {
+    if (!editingLLMConfig) return;
+    try {
+      await updateLLMConfig(editingLLMConfig.id, llmEditForm as any);
+      toast.success("LLM configuration updated successfully");
+      setEditingLLMConfig(null);
+      loadData();
+      // Reload LLM config in store
+      useStore.getState().loadLLMConfig();
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update LLM configuration");
+    }
+  };
+
+  const cancelEditConfig = () => {
+    setEditingLLMConfig(null);
+    setLlmEditForm({
+      type: "openai",
+      model: "gpt-4o",
+      api_key: "",
+      api_base: "",
+    });
+    setShowApiKey(false);
+  };
 
   if (loading) {
     return (
@@ -264,13 +349,243 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {/* LLM Configurations Management */}
+        <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-lg shadow-sm p-4 sm:p-6">
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <Brain className="h-5 w-5 text-primary" />
+            LLM Configurations
+          </h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Manage system LLM configurations - switch, update, or delete saved configurations
+          </p>
+          {llmConfigs.length > 0 ? (
+            <div className="space-y-3">
+              {llmConfigs.map((config) => (
+                <div
+                  key={config.id}
+                  className={`p-4 rounded-lg border ${
+                    config.active
+                      ? "bg-green-500/10 border-green-500"
+                      : "bg-background/50 border-border/50"
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm font-semibold text-foreground capitalize">
+                          {config.type}
+                        </span>
+                        {config.active && (
+                          <span className="px-2 py-0.5 bg-green-500 text-white text-xs rounded-full flex items-center gap-1">
+                            <Power className="w-3 h-3" />
+                            Active
+                          </span>
+                        )}
+                        {config.is_default && (
+                          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-500 text-xs rounded-full">
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-foreground mb-1">
+                        Model: <span className="font-medium">{config.model}</span>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>
+                          API Key:{" "}
+                          {config.has_api_key ? (
+                            <span className="text-green-500">✓ Set</span>
+                          ) : (
+                            <span className="text-red-500">✗ Not set</span>
+                          )}
+                        </span>
+                        {config.base_url && (
+                          <span>Base URL: {config.base_url}</span>
+                        )}
+                        {config.api_base && (
+                          <span>API Base: {config.api_base}</span>
+                        )}
+                        {config.created_at && (
+                          <span>
+                            Created:{" "}
+                            {new Date(config.created_at).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 ml-4">
+                      {!config.is_default && (
+                        <button
+                          onClick={() => handleEditConfig(config)}
+                          className="p-2 bg-background/50 hover:bg-background border border-border/50 rounded-lg transition-colors"
+                          title="Edit this LLM configuration"
+                        >
+                          <Edit2 className="w-4 h-4 text-primary" />
+                        </button>
+                      )}
+                      {!config.active && (
+                        <button
+                          onClick={() => handleSwitchConfig(config.id)}
+                          className="p-2 bg-background/50 hover:bg-background border border-border/50 rounded-lg transition-colors"
+                          title="Switch to this LLM"
+                        >
+                          <Power className="w-4 h-4 text-green-500" />
+                        </button>
+                      )}
+                      {!config.active && !config.is_default && (
+                        <button
+                          onClick={() => handleDeleteConfig(config.id)}
+                          className="p-2 bg-background/50 hover:bg-red-500/10 border border-border/50 rounded-lg transition-colors"
+                          title="Delete this LLM configuration"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <Brain className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>No LLM configurations found. Add one in Settings.</p>
+            </div>
+          )}
+        </div>
+
         {/* System Settings Placeholder */}
         <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-lg shadow-sm p-4 sm:p-6">
           <h2 className="text-xl font-semibold mb-4">System Settings</h2>
           <p className="text-muted-foreground text-sm">
-            System settings management (LLM default configuration, etc.) will be available here.
+            Additional system settings management will be available here.
           </p>
         </div>
+
+        {/* Edit LLM Config Modal */}
+        {editingLLMConfig && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-card border border-border rounded-xl w-full max-w-lg p-6 space-y-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                  <Edit2 className="w-5 h-5 text-primary" />
+                  Edit LLM Configuration
+                </h2>
+                <button
+                  onClick={cancelEditConfig}
+                  className="p-2 hover:bg-background rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-muted-foreground" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Provider Type
+                  </label>
+                  <select
+                    value={llmEditForm.type}
+                    onChange={(e) =>
+                      setLlmEditForm({ ...llmEditForm, type: e.target.value })
+                    }
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    disabled={editingLLMConfig.is_default}
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="google">Google</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    Model
+                  </label>
+                  <input
+                    type="text"
+                    value={llmEditForm.model}
+                    onChange={(e) =>
+                      setLlmEditForm({ ...llmEditForm, model: e.target.value })
+                    }
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    placeholder="gpt-4o"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    API Key
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      value={llmEditForm.api_key}
+                      onChange={(e) =>
+                        setLlmEditForm({
+                          ...llmEditForm,
+                          api_key: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 pr-10"
+                      placeholder="Enter new API key (leave empty to keep current)"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+                    >
+                      {showApiKey ? (
+                        <Lock className="w-4 h-4" />
+                      ) : (
+                        <Unlock className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Leave empty to keep the current API key
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">
+                    API Base URL (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={llmEditForm.api_base}
+                    onChange={(e) =>
+                      setLlmEditForm({
+                        ...llmEditForm,
+                        api_base: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={cancelEditConfig}
+                  className="flex-1 bg-background hover:bg-muted border border-border text-foreground font-medium py-2 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateLLMConfig}
+                  className="flex-1 bg-primary hover:bg-primary/90 text-white font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  Update Configuration
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

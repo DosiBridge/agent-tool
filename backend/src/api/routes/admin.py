@@ -7,7 +7,9 @@ from typing import List, Optional
 from pydantic import BaseModel
 from src.core import get_db, User, LLMConfig, DB_AVAILABLE
 from src.core.models import User as UserModel
+from src.core.models import User as UserModel
 from src.core.auth import get_current_active_user
+from src.services.usage_tracker import usage_tracker
 
 router = APIRouter()
 
@@ -151,3 +153,16 @@ async def get_system_stats(
         "total_documents": total_documents,
         "total_mcp_servers": total_mcp_servers
     }
+
+
+@router.get("/system/usage-history")
+async def get_system_usage_history(
+    days: int = 7,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_superadmin)
+):
+    """Get system-wide usage history (superadmin only)"""
+    if not DB_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    return usage_tracker.get_system_usage_history(db, days=days)

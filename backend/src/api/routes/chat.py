@@ -5,7 +5,8 @@ import asyncio
 import json
 import traceback
 from typing import AsyncGenerator
-from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from starlette.requests import Request
 from fastapi.responses import StreamingResponse
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage
@@ -37,7 +38,7 @@ async def chat(
     background_tasks: BackgroundTasks,
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db)
-):
+) -> ChatResponse:
     """
     Non-streaming chat endpoint
     

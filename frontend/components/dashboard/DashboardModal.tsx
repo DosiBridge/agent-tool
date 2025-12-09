@@ -7,6 +7,7 @@ import AdminStatsView from './AdminStatsView';
 import AdminUserTable from './AdminUserTable';
 import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 interface DashboardModalProps {
     isOpen: boolean;
@@ -95,6 +96,17 @@ export default function DashboardModal({ isOpen, onClose }: DashboardModalProps)
                                             <SettingsIcon className="w-4 h-4" />
                                             Admin Console
                                         </button>
+                                    )}
+                                    {isSuperAdmin && (
+                                        <div className="flex items-center gap-2 ml-auto">
+                                            <Link
+                                            href="/admin"
+                                                className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors flex items-center gap-1.5"
+                                            >
+                                                <LayoutDashboard className="w-3.5 h-3.5" />
+                                                Full Admin Page
+                                            </Link>
+                                        </div>
                                     )}
                                 </div>
 

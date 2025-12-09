@@ -7,6 +7,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
+from starlette.requests import Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from .database import get_db
@@ -107,10 +108,14 @@ def decode_access_token(token: str) -> Optional[dict]:
 
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
     db: Session = Depends(get_db)
 ) -> Optional[User]:
-    """Get the current authenticated user from JWT token (optional - returns None if not authenticated)"""
+    """
+    Get the current authenticated user from JWT token.
+    Supports usage by Superadmin to impersonate other users via 'X-Impersonate-User' header.
+    """
     if credentials is None:
         return None
     
@@ -120,24 +125,34 @@ async def get_current_user(
     if payload is None:
         return None
     
-    user_id: str = payload.get("sub")
-    if user_id is None:
+    user_id_str: str = payload.get("sub")
+    if user_id_str is None:
         return None
     
     # Convert to int if it's a string
     try:
-        user_id = int(user_id)
+        user_id = int(user_id_str)
     except (ValueError, TypeError):
         return None
     
-    user = db.query(User).filter(User.id == user_id).first()
-    if user is None:
+    # 1. Fetch the REAL user (from the token)
+    real_user = db.query(User).filter(User.id == user_id).first()
+    if real_user is None or not real_user.is_active:
         return None
-    
-    if not user.is_active:
-        return None
-    
-    return user
+        
+    # 2. Check for Impersonation (Superadmin only)
+    if request and real_user.role == "superadmin":
+        impersonate_id = request.headers.get("X-Impersonate-User")
+        if impersonate_id:
+            try:
+                target_id = int(impersonate_id)
+                target_user = db.query(User).filter(User.id == target_id).first()
+                if target_user:
+                    return target_user
+            except ValueError:
+                pass # Invalid ID format, ignore
+                
+    return real_user
 
 
 async def get_current_active_user(

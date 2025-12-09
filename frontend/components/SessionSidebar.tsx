@@ -12,6 +12,10 @@ import {
   IconLogin,
   IconLogout,
   IconUserPlus,
+  IconDots,
+  IconEdit,
+  IconShare,
+  IconCopy,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -19,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { type Session } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
+import toast from "react-hot-toast";
 
 interface SessionSidebarProps {
   isOpen: boolean; // Kept for compatibility but controlled internally by common parent usually
@@ -35,12 +40,16 @@ export default function SessionSidebar({
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const sessions = useStore((state) => state.sessions);
   const currentSessionId = useStore((state) => state.currentSessionId);
   const setCurrentSession = useStore((state) => state.setCurrentSession);
   const createNewSession = useStore((state) => state.createNewSession);
   const deleteSession = useStore((state) => state.deleteSession);
+  const updateSessionTitle = useStore((state) => state.updateSessionTitle);
   const setSettingsOpen = useStore((state) => state.setSettingsOpen);
   const user = useStore((state) => state.user);
   const isAuthenticated = useStore((state) => state.isAuthenticated);
@@ -119,45 +128,23 @@ export default function SessionSidebar({
 
               <div className="flex flex-col gap-1 overflow-y-auto flex-1 min-h-0">
                 {sessions.slice(0, 10).map((session, idx) => (
-                  <div
+                  <SessionItem
                     key={session.session_id || idx}
-                    className="group relative w-full"
-                    onClick={() => setCurrentSession(session.session_id)}
-                  >
-                    <SidebarLink
-                      link={{
-                        label: session.title || "New Conversation",
-                        href: "#",
-                        icon: <IconMessage2 className="text-neutral-200 h-5 w-5 flex-shrink-0" />,
-                      }}
-                      className={cn(
-                        currentSessionId === session.session_id && "bg-white/10 rounded-md",
-                        "w-full"
-                      )}
-                    />
-                    {open && (
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (deletingSessionId === session.session_id) return;
-                          setDeletingSessionId(session.session_id);
-                          try {
-                            await deleteSession(session.session_id);
-                          } finally {
-                            setDeletingSessionId(null);
-                          }
-                        }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-white/10 rounded-md z-10"
-                        aria-label="Delete session"
-                      >
-                        {deletingSessionId === session.session_id ? (
-                          <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <IconTrash className="w-4 h-4 text-red-400" />
-                        )}
-                      </button>
-                    )}
-                  </div>
+                    session={session}
+                    isActive={currentSessionId === session.session_id}
+                    isOpen={open}
+                    openMenuId={openMenuId}
+                    setOpenMenuId={setOpenMenuId}
+                    renamingSessionId={renamingSessionId}
+                    setRenamingSessionId={setRenamingSessionId}
+                    renameValue={renameValue}
+                    setRenameValue={setRenameValue}
+                    deletingSessionId={deletingSessionId}
+                    setDeletingSessionId={setDeletingSessionId}
+                    onSelect={() => setCurrentSession(session.session_id)}
+                    onDelete={deleteSession}
+                    onRename={updateSessionTitle}
+                  />
                 ))}
                 {sessions.length === 0 && (
                   <div className="px-2 py-4 text-xs text-neutral-500 text-center">
@@ -256,3 +243,216 @@ export const LogoIcon = () => {
     </Link>
   );
 };
+
+interface SessionItemProps {
+  session: Session;
+  isActive: boolean;
+  isOpen: boolean;
+  openMenuId: string | null;
+  setOpenMenuId: (id: string | null) => void;
+  renamingSessionId: string | null;
+  setRenamingSessionId: (id: string | null) => void;
+  renameValue: string;
+  setRenameValue: (value: string) => void;
+  deletingSessionId: string | null;
+  setDeletingSessionId: (id: string | null) => void;
+  onSelect: () => void;
+  onDelete: (sessionId: string) => Promise<void>;
+  onRename: (sessionId: string, title: string) => Promise<void>;
+}
+
+function SessionItem({
+  session,
+  isActive,
+  isOpen,
+  openMenuId,
+  setOpenMenuId,
+  renamingSessionId,
+  setRenamingSessionId,
+  renameValue,
+  setRenameValue,
+  deletingSessionId,
+  setDeletingSessionId,
+  onSelect,
+  onDelete,
+  onRename,
+}: SessionItemProps) {
+  const isMenuOpen = openMenuId === session.session_id;
+  const isRenaming = renamingSessionId === session.session_id;
+  const isDeleting = deletingSessionId === session.session_id;
+
+  const handleRename = async () => {
+    if (!renameValue.trim()) {
+      setRenamingSessionId(null);
+      setRenameValue("");
+      return;
+    }
+    try {
+      await onRename(session.session_id, renameValue.trim());
+      toast.success("Session renamed successfully!");
+    } catch (error) {
+      console.error("Failed to rename session:", error);
+      toast.error("Failed to rename session");
+    } finally {
+      setRenamingSessionId(null);
+      setRenameValue("");
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      const url = `${window.location.origin}/chat?session=${session.session_id}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Chat link copied to clipboard!");
+      setOpenMenuId(null);
+    } catch (error) {
+      console.error("Failed to copy link:", error);
+      toast.error("Failed to copy link");
+    }
+  };
+
+  const handleCopySessionId = async () => {
+    try {
+      await navigator.clipboard.writeText(session.session_id);
+      toast.success("Session ID copied to clipboard!");
+      setOpenMenuId(null);
+    } catch (error) {
+      console.error("Failed to copy session ID:", error);
+      toast.error("Failed to copy session ID");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (isDeleting) return;
+    setDeletingSessionId(session.session_id);
+    setOpenMenuId(null);
+    try {
+      await onDelete(session.session_id);
+    } finally {
+      setDeletingSessionId(null);
+    }
+  };
+
+  return (
+    <div
+      className="group relative w-full"
+      onClick={!isRenaming ? onSelect : undefined}
+    >
+      {isRenaming ? (
+        <div className="px-2 py-2 bg-white/5 rounded-md">
+          <input
+            type="text"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onBlur={handleRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                handleRename();
+              } else if (e.key === "Escape") {
+                setRenamingSessionId(null);
+                setRenameValue("");
+              }
+            }}
+            autoFocus
+            className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30"
+            placeholder="Enter new name..."
+          />
+        </div>
+      ) : (
+        <>
+          <SidebarLink
+            link={{
+              label: session.title || "New Conversation",
+              href: "#",
+              icon: <IconMessage2 className="text-neutral-200 h-5 w-5 flex-shrink-0" />,
+            }}
+            className={cn(
+              isActive && "bg-white/10 rounded-md",
+              "w-full"
+            )}
+          />
+          {isOpen && (
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenMenuId(isMenuOpen ? null : session.session_id);
+                }}
+                className="p-1.5 hover:bg-white/10 rounded-md"
+                aria-label="Session options"
+              >
+                <IconDots className="w-4 h-4 text-neutral-300" />
+              </button>
+              {isMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenMenuId(null);
+                    }}
+                  />
+                  <div className="absolute right-0 top-full mt-1 w-48 bg-neutral-800 border border-neutral-700 rounded-lg shadow-lg z-20 py-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenameValue(session.title || "New Conversation");
+                        setRenamingSessionId(session.session_id);
+                        setOpenMenuId(null);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-neutral-200 hover:bg-white/10 flex items-center gap-2"
+                    >
+                      <IconEdit className="w-4 h-4" />
+                      Rename
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleShare();
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-neutral-200 hover:bg-white/10 flex items-center gap-2"
+                    >
+                      <IconShare className="w-4 h-4" />
+                      Share Chat
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCopySessionId();
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-neutral-200 hover:bg-white/10 flex items-center gap-2"
+                    >
+                      <IconCopy className="w-4 h-4" />
+                      Copy Session ID
+                    </button>
+                    <div className="border-t border-neutral-700 my-1" />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete();
+                      }}
+                      disabled={isDeleting}
+                      className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {isDeleting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <IconTrash className="w-4 h-4" />
+                          Delete
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

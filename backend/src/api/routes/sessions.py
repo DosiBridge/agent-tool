@@ -4,6 +4,7 @@ Session management endpoints
 from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import HumanMessage
 from typing import Optional
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from src.core import User, get_db, DB_AVAILABLE, Conversation, Message
 from src.core.auth import get_current_user
@@ -12,6 +13,10 @@ from src.services import history_manager
 from ..models import SessionInfo
 
 router = APIRouter()
+
+
+class UpdateSessionRequest(BaseModel):
+    title: str
 
 
 @router.get("/session/{session_id}", response_model=SessionInfo)
@@ -72,6 +77,51 @@ async def clear_session(
             "status": "success", 
             "message": f"Session {session_id} cleared (temporary - will be lost on server restart)",
             "deleted_from": "memory"
+        }
+
+
+@router.put("/session/{session_id}")
+async def update_session(
+    session_id: str,
+    request_data: UpdateSessionRequest,
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update session title.
+    
+    - If authenticated: Updates in database (permanent storage)
+    - If not authenticated: Updates in-memory storage (temporary)
+    """
+    title = request_data.title
+    
+    user_id = current_user.id if current_user else None
+    
+    # Use database history if available and user is authenticated
+    if DB_AVAILABLE and user_id:
+        # Update in database
+        conversation = db.query(Conversation).filter(
+            Conversation.session_id == session_id,
+            Conversation.user_id == user_id
+        ).first()
+        
+        if conversation:
+            conversation.title = title
+            db.commit()
+            return {
+                "status": "success",
+                "message": f"Session {session_id} title updated",
+                "title": title
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Session not found")
+    else:
+        # For in-memory, we can't update title easily, but we'll return success
+        # The frontend will handle local storage updates
+        return {
+            "status": "success",
+            "message": f"Session {session_id} title updated (local storage)",
+            "title": title
         }
 
 
