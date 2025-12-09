@@ -35,23 +35,23 @@ export default function MessageBubble({
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
-  
+
   // Detect current theme for code block styling
   useEffect(() => {
     const checkTheme = () => {
       setIsDarkMode(document.documentElement.classList.contains("dark"));
     };
-    
+
     // Check on mount
     checkTheme();
-    
+
     // Watch for theme changes
     const observer = new MutationObserver(checkTheme);
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"],
     });
-    
+
     return () => observer.disconnect();
   }, []);
 
@@ -190,7 +190,7 @@ export default function MessageBubble({
             if (
               currentMessages.length > 0 &&
               currentMessages[currentMessages.length - 1].role ===
-                "assistant" &&
+              "assistant" &&
               !currentMessages[currentMessages.length - 1].content
             ) {
               useStore.setState({ messages: currentMessages.slice(0, -1) });
@@ -253,7 +253,7 @@ export default function MessageBubble({
               if (
                 currentMessages.length > 0 &&
                 currentMessages[currentMessages.length - 1].role ===
-                  "assistant" &&
+                "assistant" &&
                 !currentMessages[currentMessages.length - 1].content
               ) {
                 useStore.setState({ messages: currentMessages.slice(0, -1) });
@@ -335,25 +335,22 @@ export default function MessageBubble({
 
   return (
     <div
-      className={`group flex mb-3 sm:mb-4 md:mb-6 px-1 sm:px-2 transition-all duration-200 hover:bg-transparent ${
-        isUser ? "justify-end" : "justify-start"
-      }`}
+      className={`group flex mb-3 sm:mb-4 md:mb-6 px-1 sm:px-2 transition-all duration-200 hover:bg-transparent ${isUser ? "justify-end" : "justify-start"
+        }`}
     >
       <div
-        className={`flex flex-col ${
-          isUser
-            ? "max-w-[85%] xs:max-w-[90%] sm:max-w-[85%] md:max-w-[75%] lg:max-w-[70%] items-end"
-            : "w-full max-w-full items-start"
-        }`}
+        className={`flex flex-col ${isUser
+          ? "max-w-[85%] xs:max-w-[90%] sm:max-w-[85%] md:max-w-[75%] lg:max-w-[70%] items-end"
+          : "w-full max-w-full items-start"
+          }`}
       >
 
         <div className="relative w-full">
           <div
-            className={`rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 md:px-4 md:py-3 transition-all duration-200 ${
-              isUser
-                ? "bg-[var(--message-user-bg)]/90 backdrop-blur-sm text-white hover:bg-[var(--message-user-hover)]/90 hover:shadow-md shadow-sm"
-                : "bg-transparent text-[var(--message-ai-text)]"
-            }`}
+            className={`rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 md:px-4 md:py-3 transition-all duration-200 ${isUser
+              ? "bg-[var(--message-user-bg)]/90 backdrop-blur-sm text-white hover:bg-[var(--message-user-hover)]/90 hover:shadow-md shadow-sm"
+              : "bg-transparent text-[var(--message-ai-text)]"
+              }`}
           >
             {isUser ? (
               <p className="whitespace-pre-wrap break-words leading-relaxed text-sm sm:text-base">
@@ -412,17 +409,17 @@ export default function MessageBubble({
                           isDarkMode={isDarkMode}
                         />
                       ) : (
-                        <code 
-                          className={className} 
+                        <code
+                          className={className}
                           style={{
                             backgroundColor: isDarkMode ? "#1e1e1e" : "#f6f8fa",
                             color: isDarkMode ? "#d4d4d4" : "#24292e",
                             border: `1px solid ${isDarkMode ? "#3e3e3e" : "#e1e4e8"}`,
                             padding: "0.125em 0.25em",
                             borderRadius: "0.25rem",
-                            }}
-                            {...props}
-                          >
+                          }}
+                          {...props}
+                        >
                           {children}
                         </code>
                       );
@@ -434,81 +431,7 @@ export default function MessageBubble({
               </div>
             )}
           </div>
-          {!isUser && (
-            <div
-              className="absolute -bottom-1 -left-1 sm:-bottom-1.5 sm:-left-1.5 md:-bottom-2 md:-left-2 flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all z-20"
-              onMouseEnter={() => setShowActions(true)}
-              onMouseLeave={() => setShowActions(false)}
-            >
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleCopy();
-                }}
-                className="p-1.5 sm:p-1.5 md:p-2 rounded-lg bg-[var(--surface-hover)] hover:bg-[var(--surface-elevated)] text-[var(--text-primary)] hover:text-[var(--text-primary)] transition-all shadow-md touch-manipulation"
-                aria-label="Copy message"
-                type="button"
-                title="Copy"
-              >
-                {copied ? (
-                  <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
-                ) : (
-                  <Copy className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
-                )}
-              </button>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleRegenerate();
-                }}
-                disabled={isRegenerating || isStreaming}
-                className={`p-1.5 sm:p-1.5 md:p-2 rounded-lg bg-[var(--surface-elevated)] hover:bg-[var(--surface-hover)] text-[var(--text-primary)] hover:text-[var(--text-inverse)] transition-all shadow-md touch-manipulation ${
-                  isRegenerating || isStreaming
-                    ? "opacity-50 cursor-not-allowed"
-                    : ""
-                }`}
-                aria-label="Regenerate response"
-                type="button"
-                title="Regenerate"
-              >
-                <RefreshCw
-                  className={`w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 ${
-                    isRegenerating || isStreaming ? "animate-spin" : ""
-                  }`}
-                />
-              </button>
-              <div className="flex gap-0.5">
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleFeedback("thumbs-up");
-                  }}
-                  className="p-1.5 sm:p-1.5 md:p-2 rounded-lg bg-[var(--surface-elevated)] hover:bg-[var(--surface-hover)] text-[var(--text-primary)] hover:text-[var(--green)] transition-all shadow-md touch-manipulation"
-                  aria-label="Thumbs up"
-                  type="button"
-                  title="Good response"
-                >
-                  <ThumbsUp className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleFeedback("thumbs-down");
-                  }}
-                  className="p-1.5 sm:p-1.5 md:p-2 rounded-lg bg-[var(--surface-elevated)] hover:bg-[var(--surface-hover)] text-[var(--text-primary)] hover:text-[var(--error)] transition-all shadow-md touch-manipulation"
-                  aria-label="Thumbs down"
-                  type="button"
-                  title="Poor response"
-                >
-                  <ThumbsDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
-                </button>
-              </div>
-            </div>
-          )}
+          {/* Old Action Buttons Removed */}
         </div>
 
         {message.tools_used && message.tools_used.length > 0 && (
@@ -519,11 +442,56 @@ export default function MessageBubble({
             {message.tools_used.map((tool, idx) => (
               <span
                 key={idx}
-                className="text-xs px-1.5 sm:px-2 py-0.5 bg-[var(--surface-elevated)] text-[var(--text-primary)] rounded-full font-medium"
+                className="text-xs px-1.5 sm:px-2 py-0.5 bg-[var(--surface-elevated)] text-[var(--text-primary)] rounded-full font-medium border border-[var(--border)]"
               >
                 {tool}
               </span>
             ))}
+          </div>
+        )}
+
+        {/* Action Buttons - Rendered below the message for AI */}
+        {!isUser && (
+          <div className="flex justify-end gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <button
+              onClick={handleCopy}
+              className="p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              title="Copy message"
+            >
+              {copied ? (
+                <Check className="w-4 h-4" />
+              ) : (
+                <Copy className="w-4 h-4" />
+              )}
+            </button>
+            <button
+              onClick={handleRegenerate}
+              disabled={isRegenerating || isStreaming}
+              className={`p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors ${isRegenerating || isStreaming ? "opacity-50 cursor-not-allowed" : ""
+                }`}
+              title="Regenerate response"
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${isRegenerating || isStreaming ? "animate-spin" : ""
+                  }`}
+              />
+            </button>
+            <div className="flex gap-0.5 border-l border-[var(--border)] pl-1 ml-1">
+              <button
+                onClick={() => handleFeedback("thumbs-up")}
+                className="p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--green)] transition-colors"
+                title="Good response"
+              >
+                <ThumbsUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleFeedback("thumbs-down")}
+                className="p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--error)] transition-colors"
+                title="Poor response"
+              >
+                <ThumbsDown className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>

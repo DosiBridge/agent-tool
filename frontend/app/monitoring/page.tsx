@@ -39,6 +39,8 @@ import {
   Power,
   Trash2,
   Edit2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -83,6 +85,14 @@ export default function MonitoringPage() {
   const [selectedDays, setSelectedDays] = useState(7);
   const [groupBy, setGroupBy] = useState<"hour" | "day" | "minute">("hour");
 
+  // Daily Breakdown Pagination
+  const [dailyPage, setDailyPage] = useState(1);
+  const dailyLimit = 10;
+
+  // Requests Pagination
+  const [requestsPage, setRequestsPage] = useState(1);
+  const requestsLimit = 20;
+
   useEffect(() => {
     // Allow both authenticated and unauthenticated users to view monitoring
     // Unauthenticated users can see their own usage (tracked by IP)
@@ -94,7 +104,7 @@ export default function MonitoringPage() {
   const loadMonitoringData = async () => {
     try {
       setLoading(true);
-      
+
       // For unauthenticated users, only load basic usage stats
       if (isAuthenticated) {
         const [stats, today, keys, perRequest, individual, configs] = await Promise.all([
@@ -102,7 +112,7 @@ export default function MonitoringPage() {
           getTodayUsage(),
           getAPIKeysInfo().catch(() => null),
           getPerRequestStats(selectedDays, groupBy),
-          getIndividualRequests(selectedDays, 100, 0),
+          getIndividualRequests(selectedDays, requestsLimit, 0),
           listLLMConfigs().catch(() => ({ configs: [] })),
         ]);
         setUsageStats(stats);
@@ -114,13 +124,15 @@ export default function MonitoringPage() {
         setRequestsOffset(0);
         setRequestsHasMore(individual.has_more || false);
         setLlmConfigs(configs.configs);
+        setDailyPage(1);
+        setRequestsPage(1);
       } else {
         // For unauthenticated users, only load basic usage data
         const [stats, today, perRequest, individual] = await Promise.all([
           getUsageStats(selectedDays).catch(() => null),
           getTodayUsage(),
           getPerRequestStats(selectedDays, groupBy).catch(() => ({ requests: [] })),
-          getIndividualRequests(selectedDays, 100, 0).catch(() => ({ requests: [], total: 0, has_more: false })),
+          getIndividualRequests(selectedDays, requestsLimit, 0).catch(() => ({ requests: [], total: 0, has_more: false })),
         ]);
         setUsageStats(stats);
         setTodayUsage(today);
@@ -131,6 +143,8 @@ export default function MonitoringPage() {
         setRequestsOffset(0);
         setRequestsHasMore(individual.has_more || false);
         setLlmConfigs([]);
+        setDailyPage(1);
+        setRequestsPage(1);
       }
     } catch (error) {
       console.error("Failed to load monitoring data:", error);
@@ -165,16 +179,19 @@ export default function MonitoringPage() {
     }
   };
 
-  const loadMoreRequests = async () => {
+  const handleRequestsPageChange = async (newPage: number) => {
     try {
       setRequestsLoading(true);
-      const data = await getIndividualRequests(selectedDays, 100, requestsOffset + 100);
-      setIndividualRequests((prev) => [...prev, ...data.requests]);
-      setRequestsOffset((prev) => prev + 100);
+      const newOffset = (newPage - 1) * requestsLimit;
+      const data = await getIndividualRequests(selectedDays, requestsLimit, newOffset);
+      setIndividualRequests(data.requests);
+      setRequestsTotal(data.total); // Update total in case it changed
+      setRequestsPage(newPage);
+      setRequestsOffset(newOffset);
       setRequestsHasMore(data.has_more || false);
     } catch (error) {
-      console.error("Failed to load more requests:", error);
-      toast.error("Failed to load more requests");
+      console.error("Failed to change requests page:", error);
+      toast.error("Failed to load requests");
     } finally {
       setRequestsLoading(false);
     }
@@ -218,7 +235,7 @@ export default function MonitoringPage() {
                   API Usage Monitoring
                 </h1>
                 <p className="text-sm text-[var(--text-secondary)] mt-1">
-                  {isAuthenticated 
+                  {isAuthenticated
                     ? "Monitor your API key usage and request limits"
                     : "View your usage and request limits (30 requests/day for unauthenticated users)"}
                 </p>
@@ -264,13 +281,12 @@ export default function MonitoringPage() {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-[var(--text-secondary)]">Requests</span>
                   <span
-                    className={`text-sm font-semibold ${
-                      todayUsage.is_default_llm
+                    className={`text-sm font-semibold ${todayUsage.is_default_llm
                         ? todayUsage.is_allowed
                           ? "text-[var(--green)]"
                           : "text-red-500"
                         : "text-[var(--green)]"
-                    }`}
+                      }`}
                   >
                     {todayUsage.request_count} {todayUsage.is_default_llm ? `/${todayUsage.limit}` : ""}
                   </span>
@@ -279,13 +295,12 @@ export default function MonitoringPage() {
                   <>
                     <div className="w-full bg-[var(--surface)] rounded-full h-3 overflow-hidden">
                       <div
-                        className={`h-full transition-all ${
-                          todayUsage.is_allowed
+                        className={`h-full transition-all ${todayUsage.is_allowed
                             ? isNearLimit
                               ? "bg-amber-500"
                               : "bg-[var(--green)]"
                             : "bg-red-500"
-                        }`}
+                          }`}
                         style={{ width: `${Math.min(usagePercentage, 100)}%` }}
                       />
                     </div>
@@ -358,7 +373,7 @@ export default function MonitoringPage() {
                     </p>
                     <p className="text-sm text-[var(--text-secondary)] mt-1">
                       You have reached your daily limit of {todayUsage.limit} requests.
-                      {isAuthenticated 
+                      {isAuthenticated
                         ? " Please try again tomorrow or add your own API key for unlimited requests."
                         : " Please create an account or log in to get 100 requests per day, or add your own API key for unlimited requests."}
                     </p>
@@ -394,91 +409,90 @@ export default function MonitoringPage() {
             <p className="text-sm text-[var(--text-secondary)] mb-4">
               Manage your LLM configurations - switch, update, or delete saved configurations
             </p>
-          {llmConfigs.length > 0 ? (
-            <div className="space-y-3">
-              {llmConfigs.map((config) => (
-                <div
-                  key={config.id}
-                  className={`p-4 rounded-lg border ${
-                    config.active
-                      ? "bg-[var(--green)]/10 border-[var(--green)]"
-                      : "bg-[var(--surface)] border-[var(--border)]"
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-sm font-semibold text-[var(--text-primary)] capitalize">
-                          {config.type}
-                        </span>
-                        {config.active && (
-                          <span className="px-2 py-0.5 bg-[var(--green)] text-white text-xs rounded-full flex items-center gap-1">
-                            <Power className="w-3 h-3" />
-                            Active
+            {llmConfigs.length > 0 ? (
+              <div className="space-y-3">
+                {llmConfigs.map((config) => (
+                  <div
+                    key={config.id}
+                    className={`p-4 rounded-lg border ${config.active
+                        ? "bg-[var(--green)]/10 border-[var(--green)]"
+                        : "bg-[var(--surface)] border-[var(--border)]"
+                      }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-sm font-semibold text-[var(--text-primary)] capitalize">
+                            {config.type}
                           </span>
-                        )}
-                        {config.is_default && (
-                          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-500 text-xs rounded-full">
-                            Default
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-sm text-[var(--text-primary)] mb-1">
-                        Model: <span className="font-medium">{config.model}</span>
-                      </div>
-                      <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
-                        <span>
-                          API Key:{" "}
-                          {config.has_api_key ? (
-                            <span className="text-[var(--green)]">✓ Set</span>
-                          ) : (
-                            <span className="text-red-500">✗ Not set</span>
+                          {config.active && (
+                            <span className="px-2 py-0.5 bg-[var(--green)] text-white text-xs rounded-full flex items-center gap-1">
+                              <Power className="w-3 h-3" />
+                              Active
+                            </span>
                           )}
-                        </span>
-                        {config.base_url && (
-                          <span>Base URL: {config.base_url}</span>
-                        )}
-                        {config.api_base && (
-                          <span>API Base: {config.api_base}</span>
-                        )}
-                        {config.created_at && (
+                          {config.is_default && (
+                            <span className="px-2 py-0.5 bg-amber-500/20 text-amber-500 text-xs rounded-full">
+                              Default
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm text-[var(--text-primary)] mb-1">
+                          Model: <span className="font-medium">{config.model}</span>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
                           <span>
-                            Created:{" "}
-                            {new Date(config.created_at).toLocaleDateString()}
+                            API Key:{" "}
+                            {config.has_api_key ? (
+                              <span className="text-[var(--green)]">✓ Set</span>
+                            ) : (
+                              <span className="text-red-500">✗ Not set</span>
+                            )}
                           </span>
+                          {config.base_url && (
+                            <span>Base URL: {config.base_url}</span>
+                          )}
+                          {config.api_base && (
+                            <span>API Base: {config.api_base}</span>
+                          )}
+                          {config.created_at && (
+                            <span>
+                              Created:{" "}
+                              {new Date(config.created_at).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 ml-4">
+                        {!config.active && (
+                          <button
+                            onClick={() => handleSwitchConfig(config.id)}
+                            className="p-2 bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg transition-colors"
+                            title="Switch to this LLM"
+                          >
+                            <Power className="w-4 h-4 text-[var(--green)]" />
+                          </button>
+                        )}
+                        {!config.active && (
+                          <button
+                            onClick={() => handleDeleteConfig(config.id)}
+                            className="p-2 bg-[var(--surface)] hover:bg-red-500/10 border border-[var(--border)] rounded-lg transition-colors"
+                            title="Delete this LLM configuration"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                          </button>
                         )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 ml-4">
-                      {!config.active && (
-                        <button
-                          onClick={() => handleSwitchConfig(config.id)}
-                          className="p-2 bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg transition-colors"
-                          title="Switch to this LLM"
-                        >
-                          <Power className="w-4 h-4 text-[var(--green)]" />
-                        </button>
-                      )}
-                      {!config.active && (
-                        <button
-                          onClick={() => handleDeleteConfig(config.id)}
-                          className="p-2 bg-[var(--surface)] hover:bg-red-500/10 border border-[var(--border)] rounded-lg transition-colors"
-                          title="Delete this LLM configuration"
-                        >
-                          <Trash2 className="w-4 h-4 text-red-500" />
-                        </button>
-                      )}
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-[var(--text-secondary)]">
-              <Brain className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>No LLM configurations found. Add one in Settings.</p>
-            </div>
-          )}
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-[var(--text-secondary)]">
+                <Brain className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p>No LLM configurations found. Add one in Settings.</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -609,12 +623,12 @@ export default function MonitoringPage() {
                 <div className="text-xs text-[var(--text-secondary)] mt-1">
                   {usageStats.total_requests > 0
                     ? `${Math.round(
-                        (usageStats.recent_days
-                          .filter((day) => day.total_tokens > 0)
-                          .reduce((sum, day) => sum + day.request_count, 0) /
-                          usageStats.total_requests) *
-                          100
-                      )}% success rate`
+                      (usageStats.recent_days
+                        .filter((day) => day.total_tokens > 0)
+                        .reduce((sum, day) => sum + day.request_count, 0) /
+                        usageStats.total_requests) *
+                      100
+                    )}% success rate`
                     : "0% success rate"}
                 </div>
               </div>
@@ -649,11 +663,11 @@ export default function MonitoringPage() {
                       <span>
                         {usageStats.total_requests > 0
                           ? Math.round(
-                              usageStats.recent_days.reduce(
-                                (sum, day) => sum + day.input_tokens,
-                                0
-                              ) / usageStats.total_requests
-                            ).toLocaleString()
+                            usageStats.recent_days.reduce(
+                              (sum, day) => sum + day.input_tokens,
+                              0
+                            ) / usageStats.total_requests
+                          ).toLocaleString()
                           : 0}
                       </span>
                     </div>
@@ -662,11 +676,11 @@ export default function MonitoringPage() {
                       <span>
                         {usageStats.total_requests > 0
                           ? Math.round(
-                              usageStats.recent_days.reduce(
-                                (sum, day) => sum + day.output_tokens,
-                                0
-                              ) / usageStats.total_requests
-                            ).toLocaleString()
+                            usageStats.recent_days.reduce(
+                              (sum, day) => sum + day.output_tokens,
+                              0
+                            ) / usageStats.total_requests
+                          ).toLocaleString()
                           : 0}
                       </span>
                     </div>
@@ -675,11 +689,11 @@ export default function MonitoringPage() {
                       <span>
                         {usageStats.total_requests > 0
                           ? Math.round(
-                              usageStats.recent_days.reduce(
-                                (sum, day) => sum + day.embedding_tokens,
-                                0
-                              ) / usageStats.total_requests
-                            ).toLocaleString()
+                            usageStats.recent_days.reduce(
+                              (sum, day) => sum + day.embedding_tokens,
+                              0
+                            ) / usageStats.total_requests
+                          ).toLocaleString()
                           : 0}
                       </span>
                     </div>
@@ -720,12 +734,12 @@ export default function MonitoringPage() {
                   <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">
                     {usageStats.total_requests > 0
                       ? Math.round(
-                          (usageStats.recent_days
-                            .filter((day) => day.total_tokens > 0)
-                            .reduce((sum, day) => sum + day.request_count, 0) /
-                            usageStats.total_requests) *
-                            100
-                        )
+                        (usageStats.recent_days
+                          .filter((day) => day.total_tokens > 0)
+                          .reduce((sum, day) => sum + day.request_count, 0) /
+                          usageStats.total_requests) *
+                        100
+                      )
                       : 0}
                     <span className="text-lg">%</span>
                   </div>
@@ -977,7 +991,7 @@ export default function MonitoringPage() {
                   {usageStats.recent_days.length > 1 && (() => {
                     const recent = usageStats.recent_days.slice(-2);
                     const change = recent[1].request_count - recent[0].request_count;
-                    const percentChange = recent[0].request_count > 0 
+                    const percentChange = recent[0].request_count > 0
                       ? ((change / recent[0].request_count) * 100).toFixed(1)
                       : "0.0";
                     return (
@@ -1173,14 +1187,14 @@ export default function MonitoringPage() {
                   </ChartContainer>
                   {usageStats.recent_days.length > 1 && (() => {
                     const recent = usageStats.recent_days.slice(-2);
-                    const current = recent[1].request_count > 0 
+                    const current = recent[1].request_count > 0
                       ? Math.round(recent[1].total_tokens / recent[1].request_count)
                       : 0;
                     const previous = recent[0].request_count > 0
                       ? Math.round(recent[0].total_tokens / recent[0].request_count)
                       : 0;
                     const change = current - previous;
-                    const percentChange = previous > 0 
+                    const percentChange = previous > 0
                       ? ((change / previous) * 100).toFixed(1)
                       : "0.0";
                     return (
@@ -1335,73 +1349,98 @@ export default function MonitoringPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {usageStats.recent_days.map((day) => {
-                        const date = new Date(day.usage_date);
-                        const isToday =
-                          date.toDateString() === new Date().toDateString();
-                        return (
-                          <tr
-                            key={day.id}
-                            className={`border-b border-[var(--border)] ${
-                              isToday ? "bg-[var(--green)]/5" : ""
-                            }`}
-                          >
-                            <td className="py-2 px-3 text-sm text-[var(--text-primary)]">
-                              {isToday ? (
-                                <span className="flex items-center gap-1">
-                                  {date.toLocaleDateString()}
-                                  <span className="text-[var(--green)] text-xs">(Today)</span>
+                      {usageStats.recent_days
+                        .slice((dailyPage - 1) * dailyLimit, dailyPage * dailyLimit)
+                        .map((day) => {
+                          const date = new Date(day.usage_date);
+                          const isToday =
+                            date.toDateString() === new Date().toDateString();
+                          return (
+                            <tr
+                              key={day.id}
+                              className={`border-b border-[var(--border)] ${isToday ? "bg-[var(--green)]/5" : ""
+                                }`}
+                            >
+                              <td className="py-2 px-3 text-sm text-[var(--text-primary)]">
+                                {isToday ? (
+                                  <span className="flex items-center gap-1">
+                                    {date.toLocaleDateString()}
+                                    <span className="text-[var(--green)] text-xs">(Today)</span>
+                                  </span>
+                                ) : (
+                                  date.toLocaleDateString()
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-right text-[var(--text-primary)]">
+                                {day.request_count}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
+                                {day.input_tokens.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
+                                {day.output_tokens.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
+                                {day.embedding_tokens.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-right font-semibold text-[var(--text-primary)]">
+                                {day.total_tokens.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
+                                {day.request_count > 0
+                                  ? Math.round(day.total_tokens / day.request_count).toLocaleString()
+                                  : 0}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-right text-[var(--text-primary)]">
+                                <span
+                                  className={
+                                    day.total_tokens > 0 ? "text-[var(--green)]" : "text-red-500"
+                                  }
+                                >
+                                  {day.total_tokens > 0 ? day.request_count : 0}
                                 </span>
-                              ) : (
-                                date.toLocaleDateString()
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-sm text-right text-[var(--text-primary)]">
-                              {day.request_count}
-                            </td>
-                            <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
-                              {day.input_tokens.toLocaleString()}
-                            </td>
-                            <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
-                              {day.output_tokens.toLocaleString()}
-                            </td>
-                            <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
-                              {day.embedding_tokens.toLocaleString()}
-                            </td>
-                            <td className="py-2 px-3 text-sm text-right font-semibold text-[var(--text-primary)]">
-                              {day.total_tokens.toLocaleString()}
-                            </td>
-                            <td className="py-2 px-3 text-sm text-right text-[var(--text-secondary)]">
-                              {day.request_count > 0
-                                ? Math.round(day.total_tokens / day.request_count).toLocaleString()
-                                : 0}
-                            </td>
-                            <td className="py-2 px-3 text-sm text-right text-[var(--text-primary)]">
-                              <span
-                                className={
-                                  day.total_tokens > 0 ? "text-[var(--green)]" : "text-red-500"
-                                }
-                              >
-                                {day.total_tokens > 0 ? day.request_count : 0}
-                              </span>
-                              {day.request_count > 0 && (
-                                <span className="text-[var(--text-secondary)] ml-1">
-                                  / {day.request_count}
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-sm text-[var(--text-secondary)] capitalize">
-                              {day.llm_provider || "N/A"}
-                            </td>
-                            <td className="py-2 px-3 text-sm text-[var(--text-secondary)]">
-                              {day.llm_model || "N/A"}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                                {day.request_count > 0 && (
+                                  <span className="text-[var(--text-secondary)] ml-1">
+                                    / {day.request_count}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-[var(--text-secondary)] capitalize">
+                                {day.llm_provider || "N/A"}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-[var(--text-secondary)]">
+                                {day.llm_model || "N/A"}
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>
+                {/* Daily Breakdown Pagination */}
+                {usageStats.recent_days.length > dailyLimit && (
+                  <div className="flex items-center justify-between mt-4 border-t border-[var(--border)] pt-4">
+                    <div className="text-sm text-[var(--text-secondary)]">
+                      Showing {((dailyPage - 1) * dailyLimit) + 1} to {Math.min(dailyPage * dailyLimit, usageStats.recent_days.length)} of {usageStats.recent_days.length} days
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setDailyPage(p => Math.max(1, p - 1))}
+                        disabled={dailyPage === 1}
+                        className="p-1 hover:bg-[var(--surface-hover)] rounded disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                      >
+                        <ChevronLeft className="w-5 h-5 text-[var(--text-primary)]" />
+                      </button>
+                      <button
+                        onClick={() => setDailyPage(p => Math.min(Math.ceil(usageStats.recent_days.length / dailyLimit), p + 1))}
+                        disabled={dailyPage >= Math.ceil(usageStats.recent_days.length / dailyLimit)}
+                        className="p-1 hover:bg-[var(--surface-hover)] rounded disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                      >
+                        <ChevronRight className="w-5 h-5 text-[var(--text-primary)]" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-8 text-[var(--text-secondary)]">
@@ -1506,19 +1545,31 @@ export default function MonitoringPage() {
                 </tbody>
               </table>
             </div>
-            {requestsHasMore && (
-              <div className="mt-4 flex justify-center">
+            {/* Requests Pagination */}
+            <div className="flex items-center justify-between mt-4 border-t border-[var(--border)] pt-4">
+              <div className="text-sm text-[var(--text-secondary)]">
+                Showing {((requestsPage - 1) * requestsLimit) + 1} to {Math.min(requestsPage * requestsLimit, requestsTotal)} of {requestsTotal} requests
+              </div>
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={loadMoreRequests}
-                  disabled={requestsLoading}
-                  className="px-4 py-2 bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => handleRequestsPageChange(requestsPage - 1)}
+                  disabled={requestsPage === 1 || requestsLoading}
+                  className="p-1 hover:bg-[var(--surface-hover)] rounded disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
                 >
-                  {requestsLoading 
-                    ? "Loading..." 
-                    : `Load More (${requestsTotal - individualRequests.length} remaining)`}
+                  <ChevronLeft className="w-5 h-5 text-[var(--text-primary)]" />
+                </button>
+                <div className="text-sm text-[var(--text-primary)] font-medium px-2">
+                  Page {requestsPage} of {Math.max(1, Math.ceil(requestsTotal / requestsLimit))}
+                </div>
+                <button
+                  onClick={() => handleRequestsPageChange(requestsPage + 1)}
+                  disabled={requestsPage >= Math.ceil(requestsTotal / requestsLimit) || requestsLoading}
+                  className="p-1 hover:bg-[var(--surface-hover)] rounded disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5 text-[var(--text-primary)]" />
                 </button>
               </div>
-            )}
+            </div>
           </div>
         )}
 
@@ -1597,52 +1648,52 @@ export default function MonitoringPage() {
                   content={<ChartTooltipContent />}
                 />
                 <ChartLegend content={(props: any) => <ChartLegendContent {...props} />} />
-                      <Line
-                        yAxisId="left"
-                        type="natural"
-                        dataKey="requests"
-                        stroke="#10b981"
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4, stroke: "#10b981", strokeWidth: 2 }}
-                      />
-                      <Line
-                        yAxisId="left"
-                        type="natural"
-                        dataKey="valid"
-                        stroke="#10b981"
-                        strokeWidth={2}
-                        strokeDasharray="5 5"
-                        dot={false}
-                        activeDot={{ r: 4, stroke: "#10b981", strokeWidth: 2 }}
-                      />
-                      <Line
-                        yAxisId="left"
-                        type="natural"
-                        dataKey="invalid"
-                        stroke="#ef4444"
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4, stroke: "#ef4444", strokeWidth: 2 }}
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="natural"
-                        dataKey="tokens"
-                        stroke="#3b82f6"
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4, stroke: "#3b82f6", strokeWidth: 2 }}
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="natural"
-                        dataKey="avgTokensPerRequest"
-                        stroke="#f59e0b"
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 4, stroke: "#f59e0b", strokeWidth: 2 }}
-                      />
+                <Line
+                  yAxisId="left"
+                  type="natural"
+                  dataKey="requests"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4, stroke: "#10b981", strokeWidth: 2 }}
+                />
+                <Line
+                  yAxisId="left"
+                  type="natural"
+                  dataKey="valid"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  activeDot={{ r: 4, stroke: "#10b981", strokeWidth: 2 }}
+                />
+                <Line
+                  yAxisId="left"
+                  type="natural"
+                  dataKey="invalid"
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4, stroke: "#ef4444", strokeWidth: 2 }}
+                />
+                <Line
+                  yAxisId="right"
+                  type="natural"
+                  dataKey="tokens"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4, stroke: "#3b82f6", strokeWidth: 2 }}
+                />
+                <Line
+                  yAxisId="right"
+                  type="natural"
+                  dataKey="avgTokensPerRequest"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4, stroke: "#f59e0b", strokeWidth: 2 }}
+                />
               </ComposedChart>
             </ChartContainer>
           </div>

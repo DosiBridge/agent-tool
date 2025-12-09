@@ -5,8 +5,8 @@
 "use client";
 
 import { useStore } from "@/lib/store";
-import { Loader2, MessageSquare } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ArrowDown, Loader2, MessageSquare } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import MessageBubble from "./MessageBubble";
 import ThinkingIndicator from "./ThinkingIndicator";
 import { TextGenerateEffect } from "./ui/text-generate-effect";
@@ -22,6 +22,7 @@ export default function ChatWindow() {
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isUserScrollingRef = useRef(false);
   const scrollCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   // Filter out empty messages
   const displayMessages = messages.filter(
@@ -45,9 +46,21 @@ export default function ChatWindow() {
       if (scrollCheckTimeoutRef.current) {
         clearTimeout(scrollCheckTimeoutRef.current);
       }
+      if (scrollCheckTimeoutRef.current) {
+        clearTimeout(scrollCheckTimeoutRef.current);
+      }
       scrollCheckTimeoutRef.current = setTimeout(() => {
         isUserScrollingRef.current = false;
       }, 150);
+
+      // Show/hide scroll button logic
+      const threshold = 300;
+      const scrollTop = container.scrollTop;
+      const scrollHeight = container.scrollHeight;
+      const clientHeight = container.clientHeight;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+      setShowScrollButton(distanceFromBottom > threshold);
     };
 
     container.addEventListener("scroll", handleScroll, { passive: true });
@@ -58,6 +71,11 @@ export default function ChatWindow() {
       }
     };
   }, []);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    setShowScrollButton(false);
+  };
 
   // Improved smooth scrolling - triggers on content changes during streaming
   useEffect(() => {
@@ -244,6 +262,17 @@ export default function ChatWindow() {
           )}
           <div ref={messagesEndRef} aria-hidden="true" />
         </div>
+      )}
+
+      {/* Scroll to Bottom Button */}
+      {showScrollButton && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 p-2 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-lg hover:bg-[var(--surface-hover)] transition-all duration-200 animate-in fade-in zoom-in cursor-pointer z-30 group"
+          aria-label="Scroll to bottom"
+        >
+          <ArrowDown className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]" />
+        </button>
       )}
     </div>
   );

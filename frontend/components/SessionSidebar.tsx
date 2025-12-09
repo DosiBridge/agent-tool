@@ -9,6 +9,9 @@ import {
   IconMessage2,
   IconPlus,
   IconTrash,
+  IconLogin,
+  IconLogout,
+  IconUserPlus,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -37,6 +40,8 @@ export default function SessionSidebar({
   const deleteSession = useStore((state) => state.deleteSession);
   const setSettingsOpen = useStore((state) => state.setSettingsOpen);
   const user = useStore((state) => state.user);
+  const isAuthenticated = useStore((state) => state.isAuthenticated);
+  const logout = useStore((state) => state.handleLogout);
 
   const links = [
     {
@@ -125,18 +130,53 @@ export default function SessionSidebar({
           </div>
 
           {/* User Profile */}
+          {/* User Profile / Auth Actions */}
           <div>
-            <SidebarLink
-              link={{
-                label: user?.name || "Guest User",
-                href: "#",
-                icon: (
-                  <div className="h-7 w-7 flex-shrink-0 rounded-full bg-black/50 flex items-center justify-center">
-                    <span className="text-xs font-bold">{user?.name?.[0]?.toUpperCase() || "G"}</span>
-                  </div>
-                ),
-              }}
-            />
+            {isAuthenticated ? (
+              <div className="flex flex-col gap-1">
+                <SidebarLink
+                  link={{
+                    label: user?.name || "User",
+                    href: "#",
+                    icon: (
+                      <div className="h-7 w-7 flex-shrink-0 rounded-full bg-black/50 flex items-center justify-center">
+                        <span className="text-xs font-bold">{user?.name?.[0]?.toUpperCase() || "U"}</span>
+                      </div>
+                    ),
+                  }}
+                />
+                <div onClick={() => logout()}>
+                  <SidebarLink
+                    link={{
+                      label: "Logout",
+                      href: "#",
+                      icon: <IconLogout className="text-neutral-200 h-5 w-5 flex-shrink-0" />,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <Link href="/login">
+                  <SidebarLink
+                    link={{
+                      label: "Login",
+                      href: "#",
+                      icon: <IconLogin className="text-neutral-200 h-5 w-5 flex-shrink-0" />,
+                    }}
+                  />
+                </Link>
+                <Link href="/register">
+                  <SidebarLink
+                    link={{
+                      label: "Create Account",
+                      href: "#",
+                      icon: <IconUserPlus className="text-neutral-200 h-5 w-5 flex-shrink-0" />,
+                    }}
+                  />
+                </Link>
+              </div>
+            )}
           </div>
         </SidebarBody>
       </Sidebar>
