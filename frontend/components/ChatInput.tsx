@@ -24,7 +24,7 @@ import type { KeyboardEvent, ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import RAGEnablePopup from "@/components/RAGEnablePopup";
-import RAGUploadModal from "@/components/rag/RAGUploadModal";
+
 import { cn } from "@/lib/utils";
 
 export default function ChatInput() {
@@ -33,7 +33,7 @@ export default function ChatInput() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showRAGPopup, setShowRAGPopup] = useState(false);
-  const [showUploadModal, setShowUploadModal] = useState(false);
+
   const abortRef = useRef<(() => void) | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -353,13 +353,7 @@ export default function ChatInput() {
     toast("Voice input coming soon", { icon: "🎤" });
   };
 
-  const handleAttachmentClick = () => {
-    if (!isAuthenticated) {
-      toast.error("Please log in to upload documents.");
-      return;
-    }
-    setShowUploadModal(true);
-  };
+
 
   const getModeDisplayName = () => {
     return mode === "agent" ? "Agent" : "RAG";
@@ -390,7 +384,7 @@ export default function ChatInput() {
   };
 
   return (
-    <div className="shrink-0 sticky bottom-0 z-40 w-full bg-gradient-to-t from-black via-black/80 to-transparent pb-6 pt-4">
+    <div className="shrink-0 sticky bottom-0 z-40 w-full pb-6 pt-4">
       <div className="max-w-4xl mx-auto w-full px-2 sm:px-4 flex flex-col gap-2">
 
         {/* Autocomplete Suggestions */}
@@ -435,16 +429,6 @@ export default function ChatInput() {
           <div className="flex justify-between items-center p-2 pt-0">
             {/* Left Tools */}
             <div className="flex items-center gap-1.5">
-              {/* Attachment */}
-              <button
-                onClick={handleAttachmentClick}
-                disabled={inputDisabled}
-                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-50"
-                title="Attach File"
-              >
-                <Paperclip className="w-4 h-4" />
-              </button>
-
               {/* Voice */}
               <button
                 onClick={handleVoiceClick}
@@ -537,16 +521,7 @@ export default function ChatInput() {
         onEnable={() => { }}
       />
 
-      <RAGUploadModal
-        isOpen={showUploadModal}
-        onClose={() => setShowUploadModal(false)}
-        onUploadComplete={() => {
-          if (mode !== "rag") {
-            setMode("rag");
-            toast.success("Switched to RAG mode to use uploaded documents");
-          }
-        }}
-      />
+
     </div>
   );
 }

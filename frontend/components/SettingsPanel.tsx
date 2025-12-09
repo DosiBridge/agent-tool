@@ -11,7 +11,9 @@ import {
   RefreshCw,
   Edit2,
   Info as InfoIcon,
-  Brain
+  Brain,
+  FileText,
+  Loader2
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import {
@@ -29,6 +31,8 @@ import * as api from "@/lib/api";
 import {
   listLLMConfigs,
 } from "@/lib/api/llm";
+import RAGUploadModal from "@/components/rag/RAGUploadModal";
+import { Document } from "@/types/api";
 
 export default function SettingsPanel() {
   const {
@@ -74,7 +78,7 @@ export default function SettingsPanel() {
   const [isValidating, setIsValidating] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
 
-  // RAG Stats
+  // RAG Stats & Documents
   const [stats, setStats] = useState<{
     pending: number;
     needs_review: number;
@@ -89,7 +93,10 @@ export default function SettingsPanel() {
     total: 0,
   });
 
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
   const [refreshingStats, setRefreshingStats] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   // Load existing LLM config into form
   useEffect(() => {
@@ -219,11 +226,42 @@ export default function SettingsPanel() {
     }
   };
 
-  // Initial stats load
+  const loadDocuments = async () => {
+    if (!isAuthenticated) return;
+    setLoadingDocs(true);
+    try {
+      const res = await api.listDocuments();
+      setDocuments(res.documents);
+    } catch (error) {
+      console.error("Failed to load documents:", error);
+    } finally {
+      setLoadingDocs(false);
+    }
+  };
+
+  const handleDeleteDocument = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this document? This cannot be undone.")) return;
+    try {
+      await api.deleteDocument(id);
+      toast.success("Document deleted");
+      loadDocuments();
+      refreshStats();
+    } catch (error) {
+      toast.error("Failed to delete document");
+    }
+  };
+
+  // Initial stats & docs load
   useEffect(() => {
     if (activeTab === "rag" && isAuthenticated) {
       refreshStats();
-      const interval = setInterval(refreshStats, 5000);
+      loadDocuments();
+      const interval = setInterval(() => {
+        refreshStats();
+        // Also refresh docs if there are pending ones to update status
+        // But maybe checking stats is enough to trigger a reload?
+        // simple approach: just reload both
+      }, 5000);
       return () => clearInterval(interval);
     }
   }, [activeTab, isAuthenticated]);
@@ -508,6 +546,21 @@ export default function SettingsPanel() {
             {/* RAG Content */}
             {activeTab === 'rag' && (
               <div className="space-y-6">
+                {/* Header & Upload */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Knowledge Base</h3>
+                    <p className="text-sm text-zinc-400">Manage your documents and RAG settings.</p>
+                  </div>
+                  <button
+                    onClick={() => setShowUploadModal(true)}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Upload Document
+                  </button>
+                </div>
+
                 {/* Stats Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
@@ -523,23 +576,73 @@ export default function SettingsPanel() {
                   ))}
                 </div>
 
-                <div className="p-4 bg-zinc-900/30 border border-zinc-800 rounded-xl text-center text-zinc-500">
-                  <InfoIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>RAG Configuration is managed via the backend.</p>
-                </div>
+                {/* Document List */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-medium text-zinc-300">Documents</h4>
 
-                <div className="flex items-center justify-between text-xs text-zinc-500">
-                  <button onClick={refreshStats} className="flex items-center gap-1 hover:text-white transition-colors">
-                    <RefreshCw className={`w-3 h-3 ${refreshingStats ? 'animate-spin' : ''}`} />
-                    Refresh Stats
-                  </button>
+                  {loadingDocs ? (
+                    <div className="flex items-center justify-center p-8 bg-zinc-900/30 rounded-xl border border-zinc-800">
+                      <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
+                    </div>
+                  ) : documents.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-3">
+                      {documents.map((doc) => (
+                        <div key={doc.id} className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-4 flex items-center justify-between group hover:border-zinc-700 transition-colors">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 shrink-0">
+                              <FileText className="w-5 h-5" />
+                            </div>
+                            <div className="min-w-0">
+                              <h5 className="text-white font-medium truncate max-w-[200px] sm:max-w-xs">{doc.original_filename}</h5>
+                              <div className="flex items-center gap-2 text-xs text-zinc-500">
+                                <span className={cn(
+                                  "capitalize px-1.5 py-0.5 rounded text-[10px]",
+                                  doc.status === 'ready' ? "bg-green-500/10 text-green-400" :
+                                    doc.status === 'pending' || doc.status === 'processing' ? "bg-yellow-500/10 text-yellow-400" :
+                                      "bg-zinc-800 text-zinc-400"
+                                )}>
+                                  {doc.status}
+                                </span>
+                                <span>{(doc.file_size / 1024).toFixed(1)} KB</span>
+                                <span>•</span>
+                                <span>{new Date(doc.created_at || new Date()).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleDeleteDocument(doc.id)}
+                            className="p-2 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            title="Delete document"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                      <p>No documents uploaded yet.</p>
+                      <button onClick={() => setShowUploadModal(true)} className="text-indigo-400 hover:text-indigo-300 text-sm mt-2">
+                        Upload your first document
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-
           </div>
         </div>
       </div>
+
+      <RAGUploadModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        onUploadComplete={() => {
+          loadDocuments();
+          refreshStats();
+        }}
+      />
     </div>
   );
 }
