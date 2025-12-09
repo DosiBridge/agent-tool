@@ -8,6 +8,7 @@ import ChatInput from "@/components/ChatInput";
 import ChatWindow from "@/components/ChatWindow";
 import HealthStatus from "@/components/HealthStatus";
 import OnlineStatus from "@/components/OnlineStatus";
+import RAGStatus from "@/components/rag/RAGStatus";
 import SessionSidebar from "@/components/SessionSidebar";
 import SettingsPanel from "@/components/SettingsPanel";
 import UsageIndicator from "@/components/UsageIndicator";
@@ -232,6 +233,8 @@ export default function ChatPage() {
           onClose={() => setSidebarOpen(false)}
           onToggle={() => setSidebarOpen((prev) => !prev)}
         />
+
+        <RAGStatus />
 
         <div className="flex-1 flex flex-col min-w-0 w-full bg-transparent">
           <header className="border-b border-white/[0.1] bg-black/20 backdrop-blur-md px-2 sm:px-3 py-1.5 flex items-center justify-between shrink-0 sticky top-0 z-40">

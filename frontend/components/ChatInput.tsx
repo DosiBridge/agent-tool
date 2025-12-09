@@ -24,6 +24,7 @@ import type { KeyboardEvent, ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import RAGEnablePopup from "@/components/RAGEnablePopup";
+import RAGUploadModal from "@/components/rag/RAGUploadModal";
 import { cn } from "@/lib/utils";
 
 export default function ChatInput() {
@@ -32,6 +33,7 @@ export default function ChatInput() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showRAGPopup, setShowRAGPopup] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -352,7 +354,11 @@ export default function ChatInput() {
   };
 
   const handleAttachmentClick = () => {
-    toast("File attachment coming soon", { icon: "📎" });
+    if (!isAuthenticated) {
+      toast.error("Please log in to upload documents.");
+      return;
+    }
+    setShowUploadModal(true);
   };
 
   const getModeDisplayName = () => {
@@ -369,11 +375,11 @@ export default function ChatInput() {
     // History navigation logic
     if (e.key === "ArrowUp" && input.trim() === "" && textareaRef.current?.selectionStart === 0) {
       e.preventDefault();
-      const prev = navigateHistory(-1);
+      const prev = navigateHistory("up");
       if (prev !== null) setInput(prev);
     } else if (e.key === "ArrowDown" && input.trim() === "") {
       e.preventDefault();
-      const next = navigateHistory(1);
+      const next = navigateHistory("down");
       if (next !== null) setInput(next);
     }
   };
@@ -529,6 +535,17 @@ export default function ChatInput() {
         isOpen={showRAGPopup}
         onClose={() => setShowRAGPopup(false)}
         onEnable={() => { }}
+      />
+
+      <RAGUploadModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        onUploadComplete={() => {
+          if (mode !== "rag") {
+            setMode("rag");
+            toast.success("Switched to RAG mode to use uploaded documents");
+          }
+        }}
       />
     </div>
   );
