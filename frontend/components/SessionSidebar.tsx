@@ -60,13 +60,6 @@ export default function SessionSidebar({
       ),
       onClick: () => setSettingsOpen(true),
     },
-    {
-      label: "Profile",
-      href: "#",
-      icon: (
-        <IconUserBolt className="text-neutral-200 h-5 w-5 flex-shrink-0" />
-      ),
-    },
   ];
 
   return (
@@ -77,61 +70,81 @@ export default function SessionSidebar({
       )}
     >
       <Sidebar open={open} setOpen={setOpen}>
-        <SidebarBody className="justify-between gap-10 bg-transparent/50 backdrop-blur-xl border-r border-white/10">
-          <div className="flex flex-col flex-1 overflow-y-auto overflow-x-hidden">
+        <SidebarBody className="justify-between gap-6 bg-transparent/50 backdrop-blur-xl border-r border-white/10">
+          <div className="flex flex-col flex-1 overflow-y-auto overflow-x-hidden min-h-0">
             {/* Logo Section */}
-            <div className="flex flex-col">
+            <div className="flex flex-col mb-6">
               {open ? <Logo /> : <LogoIcon />}
             </div>
 
             {/* Static Actions */}
-            <div className="mt-8 flex flex-col gap-2">
+            <div className="flex flex-col gap-1 mb-6">
               {links.map((link, idx) => (
-                <div key={idx} onClick={link.onClick ? (e) => { e.preventDefault(); link.onClick?.(); } : undefined}>
+                <div
+                  key={idx}
+                  onClick={link.onClick ? (e) => {
+                    e.preventDefault();
+                    link.onClick?.();
+                  } : undefined}
+                  className="w-full"
+                >
                   <SidebarLink link={link} />
                 </div>
               ))}
             </div>
 
             {/* Sessions List */}
-            <div className="mt-8 flex flex-col gap-2">
+            <div className="flex flex-col gap-1 flex-1 min-h-0">
               <motion.span
                 animate={{ opacity: open ? 1 : 0 }}
-                className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2 pl-2 truncate"
+                className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2 px-2 truncate"
               >
                 Recent Chats
               </motion.span>
 
-              {sessions.slice(0, 10).map((session, idx) => (
-                <div key={session.session_id || idx} className="group relative" onClick={() => setCurrentSession(session.session_id)}>
-                  <SidebarLink
-                    link={{
-                      label: session.title || "New Conversation",
-                      href: "#",
-                      icon: <IconMessage2 className="text-neutral-200 h-5 w-5 flex-shrink-0" />,
-                    }}
-                    className={cn(currentSessionId === session.session_id && "bg-white/10 rounded-md")}
-                  />
-                  {open && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteSession(session.session_id);
+              <div className="flex flex-col gap-1 overflow-y-auto flex-1 min-h-0">
+                {sessions.slice(0, 10).map((session, idx) => (
+                  <div
+                    key={session.session_id || idx}
+                    className="group relative w-full"
+                    onClick={() => setCurrentSession(session.session_id)}
+                  >
+                    <SidebarLink
+                      link={{
+                        label: session.title || "New Conversation",
+                        href: "#",
+                        icon: <IconMessage2 className="text-neutral-200 h-5 w-5 flex-shrink-0" />,
                       }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded"
-                    >
-                      <IconTrash className="w-4 h-4 text-red-400" />
-                    </button>
-                  )}
-                </div>
-              ))}
+                      className={cn(
+                        currentSessionId === session.session_id && "bg-white/10 rounded-md",
+                        "w-full"
+                      )}
+                    />
+                    {open && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteSession(session.session_id);
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-white/10 rounded-md z-10"
+                        aria-label="Delete session"
+                      >
+                        <IconTrash className="w-4 h-4 text-red-400" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {sessions.length === 0 && (
+                  <div className="px-2 py-4 text-xs text-neutral-500 text-center">
+                    No conversations yet
+                  </div>
+                )}
+              </div>
             </div>
-
           </div>
 
-          {/* User Profile */}
           {/* User Profile / Auth Actions */}
-          <div>
+          <div className="flex-shrink-0 pt-4 border-t border-white/10">
             {isAuthenticated ? (
               <div className="flex flex-col gap-1">
                 <SidebarLink
@@ -145,7 +158,7 @@ export default function SessionSidebar({
                     ),
                   }}
                 />
-                <div onClick={() => logout()}>
+                <div onClick={(e) => { e.preventDefault(); logout(); }} className="w-full">
                   <SidebarLink
                     link={{
                       label: "Logout",
@@ -184,13 +197,13 @@ export const Logo = () => {
   return (
     <Link
       href="#"
-      className="font-normal flex space-x-2 items-center text-sm text-white py-1 relative z-20"
+      className="font-normal flex items-center gap-3 text-sm text-white py-2 px-2 relative z-20"
     >
-      <div className="h-5 w-6 bg-white rounded-br-lg rounded-tr-sm rounded-tl-lg rounded-bl-sm flex-shrink-0" />
+      <div className="h-5 w-5 bg-white rounded-br-lg rounded-tr-sm rounded-tl-lg rounded-bl-sm flex-shrink-0 flex items-center justify-center" />
       <motion.span
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="font-medium text-white whitespace-pre"
+        className="font-medium text-white whitespace-pre flex-1"
       >
         DosiBridge
       </motion.span>
@@ -201,9 +214,9 @@ export const LogoIcon = () => {
   return (
     <Link
       href="#"
-      className="font-normal flex space-x-2 items-center text-sm text-white py-1 relative z-20"
+      className="font-normal flex items-center justify-start text-sm text-white py-2 px-2 relative z-20 w-full"
     >
-      <div className="h-5 w-6 bg-white rounded-br-lg rounded-tr-sm rounded-tl-lg rounded-bl-sm flex-shrink-0" />
+      <div className="h-5 w-5 bg-white rounded-br-lg rounded-tr-sm rounded-tl-lg rounded-bl-sm flex-shrink-0 flex items-center justify-center" />
     </Link>
   );
 };

@@ -13,6 +13,8 @@ import {
   RefreshCw,
   ThumbsDown,
   ThumbsUp,
+  Wrench,
+  ChevronDown,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
@@ -34,6 +36,7 @@ export default function MessageBubble({
   const [copiedCodeBlock, setCopiedCodeBlock] = useState<string | null>(null);
   const [showActions, setShowActions] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isToolsExpanded, setIsToolsExpanded] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
 
@@ -451,18 +454,34 @@ export default function MessageBubble({
         )}
 
         {message.tools_used && message.tools_used.length > 0 && (
-          <div className="mt-1 sm:mt-1.5 md:mt-2 flex items-center gap-1 sm:gap-1.5 md:gap-2 flex-wrap">
-            <span className="text-xs font-medium text-[var(--text-secondary)]">
-              Tools:
-            </span>
-            {message.tools_used.map((tool, idx) => (
-              <span
-                key={idx}
-                className="text-xs px-1.5 sm:px-2 py-0.5 bg-[var(--surface-elevated)] text-[var(--text-primary)] rounded-full font-medium border border-[var(--border)]"
-              >
-                {tool}
-              </span>
-            ))}
+          <div className="w-full max-w-4xl mt-2">
+            <button
+              onClick={() => setIsToolsExpanded(!isToolsExpanded)}
+              className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)] hover:text-[var(--text-primary)]/80 transition-colors mb-2 select-none"
+            >
+              <span>Used {message.tools_used.length} tool{message.tools_used.length !== 1 ? 's' : ''}</span>
+              <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isToolsExpanded ? "rotate-180" : ""}`} />
+            </button>
+
+            {isToolsExpanded && (
+              <div className="grid grid-cols-1 gap-1 animate-in slide-in-from-top-2 duration-200 fade-in-0">
+                {message.tools_used.map((tool, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-[var(--surface-hover)] transition-all duration-200 select-none"
+                  >
+                    <div className="shrink-0 flex items-center justify-center w-6 h-6 rounded bg-[var(--surface-elevated)] border border-[var(--border)]">
+                      <Wrench className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-[var(--text-primary)] truncate capitalize">
+                        {tool}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

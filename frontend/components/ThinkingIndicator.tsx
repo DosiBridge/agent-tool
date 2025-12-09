@@ -6,7 +6,7 @@
 "use client";
 
 import { useStore } from "@/lib/store";
-import { Loader2, Sparkles, Wrench, MessageSquare } from "lucide-react";
+import { Loader2, Sparkles, Wrench, MessageSquare, Brain, ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
 
 export default function ThinkingIndicator() {
@@ -49,22 +49,18 @@ export default function ThinkingIndicator() {
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)]/50 backdrop-blur-sm overflow-hidden animate-fade-in shadow-sm">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-[var(--surface-hover)] transition-colors"
+          className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-[var(--surface-hover)] transition-colors"
         >
-          <div className="flex items-center gap-2 text-[var(--text-primary)] font-medium">
-            <div className="relative flex h-2 w-2">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${streamingStatus === 'answering' ? 'bg-[var(--green)]' : 'bg-amber-500'}`}></span>
-              <span className={`relative inline-flex rounded-full h-2 w-2 ${streamingStatus === 'answering' ? 'bg-[var(--green)]' : 'bg-amber-500'}`}></span>
-            </div>
-            {streamingStatus === "answering" ? "Finished Thinking" : "Reasoning"}
-            {elapsedTime !== null && elapsedTime > 0 && (
-              <span className="text-xs text-[var(--text-secondary)] font-normal ml-1">
-                ({elapsedTime}s)
-              </span>
-            )}
+          <div className="flex items-center gap-2 text-[var(--text-secondary)]">
+            <Brain className="w-4 h-4" />
+            <span className="font-medium">
+              {streamingStatus === "answering"
+                ? `Thought for ${elapsedTime || 0} seconds`
+                : "Thinking..."}
+            </span>
           </div>
           <div className={`text-[var(--text-secondary)] transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-down"><path d="m6 9 6 6 6-6" /></svg>
+            <ChevronDown className="w-4 h-4" />
           </div>
         </button>
 

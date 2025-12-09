@@ -89,7 +89,7 @@ export const DesktopSidebar = ({
         <>
             <motion.div
                 className={cn(
-                    "h-full px-4 py-4 hidden md:flex md:flex-col bg-neutral-900 w-[300px] flex-shrink-0",
+                    "h-full px-3 py-4 hidden md:flex md:flex-col bg-neutral-900 w-[300px] flex-shrink-0",
                     className
                 )}
                 animate={{
@@ -99,7 +99,9 @@ export const DesktopSidebar = ({
                 onMouseLeave={() => setOpen(false)}
                 {...props}
             >
-                {children}
+                <div className="flex flex-col h-full w-full">
+                    {children as React.ReactNode}
+                </div>
             </motion.div>
         </>
     );
@@ -169,19 +171,21 @@ export const SidebarLink = ({
         <Link
             href={link.href}
             className={cn(
-                "flex items-center justify-start gap-2  group/sidebar py-2",
+                "flex items-center justify-start gap-3 group/sidebar py-2 px-2 rounded-md transition-colors hover:bg-white/5 w-full",
                 className
             )}
             {...props}
         >
-            {link.icon}
+            <span className="flex-shrink-0 flex items-center justify-center w-5 h-5">
+                {link.icon}
+            </span>
 
             <motion.span
                 animate={{
                     display: animate ? (open ? "inline-block" : "none") : "inline-block",
                     opacity: animate ? (open ? 1 : 0) : 1,
                 }}
-                className="text-neutral-200 text-sm group-hover/sidebar:translate-x-1 transition duration-150 whitespace-pre inline-block !p-0 !m-0 truncate overflow-hidden max-w-[200px]"
+                className="text-neutral-200 text-sm group-hover/sidebar:translate-x-1 transition duration-150 whitespace-pre inline-block !p-0 !m-0 truncate overflow-hidden max-w-[200px] flex-1"
             >
                 {link.label}
             </motion.span>
