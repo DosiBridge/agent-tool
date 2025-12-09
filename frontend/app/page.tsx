@@ -148,6 +148,51 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Tech Stack Marquee */}
+      <div className="py-10 bg-black flex flex-col items-center justify-center overflow-hidden">
+        <h3 className="text-gray-500 text-sm uppercase tracking-widest mb-6">Powered by modern technology stack</h3>
+        <InfiniteMovingCards
+          items={[
+            { quote: "State-of-the-art LLMs", name: "OpenAI GPT-4", title: "Core Intelligence" },
+            { quote: "Vector Embeddings", name: "Pinecone", title: "Knowledge Base" },
+            { quote: "Agent Orchestration", name: "LangChain", title: "Workflow Engine" },
+            { quote: "Frontend Framework", name: "Next.js 14", title: "React Framework" },
+            { quote: "Backend API", name: "FastAPI", title: "Python Server" },
+            { quote: "Real-time Events", name: "WebSockets", title: "Live Streaming" },
+          ]}
+          direction="left"
+          speed="fast"
+          className="bg-transparent"
+        />
+      </div>
+
+      {/* Use Cases Section */}
+      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-black relative z-10">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl sm:text-4xl font-bold mb-4 text-white">Versatile Use Cases</h2>
+            <p className="text-gray-400 max-w-2xl mx-auto">
+              From coding assistance to legal research, DosiBridge Agent adapts to your specific professional needs.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { title: "Technical Support", desc: "Automate responses to complex technical queries using documentation." },
+              { title: "Legal Research", desc: "Analyze contracts and legal documents to extract key clauses instantly." },
+              { title: "Market Analysis", desc: "Synthesize reports from multiple market research PDFs and articles." },
+              { title: "Code Assistant", desc: "Explain complex codebases and generate documentation automatically." }
+            ].map((useCase, i) => (
+              <div key={i} className="p-6 rounded-2xl border border-white/10 bg-white/5 hover:border-indigo-500/50 transition-colors group">
+                <div className="h-2 w-2 rounded-full bg-indigo-500 mb-4 group-hover:scale-150 transition-transform"></div>
+                <h3 className="text-lg font-bold text-white mb-2">{useCase.title}</h3>
+                <p className="text-sm text-gray-400">{useCase.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* FAQ Section */}
       <div className="py-20 px-4 sm:px-6 lg:px-8 bg-black border-t border-white/10">
         <div className="max-w-4xl mx-auto">
