@@ -1,0 +1,171 @@
+import React, { useEffect, useState } from 'react';
+import { Loader2, Shield, User as UserIcon, Ban, CheckCircle, Search } from 'lucide-react';
+import { listUsers, blockUser, unblockUser, AdminUser } from '@/lib/api/admin';
+import toast from 'react-hot-toast';
+import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
+
+export default function AdminUserTable() {
+    const [loading, setLoading] = useState(true);
+    const [users, setUsers] = useState<AdminUser[]>([]);
+    const [search, setSearch] = useState("");
+    const [processingId, setProcessingId] = useState<number | null>(null);
+
+    const loadUsers = async () => {
+        try {
+            const data = await listUsers();
+            setUsers(data);
+        } catch (error) {
+            console.error("Failed to list users:", error);
+            toast.error("Failed to load users");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadUsers();
+    }, []);
+
+    const handleToggleBlock = async (user: AdminUser) => {
+        if (user.role === 'superadmin') {
+            toast.error("Cannot block superadmin users");
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to ${user.is_active ? 'block' : 'unblock'} ${user.name}?`)) {
+            return;
+        }
+
+        setProcessingId(user.id);
+        try {
+            if (user.is_active) {
+                await blockUser(user.id);
+                toast.success("User blocked");
+            } else {
+                await unblockUser(user.id);
+                toast.success("User unblocked");
+            }
+            await loadUsers();
+        } catch (error) {
+            toast.error("Failed to update user status");
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const filteredUsers = users.filter(user =>
+        user.name.toLowerCase().includes(search.toLowerCase()) ||
+        user.email.toLowerCase().includes(search.toLowerCase())
+    );
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between gap-4">
+                <h3 className="text-white font-medium">User Management</h3>
+                <div className="relative">
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                        type="text"
+                        placeholder="Search users..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 w-64"
+                    />
+                </div>
+            </div>
+
+            <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                    <thead className="bg-zinc-950/50 text-zinc-400">
+                        <tr>
+                            <th className="px-4 py-3 font-medium">User</th>
+                            <th className="px-4 py-3 font-medium">Role</th>
+                            <th className="px-4 py-3 font-medium">Status</th>
+                            <th className="px-4 py-3 font-medium">Joined</th>
+                            <th className="px-4 py-3 font-medium text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800">
+                        {filteredUsers.map((user) => (
+                            <tr key={user.id} className="hover:bg-zinc-800/30 transition-colors group">
+                                <td className="px-4 py-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400">
+                                            <UserIcon className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                            <div className="text-white font-medium">{user.name}</div>
+                                            <div className="text-zinc-500 text-xs">{user.email}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                    <span className={cn(
+                                        "px-2 py-0.5 rounded text-xs font-medium inline-flex items-center gap-1",
+                                        user.role === 'superadmin'
+                                            ? "bg-purple-500/10 text-purple-400 border border-purple-500/20"
+                                            : "bg-zinc-800 text-zinc-400"
+                                    )}>
+                                        {user.role === 'superadmin' && <Shield className="w-3 h-3" />}
+                                        {user.role}
+                                    </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                    <span className={cn(
+                                        "px-2 py-0.5 rounded text-xs",
+                                        user.is_active
+                                            ? "bg-green-500/10 text-green-400"
+                                            : "bg-red-500/10 text-red-400"
+                                    )}>
+                                        {user.is_active ? 'Active' : 'Blocked'}
+                                    </span>
+                                </td>
+                                <td className="px-4 py-3 text-zinc-500 text-xs">
+                                    {user.created_at ? format(new Date(user.created_at), 'MMM d, yyyy') : '-'}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                    {user.role !== 'superadmin' && (
+                                        <button
+                                            onClick={() => handleToggleBlock(user)}
+                                            disabled={processingId === user.id}
+                                            className={cn(
+                                                "p-1.5 rounded transition-colors disabled:opacity-50",
+                                                user.is_active
+                                                    ? "text-zinc-500 hover:text-red-400 hover:bg-red-500/10"
+                                                    : "text-zinc-500 hover:text-green-400 hover:bg-green-500/10"
+                                            )}
+                                            title={user.is_active ? "Block User" : "Unblock User"}
+                                        >
+                                            {processingId === user.id ? (
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                            ) : user.is_active ? (
+                                                <Ban className="w-4 h-4" />
+                                            ) : (
+                                                <CheckCircle className="w-4 h-4" />
+                                            )}
+                                        </button>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+
+                {filteredUsers.length === 0 && (
+                    <div className="text-center py-12 text-zinc-500">
+                        No users found.
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}

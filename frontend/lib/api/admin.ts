@@ -1,7 +1,3 @@
-/**
- * Admin API client for superadmin operations
- */
-
 import { getApiBaseUrl, getAuthHeaders, handleResponse } from "./client";
 
 export interface AdminUser {
@@ -10,7 +6,7 @@ export interface AdminUser {
   name: string;
   is_active: boolean;
   role: string;
-  created_at?: string;
+  created_at: string;
 }
 
 export interface SystemStats {
@@ -22,47 +18,46 @@ export interface SystemStats {
   total_mcp_servers: number;
 }
 
-export async function listAllUsers(): Promise<AdminUser[]> {
+export const listUsers = async (): Promise<AdminUser[]> => {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/admin/users`, {
-    method: "GET",
     headers: getAuthHeaders(),
   });
   return handleResponse<AdminUser[]>(response);
-}
+};
 
-export async function getUser(userId: number): Promise<AdminUser> {
+export const getUser = async (userId: number): Promise<AdminUser> => {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/admin/users/${userId}`, {
-    method: "GET",
     headers: getAuthHeaders(),
   });
   return handleResponse<AdminUser>(response);
-}
+};
 
-export async function blockUser(userId: number): Promise<{ status: string; message: string; user: AdminUser }> {
+export const blockUser = async (userId: number): Promise<AdminUser> => {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/admin/users/${userId}/block`, {
     method: "PUT",
     headers: getAuthHeaders(),
   });
-  return handleResponse<{ status: string; message: string; user: AdminUser }>(response);
-}
+  const data = await handleResponse<{ status: string; user: AdminUser }>(response);
+  return data.user;
+};
 
-export async function unblockUser(userId: number): Promise<{ status: string; message: string; user: AdminUser }> {
+export const unblockUser = async (userId: number): Promise<AdminUser> => {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/admin/users/${userId}/unblock`, {
     method: "PUT",
     headers: getAuthHeaders(),
   });
-  return handleResponse<{ status: string; message: string; user: AdminUser }>(response);
-}
+  const data = await handleResponse<{ status: string; user: AdminUser }>(response);
+  return data.user;
+};
 
-export async function getSystemStats(): Promise<SystemStats> {
+export const getSystemStats = async (): Promise<SystemStats> => {
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/admin/system/stats`, {
-    method: "GET",
     headers: getAuthHeaders(),
   });
   return handleResponse<SystemStats>(response);
-}
+};

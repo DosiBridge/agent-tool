@@ -13,12 +13,13 @@ import SessionSidebar from "@/components/SessionSidebar";
 import SettingsPanel from "@/components/SettingsPanel";
 import UsageIndicator from "@/components/UsageIndicator";
 import CommandPalette from "@/components/ui/CommandPalette";
+import DashboardModal from "@/components/dashboard/DashboardModal";
 import { useStore } from "@/lib/store";
 import { healthWebSocket } from "@/lib/websocket";
 import {
   ArrowLeft,
-  BarChart3,
   ChevronDown,
+  LayoutDashboard,
   FileText,
   Menu,
   Plus,
@@ -45,6 +46,7 @@ export default function ChatPage() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
 
   const isAuthenticated = useStore((state) => state.isAuthenticated);
   const mode = useStore((state) => state.mode);
@@ -356,17 +358,17 @@ export default function ChatPage() {
               </div>
               {isAuthenticated && (
                 <>
-                  <Link
-                    href="/monitoring"
+                  <button
+                    onClick={() => setDashboardOpen(true)}
                     className="p-1.5 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-95 touch-manipulation flex items-center justify-center"
-                    aria-label="View monitoring"
-                    title="API Usage Monitoring"
+                    aria-label="Open dashboard"
+                    title="Dashboard"
                   >
-                    <BarChart3
+                    <LayoutDashboard
                       className="w-4 h-4 text-white"
                       aria-hidden="true"
                     />
-                  </Link>
+                  </button>
                   <button
                     onClick={() => {
                       setSettingsOpen(true);
@@ -392,6 +394,11 @@ export default function ChatPage() {
       </div>
 
       <SettingsPanel />
+
+      <DashboardModal
+        isOpen={dashboardOpen}
+        onClose={() => setDashboardOpen(false)}
+      />
 
       <AuthModal
         isOpen={authModalOpen}
