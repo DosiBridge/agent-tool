@@ -77,6 +77,9 @@ interface AppState {
   theme: "light" | "dark" | "system";
   setTheme: (theme: "light" | "dark" | "system") => void;
 
+  // Superadmin check
+  isSuperadmin: () => boolean;
+
   // Auth actions
   checkAuth: () => Promise<void>;
   handleLogin: (data: LoginRequest) => Promise<void>;
@@ -670,6 +673,12 @@ export const useStore = create<AppState>((set, get) => ({
         console.error("Failed to set theme:", error);
       }
     }
+  },
+
+  // Superadmin check
+  isSuperadmin: () => {
+    const user = get().user;
+    return user?.role === "superadmin" || user?.is_superadmin === true;
   },
 }));
 

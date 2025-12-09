@@ -6,6 +6,7 @@ from fastapi.security import HTTPBearer
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from typing import Optional
 from src.core import get_db, User
 from src.core.auth import (
     get_password_hash,
@@ -42,6 +43,7 @@ class UserResponse(BaseModel):
     email: str
     name: str
     is_active: bool
+    role: Optional[str] = None
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -139,12 +141,8 @@ async def login(user_data: UserLogin, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_active_user)):
     """Get current user information"""
-    return UserResponse(
-        id=current_user.id,
-        email=current_user.email,
-        name=current_user.name,
-        is_active=current_user.is_active
-    )
+    user_dict = current_user.to_dict()
+    return UserResponse(**user_dict)
 
 
 @router.post("/logout")

@@ -9,7 +9,7 @@ import {
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
-import { Bot, ExternalLink, Github, Star } from "lucide-react";
+import { Bot, ExternalLink, Github, Star, Shield } from "lucide-react";
 
 export const FloatingNav = ({
     navItems,
@@ -24,6 +24,7 @@ export const FloatingNav = ({
 }) => {
     const { scrollYProgress } = useScroll();
     const isAuthenticated = useStore((state) => state.isAuthenticated);
+    const isSuperadmin = useStore((state) => state.isSuperadmin);
 
     const [visible, setVisible] = useState(true);
 
@@ -106,6 +107,21 @@ export const FloatingNav = ({
                     <span className="hidden sm:inline font-medium">GitHub</span>
                     <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-yellow-400 fill-yellow-400 opacity-70 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                 </Link>
+                
+                {/* Admin Dashboard Link - Only for superadmin */}
+                {isAuthenticated && isSuperadmin() && (
+                    <>
+                        <div className="h-5 sm:h-6 w-px bg-white/20 flex-shrink-0 hidden sm:block" />
+                        <Link 
+                            href="/admin" 
+                            className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5 transition-colors group text-xs sm:text-sm text-neutral-300 hover:text-white whitespace-nowrap flex-shrink-0"
+                            title="Admin Dashboard"
+                        >
+                            <Shield className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-70 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                            <span className="hidden sm:inline font-medium">Admin</span>
+                        </Link>
+                    </>
+                )}
                 
                 {isAuthenticated ? (
                     <Link 

@@ -13,6 +13,7 @@ from .routes import (
     llm_config_router,
     mcp_routes_router,
     auth_router,
+    admin_router,
     setup_mcp_routes,
 )
 from .routes.documents import router as documents_router
@@ -119,6 +120,7 @@ app.include_router(documents_router, prefix="/api", tags=["documents"])
 app.include_router(websocket_router, prefix="/api", tags=["websocket"])
 app.include_router(custom_rag_tools_router, prefix="/api", tags=["custom-rag-tools"])
 app.include_router(monitoring_router, prefix="/api", tags=["monitoring"])
+app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 
 # Setup MCP routes
 setup_mcp_routes(app)

@@ -150,6 +150,7 @@ if Base is not None:
         name = Column(String(255), nullable=False)
         hashed_password = Column(String(255), nullable=False)
         is_active = Column(Boolean, default=True, nullable=False)
+        role = Column(String(50), default="user", nullable=False)  # "user" or "superadmin"
         created_at = Column(DateTime(timezone=True), server_default=func.now())
         updated_at = Column(DateTime(timezone=True), onupdate=func.now())
         
@@ -160,8 +161,13 @@ if Base is not None:
                 "email": self.email,
                 "name": self.name,
                 "is_active": self.is_active,
+                "role": getattr(self, 'role', 'user'),  # Support both old and new schemas
                 "created_at": self.created_at.isoformat() if self.created_at else None,
             }
+        
+        def is_superadmin(self) -> bool:
+            """Check if user is a superadmin"""
+            return getattr(self, 'role', 'user') == "superadmin"
 
     class Conversation(Base):
         """Conversation model for storing chat sessions with summary"""

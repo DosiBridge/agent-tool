@@ -8,6 +8,7 @@
  */
 
 // Re-export all API clients
+export * from "./admin";
 export * from "./auth";
 export * from "./chat";
 export * from "./client";
