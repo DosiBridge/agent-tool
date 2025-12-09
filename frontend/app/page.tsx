@@ -161,7 +161,7 @@ export default function Home() {
             { quote: "Real-time Events", name: "WebSockets", title: "Live Streaming" },
           ]}
           direction="left"
-          speed="fast"
+          speed="slow"
           className="bg-transparent"
         />
       </div>

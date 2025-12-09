@@ -8,6 +8,7 @@ import {
 } from "framer-motion";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { useStore } from "@/lib/store";
 
 export const FloatingNav = ({
     navItems,
@@ -21,6 +22,7 @@ export const FloatingNav = ({
     className?: string;
 }) => {
     const { scrollYProgress } = useScroll();
+    const isAuthenticated = useStore((state) => state.isAuthenticated);
 
     const [visible, setVisible] = useState(true);
 
@@ -60,10 +62,17 @@ export const FloatingNav = ({
                         <span className="hidden sm:block text-sm">{navItem.name}</span>
                     </Link>
                 ))}
-                <Link href="/login" className="border text-sm font-medium relative border-white/[0.2] text-white px-4 py-2 rounded-full">
-                    <span>Login</span>
-                    <span className="absolute inset-x-0 w-1/2 mx-auto -bottom-px bg-gradient-to-r from-transparent via-blue-500 to-transparent  h-px" />
-                </Link>
+                {isAuthenticated ? (
+                    <Link href="/chat" className="border text-sm font-medium relative border-white/[0.2] text-white px-4 py-2 rounded-full">
+                        <span>Chat Now</span>
+                        <span className="absolute inset-x-0 w-1/2 mx-auto -bottom-px bg-gradient-to-r from-transparent via-blue-500 to-transparent  h-px" />
+                    </Link>
+                ) : (
+                    <Link href="/login" className="border text-sm font-medium relative border-white/[0.2] text-white px-4 py-2 rounded-full">
+                        <span>Login</span>
+                        <span className="absolute inset-x-0 w-1/2 mx-auto -bottom-px bg-gradient-to-r from-transparent via-blue-500 to-transparent  h-px" />
+                    </Link>
+                )}
             </motion.div>
         </AnimatePresence >
     );

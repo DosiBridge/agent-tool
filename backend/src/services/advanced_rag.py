@@ -471,6 +471,35 @@ class AdvancedRAGSystem:
             return False
 
 
-# Global instance
-advanced_rag_system = AdvancedRAGSystem()
+# Global instance - initialize lazily to handle missing OPENAI_API_KEY gracefully
+_advanced_rag_system_instance = None
+
+def get_advanced_rag_system():
+    """Get or create the global advanced RAG system instance"""
+    global _advanced_rag_system_instance
+    if _advanced_rag_system_instance is None:
+        try:
+            _advanced_rag_system_instance = AdvancedRAGSystem()
+        except ValueError as e:
+            # OPENAI_API_KEY missing - create a dummy instance that will fail gracefully
+            print(f"⚠️  Advanced RAG System initialization failed: {e}")
+            print("   Custom RAG tools will not be available until OPENAI_API_KEY is set.")
+            # Create a dummy instance that will raise errors when used
+            class DummyAdvancedRAGSystem:
+                def retrieve(self, *args, **kwargs):
+                    raise ValueError("OPENAI_API_KEY is required for embeddings. Please set OPENAI_API_KEY environment variable.")
+            _advanced_rag_system_instance = DummyAdvancedRAGSystem()
+    return _advanced_rag_system_instance
+
+# For backward compatibility, create instance on import (but handle errors)
+try:
+    advanced_rag_system = AdvancedRAGSystem()
+except ValueError as e:
+    print(f"⚠️  Advanced RAG System initialization failed: {e}")
+    print("   Custom RAG tools will not be available until OPENAI_API_KEY is set.")
+    # Create a dummy instance
+    class DummyAdvancedRAGSystem:
+        def retrieve(self, *args, **kwargs):
+            raise ValueError("OPENAI_API_KEY is required for embeddings. Please set OPENAI_API_KEY environment variable.")
+    advanced_rag_system = DummyAdvancedRAGSystem()
 

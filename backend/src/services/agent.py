@@ -129,10 +129,26 @@ async def run_agent_mode(
         async with MCPClientManager(mcp_servers) as mcp_tools:
             # Combine with local DosiBlog RAG tool and appointment tool
             appointment_tool = create_appointment_tool(user_id=user_id, db=None)
-            all_tools = [retrieve_dosiblog_context, appointment_tool] + mcp_tools
+            
+            # Load custom RAG tools if user_id is provided
+            custom_rag_tools = []
+            if user_id:
+                try:
+                    from src.core import get_db_context
+                    db_gen = get_db_context()
+                    db = next(db_gen)
+                    try:
+                        custom_rag_tools = load_custom_rag_tools(user_id, db)
+                    finally:
+                        db.close()
+                except Exception as e:
+                    print(f"⚠️  Failed to load custom RAG tools: {e}")
+            
+            all_tools = [retrieve_dosiblog_context, appointment_tool] + custom_rag_tools + mcp_tools
             
             print(f"\n📦 Total tools available: {len(all_tools)}")
             print(f"   • Local RAG tools: 1 (DosiBlog)")
+            print(f"   • Custom RAG tools: {len(custom_rag_tools)}")
             print(f"   • Remote MCP tools: {len(mcp_tools)}")
             print(f"   • Session ID: {session_id}")
             print(f"   • History: {len(history_manager.get_session_messages(session_id))} messages\n")
@@ -192,9 +208,25 @@ async def run_agent_mode(
         print("   Continuing with RAG-only mode...\n")
         
         appointment_tool = create_appointment_tool(user_id=user_id, db=None)
-        all_tools = [retrieve_dosiblog_context, appointment_tool]
+        
+        # Load custom RAG tools if user_id is provided
+        custom_rag_tools = []
+        if user_id:
+            try:
+                from src.core import get_db_context
+                db_gen = get_db_context()
+                db = next(db_gen)
+                try:
+                    custom_rag_tools = load_custom_rag_tools(user_id, db)
+                finally:
+                    db.close()
+            except Exception as e:
+                print(f"⚠️  Failed to load custom RAG tools: {e}")
+        
+        all_tools = [retrieve_dosiblog_context, appointment_tool] + custom_rag_tools
         print(f"📦 Total tools available: {len(all_tools)}")
         print(f"   • Local RAG tools: 1 (DosiBlog)")
+        print(f"   • Custom RAG tools: {len(custom_rag_tools)}")
         print(f"   • Appointment tool: 1")
         print(f"   • Remote MCP tools: 0 (connection failed)\n")
         

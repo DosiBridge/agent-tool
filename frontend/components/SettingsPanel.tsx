@@ -37,7 +37,11 @@ import {
   type LLMConfigListItem,
 } from "@/lib/api/llm";
 import RAGUploadModal from "@/components/rag/RAGUploadModal";
+
 import { Document } from "@/types/api";
+import ToolManager from "@/components/settings/ToolManager";
+import CollectionManager from "@/components/settings/CollectionManager";
+import { Wrench } from "lucide-react";
 
 export default function SettingsPanel() {
   const {
@@ -50,7 +54,7 @@ export default function SettingsPanel() {
     isAuthenticated,
   } = useStore();
 
-  const [activeTab, setActiveTab] = useState<"general" | "llm" | "mcp" | "rag">("llm");
+  const [activeTab, setActiveTab] = useState<"general" | "llm" | "mcp" | "rag" | "tools">("llm");
   const [isAddingServer, setIsAddingServer] = useState(false);
   const [editingServer, setEditingServer] = useState<string | null>(null);
 
@@ -193,6 +197,16 @@ export default function SettingsPanel() {
       toast.success("Server removed");
     } catch (error) {
       toast.error("Failed to remove server");
+    }
+  };
+
+  const handleToggleServer = async (name: string) => {
+    try {
+      await api.toggleMCPServer(name);
+      await loadMCPServers();
+      toast.success("Server status updated");
+    } catch (error) {
+      toast.error("Failed to toggle server status");
     }
   };
 
@@ -424,6 +438,19 @@ export default function SettingsPanel() {
               <Database className="w-4 h-4" />
               RAG & Knowledge
             </button>
+
+            <button
+              onClick={() => setActiveTab("tools")}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                activeTab === "tools"
+                  ? "bg-indigo-500/10 text-indigo-400"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+              )}
+            >
+              <Wrench className="w-4 h-4" />
+              Custom Tools
+            </button>
           </nav>
 
           <div className="pt-4 border-t border-zinc-800 text-xs text-zinc-500">
@@ -454,7 +481,7 @@ export default function SettingsPanel() {
                       {editingLLMConfig ? "Edit LLM Configuration" : "Add New LLM Configuration"}
                     </h3>
                     <p className="text-sm text-zinc-400">
-                      {editingLLMConfig 
+                      {editingLLMConfig
                         ? "Update your AI model provider configuration. Leave API key empty to keep existing key."
                         : "Configure a new AI model provider."}
                     </p>
@@ -734,21 +761,42 @@ export default function SettingsPanel() {
                 ) : (
                   <div className="grid grid-cols-1 gap-4">
                     {mcpServers.map((server) => (
-                      <div key={server.name} className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                      <div key={server.name} className={cn(
+                        "bg-zinc-900/30 border rounded-xl p-4 flex items-center justify-between transition-all",
+                        server.enabled ? "border-zinc-800" : "border-zinc-800/50 opacity-60 hover:opacity-100"
+                      )}>
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400">
+                          <div className={cn(
+                            "w-10 h-10 rounded-full flex items-center justify-center",
+                            server.enabled ? "bg-zinc-800 text-zinc-400" : "bg-zinc-800/50 text-zinc-600"
+                          )}>
                             <Server className="w-5 h-5" />
                           </div>
                           <div>
                             <h4 className="text-white font-medium">{server.name}</h4>
                             <div className="flex items-center gap-2 text-xs text-zinc-500">
                               <span className="uppercase bg-zinc-800 px-1.5 py-0.5 rounded text-[10px]">{server.connection_type || 'SSE'}</span>
+                              {!server.enabled && (
+                                <span className="uppercase bg-zinc-800/50 text-zinc-500 px-1.5 py-0.5 rounded text-[10px]">Disabled</span>
+                              )}
                               <span className="truncate max-w-[200px]">{server.url}</span>
                             </div>
                           </div>
                         </div>
 
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleToggleServer(server.name)}
+                            className={cn(
+                              "p-2 rounded-lg transition-colors",
+                              server.enabled
+                                ? "text-green-400 hover:bg-green-500/10"
+                                : "text-zinc-500 hover:text-green-400 hover:bg-zinc-800"
+                            )}
+                            title={server.enabled ? "Disable server" : "Enable server"}
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => startEditing(server)}
                             className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
@@ -809,43 +857,48 @@ export default function SettingsPanel() {
                 </div>
 
                 {/* Document List */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-medium text-zinc-300">Documents</h4>
+                <div className="space-y-4 pt-6 border-t border-zinc-800">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-white font-medium">Uploaded Documents</h4>
+                  </div>
 
                   {loadingDocs ? (
                     <div className="flex items-center justify-center p-8 bg-zinc-900/30 rounded-xl border border-zinc-800">
                       <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
                     </div>
                   ) : documents.length > 0 ? (
-                    <div className="grid grid-cols-1 gap-3">
+                    <div className="space-y-2">
                       {documents.map((doc) => (
-                        <div key={doc.id} className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-4 flex items-center justify-between group hover:border-zinc-700 transition-colors">
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 shrink-0">
-                              <FileText className="w-5 h-5" />
+                        <div key={doc.id} className="bg-zinc-900/30 border border-zinc-800 rounded-lg p-3 flex items-center justify-between group hover:border-zinc-700 transition-colors">
+                          <div className="flex items-center gap-3 overflow-hidden">
+                            <div className="p-2 bg-zinc-800 rounded-lg text-zinc-400">
+                              <FileText className="w-4 h-4" />
                             </div>
                             <div className="min-w-0">
-                              <h5 className="text-white font-medium truncate max-w-[200px] sm:max-w-xs">{doc.original_filename}</h5>
+                              <div className="text-sm font-medium text-white truncate">{doc.filename}</div>
                               <div className="flex items-center gap-2 text-xs text-zinc-500">
-                                <span className={cn(
-                                  "capitalize px-1.5 py-0.5 rounded text-[10px]",
-                                  doc.status === 'ready' ? "bg-green-500/10 text-green-400" :
-                                    doc.status === 'pending' || doc.status === 'processing' ? "bg-yellow-500/10 text-yellow-400" :
-                                      "bg-zinc-800 text-zinc-400"
-                                )}>
-                                  {doc.status}
-                                </span>
-                                <span>{(doc.file_size / 1024).toFixed(1)} KB</span>
+                                <span>{new Date(doc.created_at || "").toLocaleDateString()}</span>
                                 <span>•</span>
-                                <span>{new Date(doc.created_at || new Date()).toLocaleDateString()}</span>
+                                <span className={cn(
+                                  "capitalize",
+                                  doc.status === 'ready' ? "text-green-400" :
+                                    doc.status === 'error' ? "text-red-400" : "text-amber-400"
+                                )}>{doc.status}</span>
+                                {doc.collection_id && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="flex items-center gap-1 text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
+                                      <Database className="w-3 h-3" />
+                                      Collection #{doc.collection_id}
+                                    </span>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
-
                           <button
                             onClick={() => handleDeleteDocument(doc.id)}
-                            className="p-2 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                            title="Delete document"
+                            className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -854,14 +907,22 @@ export default function SettingsPanel() {
                     </div>
                   ) : (
                     <div className="text-center py-12 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                      <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
                       <p>No documents uploaded yet.</p>
-                      <button onClick={() => setShowUploadModal(true)} className="text-indigo-400 hover:text-indigo-300 text-sm mt-2">
-                        Upload your first document
-                      </button>
                     </div>
                   )}
                 </div>
+
+                {/* Collection Manager */}
+                <div className="pt-6 border-t border-zinc-800">
+                  <CollectionManager onCollectionsChange={loadDocuments} />
+                </div>
               </div>
+            )}
+
+            {/* Tools Content */}
+            {activeTab === 'tools' && (
+              <ToolManager />
             )}
           </div>
         </div>
