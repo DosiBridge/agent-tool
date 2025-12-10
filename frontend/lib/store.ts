@@ -124,6 +124,7 @@ interface AppState {
 
   // Impersonation
   impersonatedUserId: string | null;
+  originalSuperadminId: string | null; // Store original superadmin ID to switch back
   setImpersonatedUserId: (userId: string | null) => void;
 }
 
@@ -155,7 +156,23 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Impersonation (Superadmin)
   impersonatedUserId: null,
+  originalSuperadminId: null,
   setImpersonatedUserId: (userId: string | null) => {
+    const currentState = get();
+    
+    // If starting impersonation, store the original superadmin ID
+    if (userId && !currentState.impersonatedUserId) {
+      // Store the current user's ID as the original superadmin
+      // This allows switching back to superadmin view
+      if (currentState.user?.id) {
+        set({ originalSuperadminId: currentState.user.id.toString() });
+      }
+    }
+    
+    // If exiting impersonation or switching back to superadmin, clear the original superadmin ID
+    if (!userId || userId === currentState.originalSuperadminId) {
+      set({ originalSuperadminId: null });
+    }
     // Clear local storage as requested to ensure fresh state
     clearAllStoredSessions();
 
@@ -173,12 +190,51 @@ export const useStore = create<AppState>((set, get) => ({
     // Create a fresh default session in storage so app doesn't crash on reload
     getOrCreateDefaultSession();
 
+    // Suppress console errors for permission errors during impersonation
+    // This prevents "Superadmin access required" errors from cluttering the console
+    const originalConsoleError = console.error;
+    const suppressPermissionErrors = (userId: string | null) => {
+      if (userId) {
+        console.error = (...args: any[]) => {
+          const errorMessage = args[0]?.toString() || '';
+          const isPermissionError = 
+            errorMessage.includes("Superadmin access required") ||
+            errorMessage.includes("Superadmin") && errorMessage.includes("required") ||
+            args.some(arg => 
+              arg?.message?.includes("Superadmin") || 
+              arg?.detail?.includes("Superadmin") ||
+              arg?.isPermissionError
+            );
+          
+          if (!isPermissionError) {
+            originalConsoleError.apply(console, args);
+          }
+        };
+      } else {
+        // Restore original console.error when exiting impersonation
+        console.error = originalConsoleError;
+      }
+    };
+
+    suppressPermissionErrors(userId);
+
     // Reload data when switching users
     const isAuthenticated = get().isAuthenticated;
     if (isAuthenticated) {
       setTimeout(() => {
         get().checkAuth(); // Re-fetch user profile (will return target user)
         // checkAuth will automatically trigger loadSessions() and loadMCPServers()
+        // Restore console.error after a delay to allow errors to be suppressed
+        setTimeout(() => {
+          if (!get().impersonatedUserId) {
+            console.error = originalConsoleError;
+          }
+        }, 2000);
+      }, 100);
+    } else {
+      // Restore console.error if not authenticated
+      setTimeout(() => {
+        console.error = originalConsoleError;
       }, 100);
     }
   },

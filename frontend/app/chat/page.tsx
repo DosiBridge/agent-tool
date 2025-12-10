@@ -61,6 +61,40 @@ export default function ChatPage() {
     checkAuth();
   }, [checkAuth]);
 
+  // Suppress console errors for permission errors during impersonation
+  useEffect(() => {
+    const impersonatedUserId = useStore.getState().impersonatedUserId;
+    const user = useStore.getState().user;
+    const isImpersonatingNonAdmin = impersonatedUserId && user?.role !== 'superadmin';
+
+    if (isImpersonatingNonAdmin) {
+      // Override console.error to suppress permission errors
+      const originalError = console.error;
+      console.error = (...args: any[]) => {
+        const errorMessage = args[0]?.toString() || '';
+        const isPermissionError = 
+          errorMessage.includes("Superadmin access required") ||
+          (errorMessage.includes("Superadmin") && errorMessage.includes("required")) ||
+          args.some((arg: any) => 
+            arg?.message?.includes("Superadmin") || 
+            arg?.detail?.includes("Superadmin") ||
+            arg?.isPermissionError ||
+            (typeof arg === 'object' && arg?.statusCode === 403)
+          );
+        
+        // Only suppress permission errors during impersonation
+        if (!isPermissionError) {
+          originalError.apply(console, args);
+        }
+      };
+
+      return () => {
+        // Restore original console.error when component unmounts or impersonation ends
+        console.error = originalError;
+      };
+    }
+  }, [useStore.getState().impersonatedUserId, useStore.getState().user]);
+
   // Close mode dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

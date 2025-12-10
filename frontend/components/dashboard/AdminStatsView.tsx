@@ -18,26 +18,59 @@ export default function AdminStatsView() {
     const [stats, setStats] = useState<SystemStats | null>(null);
     const [history, setHistory] = useState<SystemUsageHistory | null>(null);
     const [days, setDays] = useState(7);
+    const [error, setError] = useState<string | null>(null);
+    
+    const user = useStore(state => state.user);
+    const impersonatedUserId = useStore(state => state.impersonatedUserId);
+    
+    // Check if current user (impersonated or real) is superadmin
+    const isSuperAdmin = user?.role === 'superadmin';
+    const isImpersonatingNonAdmin = impersonatedUserId && !isSuperAdmin;
 
     useEffect(() => {
+        // Don't load admin data if impersonating a non-admin user
+        if (isImpersonatingNonAdmin) {
+            setError("Admin access is not available when viewing as a regular user");
+            setLoading(false);
+            return;
+        }
+
         const fetchData = async () => {
             try {
+                setError(null);
                 const [statsData, historyData] = await Promise.all([
                     getSystemStats(),
                     getSystemUsageHistory(days)
                 ]);
                 setStats(statsData);
                 setHistory(historyData);
-            } catch (error) {
-                console.error("Failed to load admin dashboard data:", error);
-                toast.error("Failed to load dashboard data");
+            } catch (error: any) {
+                // Check if this is a permission error during impersonation
+                const isPermissionError = error?.isPermissionError || 
+                    error?.message?.includes("Superadmin") || 
+                    error?.detail?.includes("Superadmin") ||
+                    error?.message?.includes("access") ||
+                    error?.detail?.includes("access");
+                
+                // Only log non-permission errors or if not impersonating
+                if (!isPermissionError || !isImpersonatingNonAdmin) {
+                    console.error("Failed to load admin dashboard data:", error);
+                }
+                
+                const errorMessage = error?.message || error?.detail || "Failed to load dashboard data";
+                setError(errorMessage);
+                
+                // Only show toast for unexpected errors, not permission errors
+                if (!isPermissionError) {
+                    toast.error(errorMessage);
+                }
             } finally {
                 setLoading(false);
             }
         };
 
         fetchData();
-    }, [days]);
+    }, [days, isImpersonatingNonAdmin]);
 
     if (loading) {
         return (
@@ -47,7 +80,26 @@ export default function AdminStatsView() {
         );
     }
 
-    if (!stats) return null;
+    if (error || !stats) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <div className="text-center max-w-md">
+                    <div className="p-4 bg-red-500/10 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                        <ShieldOff className="w-8 h-8 text-red-400" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-white mb-2">Admin Access Unavailable</h3>
+                    <p className="text-sm text-zinc-400">
+                        {error || "Failed to load admin dashboard data. Admin features require superadmin access."}
+                    </p>
+                    {isImpersonatingNonAdmin && (
+                        <p className="text-xs text-zinc-500 mt-2">
+                            Exit persistent access to view admin features.
+                        </p>
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">

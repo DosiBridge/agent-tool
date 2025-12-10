@@ -161,12 +161,21 @@ export async function handleResponse<T>(response: Response): Promise<T> {
     };
 
     const message = errorMessages[response.status] || errorDetail;
+    
+    // Create error object with detail
     const error = new Error(message) as Error & {
       statusCode: number;
       detail?: string;
+      isPermissionError?: boolean;
     };
     error.statusCode = response.status;
     error.detail = errorDetail;
+    
+    // Mark permission errors (403 Forbidden or Superadmin access required)
+    if (response.status === 403 || errorDetail.includes("Superadmin") || errorDetail.includes("access")) {
+      error.isPermissionError = true;
+    }
+    
     throw error;
   }
   return response.json();

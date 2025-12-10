@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, Shield, User as UserIcon, Ban, CheckCircle, Search, LogIn } from 'lucide-react';
+import { Loader2, Shield, User as UserIcon, Ban, CheckCircle, Search, LogIn, ShieldOff } from 'lucide-react';
 import { listUsers, blockUser, unblockUser, AdminUser } from '@/lib/api/admin';
+import { useStore } from '@/lib/store';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -10,14 +11,47 @@ export default function AdminUserTable() {
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [search, setSearch] = useState("");
     const [processingId, setProcessingId] = useState<number | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    
+    const user = useStore(state => state.user);
+    const impersonatedUserId = useStore(state => state.impersonatedUserId);
+    
+    // Check if current user (impersonated or real) is superadmin
+    const isSuperAdmin = user?.role === 'superadmin';
+    const isImpersonatingNonAdmin = impersonatedUserId && !isSuperAdmin;
 
     const loadUsers = async () => {
+        // Don't load admin data if impersonating a non-admin user
+        if (isImpersonatingNonAdmin) {
+            setError("Admin access is not available when viewing as a regular user");
+            setLoading(false);
+            return;
+        }
+
         try {
+            setError(null);
             const data = await listUsers();
             setUsers(data);
-        } catch (error) {
-            console.error("Failed to list users:", error);
-            toast.error("Failed to load users");
+        } catch (error: any) {
+            // Check if this is a permission error during impersonation
+            const isPermissionError = error?.isPermissionError || 
+                error?.message?.includes("Superadmin") || 
+                error?.detail?.includes("Superadmin") ||
+                error?.message?.includes("access") ||
+                error?.detail?.includes("access");
+            
+            // Only log non-permission errors or if not impersonating
+            if (!isPermissionError || !isImpersonatingNonAdmin) {
+                console.error("Failed to list users:", error);
+            }
+            
+            const errorMessage = error?.message || error?.detail || "Failed to load users";
+            setError(errorMessage);
+            
+            // Only show toast for unexpected errors, not permission errors
+            if (!isPermissionError) {
+                toast.error(errorMessage);
+            }
         } finally {
             setLoading(false);
         }
@@ -25,7 +59,7 @@ export default function AdminUserTable() {
 
     useEffect(() => {
         loadUsers();
-    }, []);
+    }, [isImpersonatingNonAdmin]);
 
     const handleToggleBlock = async (user: AdminUser) => {
         if (user.role === 'superadmin') {
@@ -63,6 +97,27 @@ export default function AdminUserTable() {
         return (
             <div className="flex items-center justify-center p-12">
                 <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <div className="text-center max-w-md">
+                    <div className="p-4 bg-red-500/10 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                        <ShieldOff className="w-8 h-8 text-red-400" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-white mb-2">Admin Access Unavailable</h3>
+                    <p className="text-sm text-zinc-400">
+                        {error}
+                    </p>
+                    {isImpersonatingNonAdmin && (
+                        <p className="text-xs text-zinc-500 mt-2">
+                            Exit persistent access to view admin features.
+                        </p>
+                    )}
+                </div>
             </div>
         );
     }
