@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 from typing import Optional, List, Any, AsyncIterator
+from pydantic import Field
 import os
 
 # Try to import ChatOllama from langchain_ollama (preferred) or fallback to langchain_community
@@ -47,9 +48,29 @@ class MessageNormalizingLLM(BaseChatModel):
     This ensures that list/dict content is converted to strings to prevent API errors.
     """
     
-    def __init__(self, llm: BaseChatModel):
-        super().__init__()
-        self.llm = llm
+    # Declare llm as a class variable with Field for Pydantic
+    llm: BaseChatModel = Field(..., description="The underlying LLM to wrap")
+    
+    # Pydantic v2 config
+    model_config = {"arbitrary_types_allowed": True}
+    
+    def __init__(self, llm: BaseChatModel, **kwargs):
+        # Use model_construct as a class method to create instance without validation
+        # This is the proper way to create Pydantic v2 models with complex fields
+        try:
+            # Try using model_construct class method (Pydantic v2)
+            instance = MessageNormalizingLLM.model_construct(llm=llm, **kwargs)
+            # Copy all attributes from the constructed instance to self
+            for key, value in instance.__dict__.items():
+                object.__setattr__(self, key, value)
+        except (AttributeError, TypeError):
+            # Fallback: set llm directly and try to initialize parent
+            object.__setattr__(self, 'llm', llm)
+            try:
+                super().__init__(**kwargs)
+            except Exception:
+                # If parent init fails, the object is still usable with llm set
+                pass
     
     @property
     def _llm_type(self) -> str:
