@@ -72,8 +72,13 @@ export default function ProfileDropdown({
       label: "Help",
       icon: IconHelp,
       onClick: () => {
-        // TODO: Open help dialog or navigate to help page
+        onSettingsClick();
         onClose();
+        // Set help tab as active after a short delay to allow dialog to open
+        setTimeout(() => {
+          const event = new CustomEvent('profileSettingsTab', { detail: 'help' });
+          window.dispatchEvent(event);
+        }, 100);
       },
     },
     {
