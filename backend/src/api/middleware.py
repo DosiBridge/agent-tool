@@ -17,6 +17,10 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     """Add unique request ID to each request for tracing"""
     
     async def dispatch(self, request: Request, call_next):
+        # Skip WebSocket connections - they use a different protocol
+        if request.url.path.startswith("/api/ws/"):
+            return await call_next(request)
+        
         # Generate or get request ID
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         request.state.request_id = request_id
@@ -32,6 +36,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     """Log all requests with timing information"""
     
     async def dispatch(self, request: Request, call_next):
+        # Skip WebSocket connections - they use a different protocol
+        if request.url.path.startswith("/api/ws/"):
+            return await call_next(request)
+        
         start_time = time.time()
         request_id = getattr(request.state, "request_id", "unknown")
         

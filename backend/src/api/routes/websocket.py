@@ -70,7 +70,31 @@ async def websocket_health(websocket: WebSocket, token: Optional[str] = Query(No
     
     Optional query parameter: token - JWT token for authenticated users (for user-specific MCP server count)
     """
-    await websocket.accept()
+    # Accept WebSocket connection immediately
+    # FastAPI's WebSocket.accept() handles the WebSocket handshake protocol
+    # WebSocket connections don't use CORS in the same way as HTTP - they use the WebSocket protocol
+    origin = websocket.headers.get("origin", "unknown")
+    client_host = websocket.client.host if websocket.client else "unknown"
+    
+    try:
+        # Accept the connection - this completes the WebSocket handshake
+        # This must be called before any other operations
+        await websocket.accept()
+        print(f"✓ WebSocket connection accepted from {client_host} (origin: {origin})")
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        print(f"⚠️  Failed to accept WebSocket connection from {client_host}: {error_msg}")
+        traceback.print_exc()
+        
+        # Check if connection was already closed or accepted
+        if "already" in error_msg.lower() or "closed" in error_msg.lower():
+            print("  → WebSocket connection was already processed")
+        else:
+            print(f"  → Error type: {type(e).__name__}")
+        
+        # Don't try to close if we couldn't accept - connection is already dead
+        return
     
     # Get user if authenticated (optional)
     user_id = None
@@ -92,6 +116,7 @@ async def websocket_health(websocket: WebSocket, token: Optional[str] = Query(No
         # Send initial health status
         health_status = await get_health_status(None, user_id)
         await websocket.send_json(health_status)
+        print(f"✓ Sent initial health status to WebSocket client")
         
         # Keep connection alive and send periodic updates
         while True:
@@ -114,6 +139,7 @@ async def websocket_health(websocket: WebSocket, token: Optional[str] = Query(No
                             })
                         elif data.get("type") == "close":
                             # Client requested to close connection
+                            print("✓ WebSocket client requested close")
                             break
                     except json.JSONDecodeError:
                         # Invalid JSON, ignore
@@ -124,23 +150,31 @@ async def websocket_health(websocket: WebSocket, token: Optional[str] = Query(No
                     await websocket.send_json(health_status)
                     
             except WebSocketDisconnect:
-                # Client disconnected
+                # Client disconnected normally
+                print("✓ WebSocket client disconnected")
                 break
             except Exception as e:
                 print(f"⚠️  Error in WebSocket health endpoint: {e}")
-                # Send error status
-                await websocket.send_json({
-                    "status": "error",
-                    "version": "1.0.0",
-                    "rag_available": False,
-                    "mcp_servers": 0,
-                    "error": str(e)
-                })
+                import traceback
+                traceback.print_exc()
+                # Try to send error status before closing
+                try:
+                    await websocket.send_json({
+                        "status": "error",
+                        "version": "1.0.0",
+                        "rag_available": False,
+                        "mcp_servers": 0,
+                        "error": str(e)
+                    })
+                except:
+                    pass
                 break
                 
     except WebSocketDisconnect:
         # Normal disconnect
-        pass
+        print("✓ WebSocket disconnected normally")
     except Exception as e:
         print(f"⚠️  WebSocket connection error: {e}")
+        import traceback
+        traceback.print_exc()
 
