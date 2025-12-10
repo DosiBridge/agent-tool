@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     motion,
     AnimatePresence,
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { Bot, ExternalLink, Github, Star, Shield } from "lucide-react";
+import { getAuthToken } from "@/lib/api/client";
 
 export const FloatingNav = ({
     navItems,
@@ -25,8 +26,35 @@ export const FloatingNav = ({
     const { scrollYProgress } = useScroll();
     const isAuthenticated = useStore((state) => state.isAuthenticated);
     const isSuperadmin = useStore((state) => state.isSuperadmin);
+    const [hasAuthToken, setHasAuthToken] = useState(false);
 
     const [visible, setVisible] = useState(true);
+
+    // Check for auth token in localStorage as fallback
+    useEffect(() => {
+        const checkToken = () => {
+            const token = getAuthToken();
+            setHasAuthToken(!!token);
+        };
+        // Initial check
+        checkToken();
+        // Listen to storage events (when token is added/removed in other tabs or by the app)
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === "auth_token") {
+                checkToken();
+            }
+        };
+        window.addEventListener("storage", handleStorageChange);
+        // Also check when isAuthenticated changes
+        const interval = setInterval(checkToken, 500);
+        return () => {
+            window.removeEventListener("storage", handleStorageChange);
+            clearInterval(interval);
+        };
+    }, [isAuthenticated]); // Re-run when isAuthenticated changes
+
+    // Use isAuthenticated from store, or fallback to checking token directly
+    const userIsAuthenticated = isAuthenticated || hasAuthToken;
 
     useMotionValueEvent(scrollYProgress, "change", (current) => {
         // Navbar is always visible
@@ -109,7 +137,7 @@ export const FloatingNav = ({
                 </Link>
                 
                 {/* Admin Dashboard Link - Only for superadmin */}
-                {isAuthenticated && isSuperadmin() && (
+                {userIsAuthenticated && isSuperadmin() && (
                     <>
                         <div className="h-5 sm:h-6 w-px bg-white/20 flex-shrink-0 hidden sm:block" />
                         <Link 
@@ -123,7 +151,7 @@ export const FloatingNav = ({
                     </>
                 )}
                 
-                {isAuthenticated ? (
+                {userIsAuthenticated ? (
                     <Link 
                         href="/chat" 
                         className="border text-xs sm:text-sm font-medium relative border-white/[0.2] text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-full hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all duration-200 group whitespace-nowrap flex-shrink-0"
