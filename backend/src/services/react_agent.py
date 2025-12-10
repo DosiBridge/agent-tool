@@ -191,10 +191,13 @@ class ReActAgent:
             system_prompt=system_prompt
         )
         
-        # Prepare messages
+        # Prepare messages - normalize content to ensure strings (not lists)
         messages = []
         if chat_history:
-            messages.extend(chat_history)
+            # Normalize message contents to ensure they're strings
+            from src.services.chat_service import ChatService
+            normalized_history = ChatService._normalize_messages(chat_history)
+            messages.extend(normalized_history)
         messages.append(HumanMessage(content=query))
         
         # Run agent
@@ -203,7 +206,9 @@ class ReActAgent:
         # Extract final answer
         final_message = result.get("messages", [])[-1] if isinstance(result, dict) else result
         if isinstance(final_message, AIMessage):
-            answer = final_message.content
+            # Normalize content in case it's a list
+            from src.services.chat_service import ChatService
+            answer = ChatService._extract_content(final_message.content)
         else:
             answer = str(final_message)
         

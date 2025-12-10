@@ -65,15 +65,31 @@ class DatabaseChatMessageHistory(BaseChatMessageHistory):
             Message.conversation_id == conv.id
         ).order_by(Message.created_at).all()
         
-        # Convert to LangChain messages
+        # Convert to LangChain messages - ensure content is always a string
         langchain_messages = []
         for msg in db_messages:
+            # Normalize content to string (in case it was stored as JSON/list)
+            content = msg.content
+            if isinstance(content, list):
+                # Convert list to string
+                content_str = ""
+                for item in content:
+                    if isinstance(item, dict) and "text" in item:
+                        content_str += item["text"]
+                    elif isinstance(item, str):
+                        content_str += item
+                    else:
+                        content_str += str(item)
+                content = content_str
+            elif not isinstance(content, str):
+                content = str(content)
+            
             if msg.role == "user":
-                langchain_messages.append(HumanMessage(content=msg.content))
+                langchain_messages.append(HumanMessage(content=content))
             elif msg.role == "assistant":
-                langchain_messages.append(AIMessage(content=msg.content))
+                langchain_messages.append(AIMessage(content=content))
             elif msg.role == "system":
-                langchain_messages.append(SystemMessage(content=msg.content))
+                langchain_messages.append(SystemMessage(content=content))
         
         return langchain_messages
     
@@ -101,21 +117,37 @@ class DatabaseChatMessageHistory(BaseChatMessageHistory):
             except Exception:
                 pass
         
+        # Normalize content to string (ensure it's not a list)
+        content = message.content
+        if isinstance(content, list):
+            # Convert list to string
+            content_str = ""
+            for item in content:
+                if isinstance(item, dict) and "text" in item:
+                    content_str += item["text"]
+                elif isinstance(item, str):
+                    content_str += item
+                else:
+                    content_str += str(item)
+            content = content_str
+        elif not isinstance(content, str):
+            content = str(content)
+        
         # Create message (only if we want to store full messages - optional)
         # For now, we'll store messages but focus on summary
         db_message = Message(
             conversation_id=conv.id,
             role=role,
-            content=message.content,
+            content=content,  # Always store as string
             tool_calls=tool_calls_json
         )
         self.db.add(db_message)
         
         # Update conversation title from first user message if not set
         if not conv.title and role == "user":
-            # Use first 100 chars of first message as title
-            title = message.content[:100].strip()
-            if len(message.content) > 100:
+            # Use first 100 chars of first message as title (content is already normalized to string)
+            title = content[:100].strip()
+            if len(content) > 100:
                 title += "..."
             conv.title = title
         

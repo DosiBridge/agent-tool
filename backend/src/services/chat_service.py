@@ -257,7 +257,9 @@ class ChatService:
                 history = history_manager.get_session_messages(session_id, user_id)
                 session_history = history_manager.get_session_history(session_id, user_id)
             
-            messages = list(history) + [HumanMessage(content=message)]
+            # Normalize message contents to ensure they're strings (not lists)
+            normalized_history = ChatService._normalize_messages(history)
+            messages = normalized_history + [HumanMessage(content=message)]
             
             # Run agent
             final_answer = ""
@@ -437,4 +439,40 @@ class ChatService:
             return str(content)
         else:
             return str(content)
+    
+    @staticmethod
+    def _normalize_message_content(message):
+        """Normalize message content to ensure it's a string (not a list)"""
+        from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+        
+        if not isinstance(message, BaseMessage):
+            return message
+        
+        # If content is already a string, return as-is
+        if isinstance(message.content, str):
+            return message
+        
+        # Extract content and create a new message with string content
+        normalized_content = ChatService._extract_content(message.content)
+        
+        # Create a new message of the same type with normalized content
+        if isinstance(message, HumanMessage):
+            return HumanMessage(content=normalized_content)
+        elif isinstance(message, AIMessage):
+            new_msg = AIMessage(content=normalized_content)
+            # Preserve tool_calls if they exist
+            if hasattr(message, 'tool_calls'):
+                new_msg.tool_calls = message.tool_calls
+            return new_msg
+        elif isinstance(message, SystemMessage):
+            return SystemMessage(content=normalized_content)
+        else:
+            # For other message types, try to preserve attributes
+            message.content = normalized_content
+            return message
+    
+    @staticmethod
+    def _normalize_messages(messages):
+        """Normalize a list of messages to ensure all contents are strings"""
+        return [ChatService._normalize_message_content(msg) for msg in messages]
 
