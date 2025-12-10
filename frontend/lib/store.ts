@@ -613,6 +613,7 @@ export const useStore = create<AppState>((set, get) => ({
         try {
           const backendData = await listSessions();
           // When impersonating, use backend sessions directly (they belong to the impersonated user)
+          // Ensure we get ALL sessions from backend
           const backendSessions: Session[] = backendData.sessions.map((s) => ({
             session_id: s.session_id,
             title: s.title || `Session ${s.session_id.slice(-8)}`,
@@ -620,6 +621,15 @@ export const useStore = create<AppState>((set, get) => ({
             message_count: s.message_count || 0,
             updated_at: s.updated_at,
           }));
+          
+          // Sort by updated_at descending (most recent first)
+          backendSessions.sort((a, b) => {
+            if (!a.updated_at && !b.updated_at) return 0;
+            if (!a.updated_at) return 1;
+            if (!b.updated_at) return -1;
+            return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          });
+          
           set({ sessions: backendSessions, sessionsLoading: false });
           return;
         } catch (error) {
@@ -697,12 +707,15 @@ export const useStore = create<AppState>((set, get) => ({
           const sessionInfo = await getSession(sessionId);
           const messages: Message[] = sessionInfo.messages.map(
             (msg, idx) => ({
-              id: `${sessionId}-${idx}-${Date.now()}`,
+              id: `${sessionId}-${idx}-${msg.created_at || Date.now()}`,
               role: msg.role,
               content: msg.content,
-              timestamp: new Date(),
-              tools_used: [],
-              sources: [],
+              timestamp: msg.created_at ? new Date(msg.created_at) : new Date(),
+              tools_used: msg.tools_used || [],
+              sources: (msg.sources || []).map((s: any) => ({
+                title: s.title || "Source",
+                url: s.url,
+              })),
             })
           );
           set({ messages, isLoading: false });

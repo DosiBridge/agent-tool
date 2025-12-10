@@ -40,60 +40,64 @@ export default function ImpersonationBanner() {
     }
 
     const displayUser = impersonatedUser || user;
-    
+
     // Don't render if we don't have user info yet
     if (!displayUser) {
         return null;
     }
 
     return (
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 flex items-center justify-between text-white shadow-lg relative z-[100] border-b border-indigo-500/20">
-            <div className="flex items-center gap-3 text-sm font-medium">
-                <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-white/20 rounded-lg">
-                        <Shield className="w-4 h-4" />
+        <div className="fixed bottom-6 right-6 z-[100] animate-in slide-in-from-bottom-4 duration-300">
+            <div className="bg-indigo-950/80 backdrop-blur-md border border-indigo-500/30 shadow-2xl shadow-indigo-500/20 rounded-2xl p-4 flex items-center gap-6 max-w-lg">
+                <div className="flex items-center gap-4">
+                    <div className="p-2.5 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
+                        <Shield className="w-5 h-5 text-indigo-300" />
                     </div>
                     <div className="flex flex-col">
-                        <span className="font-semibold">
+                        <span className="text-xs font-medium text-indigo-300 uppercase tracking-wider mb-0.5">
                             Persistent Access Active
                         </span>
-                        <span className="text-xs text-white/80 font-normal">
-                            Viewing as <strong>{displayUser.name}</strong> ({displayUser.email})
-                        </span>
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-sm font-semibold text-white">
+                                {displayUser.name}
+                            </span>
+                            <span className="text-xs text-white/50">
+                                {displayUser.email}
+                            </span>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div className="flex items-center gap-2">
-                {originalSuperadminId && (
+
+                <div className="h-8 w-px bg-white/10" />
+
+                <div className="flex items-center gap-2">
+                    {originalSuperadminId && (
+                        <button
+                            onClick={() => {
+                                setImpersonatedUserId(originalSuperadminId);
+                                if (typeof window !== 'undefined') {
+                                    window.location.reload();
+                                }
+                            }}
+                            className="p-2 hover:bg-white/10 rounded-lg text-white/70 hover:text-white transition-colors"
+                            title="Return to Superadmin View"
+                        >
+                            <Shield className="w-4 h-4" />
+                        </button>
+                    )}
                     <button
                         onClick={() => {
-                            // Switch back to superadmin
-                            setImpersonatedUserId(originalSuperadminId);
-                            // Reload to reset state
+                            setImpersonatedUserId(null);
                             if (typeof window !== 'undefined') {
                                 window.location.reload();
                             }
                         }}
-                        className="flex items-center gap-2 px-4 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-semibold transition-all hover:scale-105 active:scale-95"
-                        title="Switch back to Superadmin view"
+                        className="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40"
                     >
-                        <Shield className="w-3.5 h-3.5" />
-                        Back to Superadmin
+                        <LogOut className="w-3.5 h-3.5" />
+                        Exit Access
                     </button>
-                )}
-                <button
-                    onClick={() => {
-                        setImpersonatedUserId(null);
-                        // Reload to reset state
-                        if (typeof window !== 'undefined') {
-                            window.location.reload();
-                        }
-                    }}
-                    className="flex items-center gap-2 px-4 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-semibold transition-all hover:scale-105 active:scale-95"
-                >
-                    <LogOut className="w-3.5 h-3.5" />
-                    Exit Persistent Access
-                </button>
+                </div>
             </div>
         </div>
     );

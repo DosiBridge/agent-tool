@@ -25,25 +25,85 @@ async def get_session(
     current_user: Optional[User] = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get session information"""
+    """Get session information with full message metadata"""
+    import json
+    from datetime import datetime
+    
     user_id = current_user.id if current_user else None
     
     # Use database history if available and user is authenticated
     if DB_AVAILABLE and user_id:
         messages = db_history_manager.get_session_messages(session_id, user_id, db)
+        
+        # If using database, get full message data including timestamps and tool_calls
+        conversation = db.query(Conversation).filter(
+            Conversation.session_id == session_id,
+            Conversation.user_id == user_id
+        ).first()
+        
+        if conversation:
+            db_messages = db.query(Message).filter(
+                Message.conversation_id == conversation.id
+            ).order_by(Message.created_at.asc()).all()
+            
+            formatted_messages = []
+            for db_msg in db_messages:
+                tool_calls_data = None
+                if db_msg.tool_calls:
+                    try:
+                        tool_calls_data = json.loads(db_msg.tool_calls)
+                        # Extract tool names for tools_used
+                        tools_used = []
+                        if isinstance(tool_calls_data, list):
+                            for tc in tool_calls_data:
+                                if isinstance(tc, dict) and 'name' in tc:
+                                    tools_used.append(tc['name'])
+                        tool_calls_data = tools_used if tools_used else None
+                    except json.JSONDecodeError:
+                        tool_calls_data = None
+                
+                formatted_messages.append({
+                    "role": db_msg.role,
+                    "content": db_msg.content,
+                    "created_at": db_msg.created_at.isoformat() if db_msg.created_at else None,
+                    "tools_used": tool_calls_data or [],
+                    "sources": []  # Sources not stored in Message model currently
+                })
+            
+            return SessionInfo(
+                session_id=session_id,
+                message_count=len(formatted_messages),
+                messages=formatted_messages
+            )
+        else:
+            # Fallback to LangChain messages if conversation not found
+            messages = db_history_manager.get_session_messages(session_id, user_id, db)
     else:
         messages = history_manager.get_session_messages(session_id, user_id)
     
+    # Fallback: convert LangChain messages to API format
+    formatted_messages = []
+    for msg in messages:
+        tools_used = []
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                if isinstance(tc, dict) and 'name' in tc:
+                    tools_used.append(tc['name'])
+                elif hasattr(tc, 'name'):
+                    tools_used.append(tc.name)
+        
+        formatted_messages.append({
+            "role": "user" if isinstance(msg, HumanMessage) else "assistant",
+            "content": msg.content,
+            "created_at": None,  # In-memory messages don't have timestamps
+            "tools_used": tools_used,
+            "sources": getattr(msg, "sources", []) if hasattr(msg, "sources") else []
+        })
+    
     return SessionInfo(
         session_id=session_id,
-        message_count=len(messages),
-        messages=[
-            {
-                "role": "user" if isinstance(msg, HumanMessage) else "assistant",
-                "content": msg.content
-            }
-            for msg in messages
-        ]
+        message_count=len(formatted_messages),
+        messages=formatted_messages
     )
 
 
