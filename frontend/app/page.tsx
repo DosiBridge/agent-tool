@@ -13,7 +13,17 @@ import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
 import { IconHome, IconInfoCircle, IconMail, IconFileText, IconBrandGithub } from "@tabler/icons-react";
 import Link from "next/link";
 
+import { useStore } from "@/lib/store";
+import { useEffect, useState } from "react";
+
 export default function Home() {
+  const { user, isAuthenticated } = useStore();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const navItems = [
     {
       name: "Home",
@@ -40,6 +50,11 @@ export default function Home() {
       link: "#contact",
       icon: <IconMail className="h-4 w-4 text-neutral-500 dark:text-white" />,
     },
+    ...(mounted && isAuthenticated && user?.role === 'superadmin' ? [{
+      name: "Dashboard",
+      link: "/admin",
+      icon: <IconBrandGithub className="h-4 w-4 text-neutral-500 dark:text-white" />, // Using Github icon as placeholder, or could import LayoutDashboard
+    }] : []),
   ];
 
   const words = ["Intelligent", "Autonomous", "Creative", "Secure"];
@@ -253,16 +268,16 @@ export default function Home() {
                 <IconBrandGithub className="w-5 h-5 opacity-70" />
               </a>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-3 border-t border-white/10">
-                <a 
-                  href="https://github.com/DosiBridge/agent-tool" 
-                  target="_blank" 
+                <a
+                  href="https://github.com/DosiBridge/agent-tool"
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm text-white group"
                 >
                   <IconBrandGithub className="w-4 h-4 group-hover:scale-110 transition-transform" />
                   <span className="font-medium">Star on GitHub</span>
                   <svg className="w-4 h-4 text-yellow-400 fill-yellow-400" viewBox="0 0 24 24">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                   </svg>
                 </a>
                 <p className="text-xs text-gray-400 sm:ml-auto">Fully open source • MIT License</p>
@@ -310,16 +325,16 @@ export default function Home() {
               Have questions or need support? We're here to help.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mt-6 sm:mt-8">
-              <a 
-                href="https://dosibridge.com" 
-                target="_blank" 
+              <a
+                href="https://dosibridge.com"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="w-full sm:w-auto px-6 sm:px-8 py-2.5 sm:py-3 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm sm:text-base font-medium hover:from-indigo-700 hover:to-violet-700 transition-all duration-200 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40"
               >
                 Visit dosibridge.com
               </a>
-              <a 
-                href="mailto:contact@dosibridge.com" 
+              <a
+                href="mailto:contact@dosibridge.com"
                 className="w-full sm:w-auto px-6 sm:px-8 py-2.5 sm:py-3 rounded-full bg-transparent border border-white/20 text-white text-sm sm:text-base font-medium hover:bg-white/10 transition-all duration-200"
               >
                 Contact Us
@@ -336,21 +351,21 @@ export default function Home() {
       <footer className="py-12 px-4 sm:px-6 lg:px-8 border-t border-white/10 bg-black">
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mb-4">
-            <a 
-              href="https://github.com/DosiBridge/agent-tool" 
-              target="_blank" 
+            <a
+              href="https://github.com/DosiBridge/agent-tool"
+              target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm text-white group"
             >
               <IconBrandGithub className="w-4 h-4 group-hover:scale-110 transition-transform" />
               <span className="font-medium">Star on GitHub</span>
               <svg className="w-4 h-4 text-yellow-400 fill-yellow-400" viewBox="0 0 24 24">
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
               </svg>
             </a>
-            <a 
-              href="https://dosibridge.com" 
-              target="_blank" 
+            <a
+              href="https://dosibridge.com"
+              target="_blank"
               rel="noopener noreferrer"
               className="text-gray-400 hover:text-white transition-colors text-sm"
             >

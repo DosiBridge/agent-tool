@@ -60,7 +60,7 @@ if Base is not None:
         __tablename__ = "mcp_servers"
         
         id = Column(Integer, primary_key=True, index=True)
-        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)  # Nullable for global servers
         name = Column(String(100), nullable=False, index=True)  # Removed unique constraint - now per-user
         url = Column(String(500), nullable=False)
         connection_type = Column(String(20), nullable=False, default="http")  # "stdio", "http", or "sse"
@@ -74,6 +74,8 @@ if Base is not None:
         user = relationship("User", backref="mcp_servers")
         
         # Unique constraint on user_id + name combination
+        # Note: For global servers (user_id=None), this allows multiple globals with same name in some DBs, 
+        # but we should enforce uniqueness in application logic or use a partial index if needed.
         __table_args__ = (
             UniqueConstraint('user_id', 'name', name='uq_mcp_server_user_name'),
         )

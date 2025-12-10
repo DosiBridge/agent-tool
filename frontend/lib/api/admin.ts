@@ -83,3 +83,99 @@ export const getSystemUsageHistory = async (days: number = 7): Promise<SystemUsa
   });
   return handleResponse<SystemUsageHistory>(response);
 };
+
+// --- Global Config ---
+
+export const createGlobalLLMConfig = async (config: {
+  type: string;
+  model: string;
+  api_key?: string;
+  base_url?: string;
+  is_default?: boolean;
+}): Promise<{ status: string; config: any }> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/global-config/llm`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  return handleResponse(response);
+};
+
+export const createGlobalMCPServer = async (server: {
+  name: string;
+  url: string;
+  connection_type?: string;
+  api_key?: string;
+  headers?: Record<string, string>;
+}): Promise<{ status: string; server: any }> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/global-config/mcp`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(server),
+  });
+  return handleResponse(response);
+};
+
+export const deleteGlobalMCPServer = async (id: number): Promise<{ status: string }> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/global-config/mcp/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+// --- Advanced User Management ---
+
+export const deleteUserPermanently = async (userId: number): Promise<{ status: string; message: string }> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/users/${userId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const getUserDetails = async (userId: number): Promise<any> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/users/${userId}/details`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const getUserSessions = async (userId: number): Promise<any[]> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/users/${userId}/sessions`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const getUserSessionMessages = async (userId: number, sessionId: string): Promise<any[]> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/users/${userId}/sessions/${sessionId}/messages`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+// --- Analytics ---
+
+export const getSystemActivity = async (limit: number = 50): Promise<any[]> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/analytics/activity?limit=${limit}`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+export const getUsageAnalytics = async (days: number = 30): Promise<any[]> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/analytics/usage?days=${days}`, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
