@@ -95,9 +95,24 @@ else:
         raise ValueError("CORS_ORIGINS environment variable is empty or invalid")
     print(f"✅ CORS configured with origins: {cors_origins}")
 
-# Add CORS middleware
-# Note: FastAPI CORS middleware allows requests without Origin header (server-to-server)
-# by default, which is needed for internal MCP connection tests
+# In production, also allow common production origins if not already included
+# This helps with deployment scenarios where CORS_ORIGINS might not be fully configured
+PRODUCTION_ORIGINS = [
+    "https://agent.dosibridge.com",
+    "https://www.agent.dosibridge.com",
+]
+# Add production origins if not already in the list (avoid duplicates)
+is_production = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod") or os.getenv("NODE_ENV", "").lower() == "production"
+if is_production:
+    for origin in PRODUCTION_ORIGINS:
+        if origin not in cors_origins:
+            cors_origins.append(origin)
+            print(f"✅ Added production origin to CORS: {origin}")
+
+# Add CORS middleware LAST (so it executes FIRST)
+# IMPORTANT: In FastAPI, middleware executes in REVERSE order (last added = first executed)
+# CORS middleware must execute first to handle preflight OPTIONS requests properly
+# Adding it last ensures it runs before other middleware can interfere
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -107,6 +122,7 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,
 )
+print(f"🌐 CORS middleware configured with {len(cors_origins)} allowed origins: {cors_origins}")
 
 # Include routers
 app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])

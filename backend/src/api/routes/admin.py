@@ -204,62 +204,74 @@ async def create_global_llm_config(
     current_user: User = Depends(get_current_superadmin)
 ):
     """Create a global LLM configuration (superadmin ID=1 only). Only superadmin ID=1 can set is_default."""
-    if not DB_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Database not available")
+    try:
+        if not DB_AVAILABLE:
+            raise HTTPException(status_code=503, detail="Database not available")
 
-    # Ensure current_user is superadmin with ID=1
-    if current_user.id != 1:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only superadmin with ID=1 can manage global configurations"
-        )
-
-    # Test configuration before saving
-    test_message = None
-    if config.api_key:
-        from src.api.routes.llm_config import test_llm_config
-        
-        # Build config dict for testing
-        config_dict = {
-            "type": config.type,
-            "model": config.model,
-            "api_key": config.api_key,
-            "base_url": config.base_url
-        }
-        
-        test_success, test_message = await test_llm_config(config_dict)
-        if not test_success:
+        # Ensure current_user is superadmin with ID=1
+        if current_user.id != 1:
             raise HTTPException(
-                status_code=400,
-                detail=f"Configuration test failed: {test_message}. Please fix the configuration before saving."
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superadmin with ID=1 can manage global configurations"
             )
 
-    # If setting this as default, unset other global defaults first
-    # Global configs are owned by superadmin (user_id=1) or None (for backward compatibility)
-    if config.is_default:
-        db.query(LLMConfig).filter(
-            ((LLMConfig.user_id == 1) | (LLMConfig.user_id.is_(None))),
-            LLMConfig.is_default == True
-        ).update({LLMConfig.is_default: False})
+        # Test configuration before saving
+        test_message = None
+        if config.api_key:
+            from src.api.routes.llm_config import test_llm_config
+            
+            # Build config dict for testing
+            config_dict = {
+                "type": config.type,
+                "model": config.model,
+                "api_key": config.api_key,
+                "base_url": config.base_url
+            }
+            
+            test_success, test_message = await test_llm_config(config_dict)
+            if not test_success:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Configuration test failed: {test_message}. Please fix the configuration before saving."
+                )
 
-    # Create new config with user_id = 1 (superadmin)
-    new_config = LLMConfig(
-        user_id=1,  # Owned by superadmin (ID=1)
-        type=config.type,
-        model=config.model,
-        base_url=config.base_url,
-        is_default=config.is_default  # Only superadmin ID=1 can set this via this endpoint
-    )
-    
-    if config.api_key:
-        from src.utils.encryption import encrypt_value
-        new_config.api_key = encrypt_value(config.api_key)
+        # If setting this as default, unset other global defaults first
+        # Global configs are owned by superadmin (user_id=1) or None (for backward compatibility)
+        if config.is_default:
+            db.query(LLMConfig).filter(
+                ((LLMConfig.user_id == 1) | (LLMConfig.user_id.is_(None))),
+                LLMConfig.is_default == True
+            ).update({LLMConfig.is_default: False})
+
+        # Create new config with user_id = 1 (superadmin)
+        new_config = LLMConfig(
+            user_id=1,  # Owned by superadmin (ID=1)
+            type=config.type,
+            model=config.model,
+            base_url=config.base_url,
+            is_default=config.is_default  # Only superadmin ID=1 can set this via this endpoint
+        )
         
-    db.add(new_config)
-    db.commit()
-    db.refresh(new_config)
-    
-    return {"status": "success", "config": new_config.to_dict(), "test_message": test_message if config.api_key else None}
+        if config.api_key:
+            from src.utils.encryption import encrypt_value
+            new_config.api_key = encrypt_value(config.api_key)
+            
+        db.add(new_config)
+        db.commit()
+        db.refresh(new_config)
+        
+        return {"status": "success", "config": new_config.to_dict(), "test_message": test_message if config.api_key else None}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ Error creating global LLM config: {str(e)}")
+        print(f"Traceback: {error_details}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create global LLM configuration: {str(e)}"
+        )
 
 @router.post("/global-config/mcp")
 async def create_global_mcp_server(

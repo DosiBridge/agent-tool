@@ -93,21 +93,34 @@ async def mcp_lifespan(app: FastAPI):
                     if superadmin_id != 1:
                         print(f"⚠️  WARNING: Superadmin ID is {superadmin_id}, not 1. Global configs may not work correctly.")
                     
-                    # Step 2: Check if any global configs exist (user_id=1 or user_id=None for backward compatibility)
-                    global_llm_count = db.query(LLMConfig).filter(
-                        (LLMConfig.user_id == 1) | (LLMConfig.user_id == None)
-                    ).count()
-                    global_embedding_count = db.query(EmbeddingConfig).filter(
-                        (EmbeddingConfig.user_id == 1) | (EmbeddingConfig.user_id == None)
-                    ).count()
+                    # Step 2: Check if any active default global configs exist (user_id=1 or user_id=None for backward compatibility)
+                    # We check for active defaults to allow re-initialization if configs were deleted or deactivated
+                    active_default_llm = db.query(LLMConfig).filter(
+                        ((LLMConfig.user_id == 1) | (LLMConfig.user_id == None)),
+                        LLMConfig.active == True,
+                        LLMConfig.is_default == True
+                    ).first()
                     
-                    if global_llm_count == 0 and superadmin_id:
-                        # First-time initialization: Create default LLM config from environment
-                        print("ℹ️  No global LLM configs found. Initializing from environment variables...")
+                    active_default_embedding = db.query(EmbeddingConfig).filter(
+                        ((EmbeddingConfig.user_id == 1) | (EmbeddingConfig.user_id == None)),
+                        EmbeddingConfig.active == True,
+                        EmbeddingConfig.is_default == True
+                    ).first()
+                    
+                    # Initialize LLM config if no active default exists
+                    if not active_default_llm and superadmin_id:
+                        # Create default LLM config from environment
+                        print("ℹ️  No active default global LLM config found. Initializing from environment variables...")
                         
                         deepseek_api_key = os.getenv("DEEPSEEK_KEY")
                         if deepseek_api_key:
                             from src.utils.encryption import encrypt_value
+                            # Unset any existing defaults first
+                            db.query(LLMConfig).filter(
+                                ((LLMConfig.user_id == 1) | (LLMConfig.user_id == None)),
+                                LLMConfig.is_default == True
+                            ).update({LLMConfig.is_default: False})
+                            
                             default_llm_config = LLMConfig(
                                 user_id=superadmin_id,  # Owned by superadmin
                                 type="deepseek",
@@ -128,13 +141,20 @@ async def mcp_lifespan(app: FastAPI):
                         else:
                             print("⚠️  DEEPSEEK_KEY not set. Please configure LLM providers via the superadmin dashboard.")
                     
-                    if global_embedding_count == 0 and superadmin_id:
-                        # First-time initialization: Create default embedding config from environment
-                        print("ℹ️  No global embedding configs found. Initializing from environment variables...")
+                    # Initialize embedding config if no active default exists
+                    if not active_default_embedding and superadmin_id:
+                        # Create default embedding config from environment
+                        print("ℹ️  No active default global embedding config found. Initializing from environment variables...")
                         
                         openai_api_key = os.getenv("OPENAI_API_KEY")
                         if openai_api_key:
                             from src.utils.encryption import encrypt_value
+                            # Unset any existing defaults first
+                            db.query(EmbeddingConfig).filter(
+                                ((EmbeddingConfig.user_id == 1) | (EmbeddingConfig.user_id == None)),
+                                EmbeddingConfig.is_default == True
+                            ).update({EmbeddingConfig.is_default: False})
+                            
                             default_embedding_config = EmbeddingConfig(
                                 user_id=superadmin_id,  # Owned by superadmin
                                 provider="openai",
@@ -151,31 +171,38 @@ async def mcp_lifespan(app: FastAPI):
                             except Exception as commit_error:
                                 db.rollback()
                                 print(f"⚠️  Failed to create default embedding config: {commit_error}")
-                    else:
+                        else:
                             print("⚠️  OPENAI_API_KEY not set. Please configure embedding providers via the superadmin dashboard.")
                     
-                    # Step 3: Check status of existing configs
+                    # Step 3: Check status of existing configs (re-check after potential initialization)
+                    global_llm_count = db.query(LLMConfig).filter(
+                        ((LLMConfig.user_id == 1) | (LLMConfig.user_id == None))
+                    ).count()
+                    global_embedding_count = db.query(EmbeddingConfig).filter(
+                        ((EmbeddingConfig.user_id == 1) | (EmbeddingConfig.user_id == None))
+                    ).count()
+                    
                     if global_llm_count > 0:
-                        active_default_llm = db.query(LLMConfig).filter(
+                        active_default_llm_count = db.query(LLMConfig).filter(
                             ((LLMConfig.user_id == 1) | (LLMConfig.user_id == None)),
                             LLMConfig.active == True,
                             LLMConfig.is_default == True
                         ).count()
-                        if active_default_llm == 0:
+                        if active_default_llm_count == 0:
                             print("⚠️  No active default global LLM config found. Users may not be able to use LLM features.")
                         else:
-                            print(f"✓ Found {global_llm_count} global LLM config(s), {active_default_llm} active default(s)")
+                            print(f"✓ Found {global_llm_count} global LLM config(s), {active_default_llm_count} active default(s)")
                     
                     if global_embedding_count > 0:
-                        active_default_embedding = db.query(EmbeddingConfig).filter(
+                        active_default_embedding_count = db.query(EmbeddingConfig).filter(
                             ((EmbeddingConfig.user_id == 1) | (EmbeddingConfig.user_id == None)),
                             EmbeddingConfig.active == True,
                             EmbeddingConfig.is_default == True
                         ).count()
-                        if active_default_embedding == 0:
+                        if active_default_embedding_count == 0:
                             print("⚠️  No active default global embedding config found.")
                         else:
-                            print(f"✓ Found {global_embedding_count} global embedding config(s), {active_default_embedding} active default(s)")
+                            print(f"✓ Found {global_embedding_count} global embedding config(s), {active_default_embedding_count} active default(s)")
                     
                     print("   All global configs are managed via the superadmin dashboard.")
         except Exception as e:
