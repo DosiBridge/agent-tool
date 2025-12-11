@@ -8,7 +8,8 @@ import {
     Settings,
     Sliders,
     LogOut,
-    Globe
+    Globe,
+    MessageSquare
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
@@ -17,7 +18,7 @@ import { useAuth0 } from '@auth0/auth0-react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 
-export type AdminView = 'analytics' | 'activity' | 'users' | 'configure' | 'settings' | 'global';
+export type AdminView = 'analytics' | 'activity' | 'users' | 'configure' | 'settings' | 'global' | 'appeals';
 
 interface AdminSidebarProps {
     currentView: AdminView;
@@ -28,6 +29,7 @@ const MENU_ITEMS: { id: AdminView; label: string; icon: React.ElementType }[] = 
     { id: 'analytics', label: 'Analytics', icon: LayoutDashboard },
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'users', label: 'Users', icon: Users },
+    { id: 'appeals', label: 'Appeals', icon: MessageSquare },
     { id: 'global', label: 'Global', icon: Globe },
     { id: 'configure', label: 'Configure', icon: Sliders },
     { id: 'settings', label: 'Settings', icon: Settings },
@@ -89,14 +91,21 @@ export default function AdminSidebar({ currentView, onChangeView }: AdminSidebar
                     </div>
                     <div>
                         <span className="font-bold text-lg text-white block">
-                            SuperAdmin
+                            {user?.role === 'superadmin' ? 'SuperAdmin' : 'Admin'}
                         </span>
                         <span className="text-xs text-zinc-500 font-medium">Dashboard</span>
                     </div>
                 </div>
 
                 <nav className="space-y-2">
-                    {MENU_ITEMS.map((item) => {
+                    {MENU_ITEMS.filter(item => {
+                        // Admin can only see: analytics, activity, users
+                        // Superadmin can see everything including appeals
+                        if (user?.role === 'admin') {
+                            return ['analytics', 'activity', 'users'].includes(item.id);
+                        }
+                        return true; // Superadmin sees all
+                    }).map((item) => {
                         const Icon = item.icon;
                         const isActive = currentView === item.id;
 

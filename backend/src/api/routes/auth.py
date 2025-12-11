@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 from src.core import User
-from src.core.auth import get_current_active_user
+from src.core.auth import get_current_user, get_current_active_user
 
 router = APIRouter()
 
@@ -18,11 +18,13 @@ class UserResponse(BaseModel):
     role: Optional[str] = None
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(current_user: User = Depends(get_current_active_user)):
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """
     Get current user information.
     This also triggers JIT provisioning if the user is logging in for the first time
     and calling this endpoint.
+    Returns user info even if blocked (is_active=False) so blocked users can see their status
+    and send appeals to superadmin.
     """
     return UserResponse(
         id=current_user.id,

@@ -255,8 +255,19 @@ export const useStore = create<AppState>((set, get) => ({
     set({ authLoading: true });
     try {
       const user = await getCurrentUser();
+      // Allow blocked users to login but mark them as blocked
       set({ user, isAuthenticated: true, authLoading: false });
-      // Load user-specific data after authentication check
+      
+      // If user is blocked, don't load sessions/MCP servers
+      if (user && !user.is_active) {
+        // User is blocked - they can still login but cannot use features
+        import("react-hot-toast").then(({ toast }) => {
+          toast.error("Your account is blocked. You can send a message to superadmin to request unblocking.");
+        });
+        return;
+      }
+      
+      // Load user-specific data after authentication check (only for active users)
       // Use setTimeout to ensure state is updated before loading
       setTimeout(() => {
         get().loadSessions();
@@ -264,18 +275,32 @@ export const useStore = create<AppState>((set, get) => ({
       }, 0);
     } catch (error: any) {
       // Handle blocked user scenario (403 Forbidden with specific message)
+      // Try to get user info even if blocked
       if (
         error?.statusCode === 403 ||
         (error?.message && error.message.includes("User account is inactive")) ||
         (error?.detail && error.detail.includes("User account is inactive"))
       ) {
-        console.error("User account is blocked:", error);
-        import("react-hot-toast").then(({ toast }) => {
-          toast.error("This account is blocked by superadmin");
-        });
-        // Ensure we log them out/clear state
-        set({ user: null, isAuthenticated: false, authLoading: false });
-        return;
+        // Try to fetch user info using get_current_user (not get_current_active_user)
+        // This should work now that we changed /api/auth/me to use get_current_user
+        try {
+          const user = await getCurrentUser();
+          if (user && !user.is_active) {
+            set({ user, isAuthenticated: true, authLoading: false });
+            import("react-hot-toast").then(({ toast }) => {
+              toast.error("Your account is blocked. You can send a message to superadmin to request unblocking.");
+            });
+            return;
+          }
+        } catch (retryError) {
+          // If still fails, log them out
+          console.error("User account is blocked:", error);
+          import("react-hot-toast").then(({ toast }) => {
+            toast.error("This account is blocked by superadmin");
+          });
+          set({ user: null, isAuthenticated: false, authLoading: false });
+          return;
+        }
       }
 
       // Not authenticated - this is fine for agent mode

@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Loader2, Shield, User as UserIcon, Ban, CheckCircle, Search, LogIn, Mail, MoreVertical, ChevronLeft, ChevronRight, RefreshCw, Crown } from 'lucide-react';
-import { listUsers, blockUser, unblockUser, promoteToSuperadmin, AdminUser } from '@/lib/api/admin';
+import { Loader2, Shield, User as UserIcon, Ban, CheckCircle, Search, LogIn, Mail, MoreVertical, ChevronLeft, ChevronRight, RefreshCw, Crown, ArrowUp, ArrowDown } from 'lucide-react';
+import { listUsers, blockUser, unblockUser, promoteToSuperadmin, promoteToAdmin, demoteToUser, AdminUser } from '@/lib/api/admin';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import UserInspector from '../UserInspector';
+import { useStore } from '@/lib/store';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -16,11 +17,26 @@ export default function UsersView() {
     const [processingId, setProcessingId] = useState<number | null>(null);
     const [inspectingUserId, setInspectingUserId] = useState<number | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
+    const currentUser = useStore(state => state.user);
+    const isSuperadmin = currentUser?.role === 'superadmin';
+    const isAdmin = currentUser?.role === 'admin';
 
     const loadUsers = async () => {
+        // Don't load users if current user is blocked
+        if (currentUser && !currentUser.is_active) {
+            toast.error("Your account is blocked. You cannot access admin features.");
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
         try {
-            const data = await listUsers();
+            const data = await listUsers().catch((err) => {
+                if (err?.statusCode === 403 || err?.message?.includes("inactive")) {
+                    throw new Error("Your account is blocked. You cannot access admin features.");
+                }
+                throw err;
+            });
             setUsers(data);
             // Reset to first page if current page is out of bounds
             const totalFiltered = data.filter(user =>
@@ -34,7 +50,11 @@ export default function UsersView() {
         } catch (error: any) {
             console.error("Failed to list users:", error);
             const errorMessage = error?.detail || error?.message || "Failed to load users";
-            toast.error(errorMessage);
+            if (error?.statusCode === 403 || errorMessage.includes("inactive") || errorMessage.includes("blocked")) {
+                toast.error("Your account is blocked. You cannot access admin features.");
+            } else {
+                toast.error(errorMessage);
+            }
         } finally {
             setLoading(false);
         }
@@ -42,7 +62,7 @@ export default function UsersView() {
 
     useEffect(() => {
         loadUsers();
-    }, []);
+    }, [currentUser]);
 
     const handleToggleBlock = async (user: AdminUser) => {
         if (user.role === 'superadmin') {
@@ -88,6 +108,57 @@ export default function UsersView() {
             await loadUsers();
         } catch (error: any) {
             const errorMessage = error?.detail || error?.message || "Failed to promote user";
+            toast.error(errorMessage);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handlePromoteToAdmin = async (user: AdminUser) => {
+        if (user.role === 'admin' || user.role === 'superadmin') {
+            toast.error(`User is already a ${user.role}`);
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to promote ${user.name} to admin?`)) {
+            return;
+        }
+
+        setProcessingId(user.id);
+        try {
+            await promoteToAdmin(user.id);
+            toast.success(`${user.name} has been promoted to admin`);
+            await loadUsers();
+        } catch (error: any) {
+            const errorMessage = error?.detail || error?.message || "Failed to promote user";
+            toast.error(errorMessage);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handleDemoteToUser = async (user: AdminUser) => {
+        if (user.role === 'superadmin') {
+            toast.error("Cannot demote superadmin to user");
+            return;
+        }
+
+        if (user.role === 'user') {
+            toast.error("User is already a regular user");
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to demote ${user.name} from admin to regular user?`)) {
+            return;
+        }
+
+        setProcessingId(user.id);
+        try {
+            await demoteToUser(user.id);
+            toast.success(`${user.name} has been demoted to regular user`);
+            await loadUsers();
+        } catch (error: any) {
+            const errorMessage = error?.detail || error?.message || "Failed to demote user";
             toast.error(errorMessage);
         } finally {
             setProcessingId(null);
@@ -212,9 +283,12 @@ export default function UsersView() {
                                                 "px-3 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1.5 transition-colors border",
                                                 user.role === 'superadmin'
                                                     ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
+                                                    : user.role === 'admin'
+                                                    ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
                                                     : "bg-zinc-800 text-zinc-400 border-zinc-700"
                                             )}>
                                                 {user.role === 'superadmin' && <Shield className="w-3 h-3" />}
+                                                {user.role === 'admin' && <Shield className="w-3 h-3" />}
                                                 {user.role}
                                             </span>
                                         </td>
@@ -234,7 +308,8 @@ export default function UsersView() {
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
-                                                {user.role !== 'superadmin' && (
+                                                {/* Superadmin actions - full access */}
+                                                {isSuperadmin && user.role !== 'superadmin' && (
                                                     <>
                                                         <button
                                                             onClick={() => {
@@ -254,18 +329,64 @@ export default function UsersView() {
                                                         >
                                                             <MoreVertical className="w-4 h-4" />
                                                         </button>
-                                                        <button
-                                                            onClick={() => handlePromoteToSuperadmin(user)}
-                                                            disabled={processingId === user.id}
-                                                            className="p-2 rounded-lg transition-colors text-zinc-400 hover:text-purple-400 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 disabled:opacity-50"
-                                                            title="Promote to Superadmin"
-                                                        >
-                                                            {processingId === user.id ? (
-                                                                <Loader2 className="w-4 h-4 animate-spin" />
-                                                            ) : (
-                                                                <Crown className="w-4 h-4" />
-                                                            )}
-                                                        </button>
+                                                        {/* Promote/Demote buttons */}
+                                                        {user.role === 'user' && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handlePromoteToAdmin(user)}
+                                                                    disabled={processingId === user.id}
+                                                                    className="p-2 rounded-lg transition-colors text-zinc-400 hover:text-blue-400 hover:bg-blue-500/10 border border-transparent hover:border-blue-500/20 disabled:opacity-50"
+                                                                    title="Promote to Admin"
+                                                                >
+                                                                    {processingId === user.id ? (
+                                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                                    ) : (
+                                                                        <ArrowUp className="w-4 h-4" />
+                                                                    )}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handlePromoteToSuperadmin(user)}
+                                                                    disabled={processingId === user.id}
+                                                                    className="p-2 rounded-lg transition-colors text-zinc-400 hover:text-purple-400 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 disabled:opacity-50"
+                                                                    title="Promote to Superadmin"
+                                                                >
+                                                                    {processingId === user.id ? (
+                                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                                    ) : (
+                                                                        <Crown className="w-4 h-4" />
+                                                                    )}
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        {user.role === 'admin' && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handleDemoteToUser(user)}
+                                                                    disabled={processingId === user.id}
+                                                                    className="p-2 rounded-lg transition-colors text-zinc-400 hover:text-orange-400 hover:bg-orange-500/10 border border-transparent hover:border-orange-500/20 disabled:opacity-50"
+                                                                    title="Demote to User"
+                                                                >
+                                                                    {processingId === user.id ? (
+                                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                                    ) : (
+                                                                        <ArrowDown className="w-4 h-4" />
+                                                                    )}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handlePromoteToSuperadmin(user)}
+                                                                    disabled={processingId === user.id}
+                                                                    className="p-2 rounded-lg transition-colors text-zinc-400 hover:text-purple-400 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 disabled:opacity-50"
+                                                                    title="Promote to Superadmin"
+                                                                >
+                                                                    {processingId === user.id ? (
+                                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                                    ) : (
+                                                                        <Crown className="w-4 h-4" />
+                                                                    )}
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        {/* Block/Unblock button */}
                                                         <button
                                                             onClick={() => handleToggleBlock(user)}
                                                             disabled={processingId === user.id}
@@ -287,7 +408,8 @@ export default function UsersView() {
                                                         </button>
                                                     </>
                                                 )}
-                                                {user.role === 'superadmin' && (
+                                                {/* Superadmin user - only inspect */}
+                                                {isSuperadmin && user.role === 'superadmin' && (
                                                     <>
                                                         <button
                                                             onClick={() => setInspectingUserId(user.id)}
@@ -300,6 +422,12 @@ export default function UsersView() {
                                                             <Shield className="w-4 h-4" />
                                                         </div>
                                                     </>
+                                                )}
+                                                {/* Admin actions - view only, no actions */}
+                                                {isAdmin && (
+                                                    <div className="p-2 rounded-lg text-zinc-500" title="Admin can only view users">
+                                                        <UserIcon className="w-4 h-4" />
+                                                    </div>
                                                 )}
                                             </div>
                                         </td>
@@ -422,7 +550,7 @@ export default function UsersView() {
             </div>
 
             <AnimatePresence>
-                {inspectingUserId && (
+                {inspectingUserId && isSuperadmin && (
                     <UserInspector
                         userId={inspectingUserId}
                         onClose={() => setInspectingUserId(null)}

@@ -58,38 +58,7 @@ def create_superadmin():
                 print(f"ℹ️  User {superadmin_email} not found in database.")
                 print(f"   Creating placeholder user. They will become superadmin when they log in via Auth0.")
                 
-                # Check if we can use ID=1 (nice to have but not required)
-                user_id_1 = db.query(User).filter(User.id == 1).first()
-                if not user_id_1:
-                    # Try to create with ID=1
-                    try:
-                        from sqlalchemy import text
-                        db.execute(
-                            text("INSERT INTO users (id, email, name, role, is_active) VALUES (1, :email, :name, :role, :is_active)"),
-                            {
-                                "email": superadmin_email,
-                                "name": "Super Admin Pending",
-                                "role": "superadmin",
-                                "is_active": True
-                            }
-                        )
-                        db.commit()
-                        print(f"✓ Created placeholder superadmin with ID=1.")
-                        
-                        # Update sequence to avoid conflicts
-                        try:
-                            # Update the sequence to start from 2 (since we have ID=1 now)
-                            db.execute(text("SELECT setval('users_id_seq', GREATEST(1, (SELECT MAX(id) FROM users)))"))
-                            db.commit()
-                        except Exception:
-                            pass # Sequence update might fail on some DBs, ignore
-                            
-                        return
-                    except Exception as e:
-                        print(f"   Could not force ID=1: {e}")
-                        db.rollback()
-                
-                # Create standard user
+                # Create superadmin user (database will assign ID automatically)
                 new_user = User(
                     email=superadmin_email,
                     name="Super Admin Pending",
@@ -98,7 +67,8 @@ def create_superadmin():
                 )
                 db.add(new_user)
                 db.commit()
-                print(f"✓ Created placeholder superadmin for {superadmin_email}.")
+                db.refresh(new_user)
+                print(f"✓ Created placeholder superadmin (ID={new_user.id}) for {superadmin_email}.")
 
         except Exception as e:
             db.rollback()

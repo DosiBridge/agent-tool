@@ -595,6 +595,40 @@ if Base is not None:
                 "success": self.success,
                 "created_at": self.created_at.isoformat() if self.created_at else None,
             }
+
+    class UserAppeal(Base):
+        """User appeals/messages from blocked users to superadmin"""
+        __tablename__ = "user_appeals"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+        message = Column(Text, nullable=False)
+        status = Column(String(50), default="pending", nullable=False)  # pending, reviewed, resolved
+        admin_response = Column(Text, nullable=True)  # Response from superadmin
+        reviewed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+        reviewed_at = Column(DateTime(timezone=True), nullable=True)
+        created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+        updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+        
+        # Relationships
+        user = relationship("User", foreign_keys=[user_id], backref="appeals")
+        reviewer = relationship("User", foreign_keys=[reviewed_by])
+        
+        def to_dict(self) -> dict:
+            return {
+                "id": self.id,
+                "user_id": self.user_id,
+                "user_name": self.user.name if self.user else None,
+                "user_email": self.user.email if self.user else None,
+                "message": self.message,
+                "status": self.status,
+                "admin_response": self.admin_response,
+                "reviewed_by": self.reviewed_by,
+                "reviewer_name": self.reviewer.name if self.reviewer else None,
+                "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+                "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            }
 else:
     # Dummy classes when database is not available
     LLMConfig = None  # type: ignore
@@ -609,3 +643,4 @@ else:
     CustomRAGTool = None  # type: ignore
     AppointmentRequest = None  # type: ignore
     APIUsage = None  # type: ignore
+    UserAppeal = None  # type: ignore

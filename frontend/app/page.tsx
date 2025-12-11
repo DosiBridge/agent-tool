@@ -10,7 +10,7 @@ import { FloatingNav } from "@/components/ui/floating-navbar";
 import { InfiniteMovingCards } from "@/components/ui/infinite-moving-cards";
 import { EvervaultCard, Icon } from "@/components/ui/evervault-card";
 import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
-import { IconHome, IconInfoCircle, IconMail, IconFileText, IconBrandGithub } from "@tabler/icons-react";
+import { IconHome, IconInfoCircle, IconMail, IconFileText, IconBrandGithub, IconDashboard } from "@tabler/icons-react";
 import Link from "next/link";
 
 import { useStore } from "@/lib/store";
@@ -50,8 +50,13 @@ export default function Home() {
       link: "#contact",
       icon: <IconMail className="h-4 w-4 text-neutral-500 dark:text-white" />,
     },
-    ...(mounted && isAuthenticated && user?.role === 'superadmin' ? [{
+    ...(mounted && isAuthenticated ? [{
       name: "Dashboard",
+      link: "/dashboard",
+      icon: <IconDashboard className="h-4 w-4 text-neutral-500 dark:text-white" />,
+    }] : []),
+    ...(mounted && isAuthenticated && (user?.role === 'superadmin' || user?.role === 'admin') ? [{
+      name: user?.role === 'superadmin' ? "SuperAdmin" : "Admin",
       link: "/admin",
       icon: <IconBrandGithub className="h-4 w-4 text-neutral-500 dark:text-white" />, // Using Github icon as placeholder, or could import LayoutDashboard
     }] : []),

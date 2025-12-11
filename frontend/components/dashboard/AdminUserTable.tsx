@@ -16,9 +16,11 @@ export default function AdminUserTable() {
     const user = useStore(state => state.user);
     const impersonatedUserId = useStore(state => state.impersonatedUserId);
     
-    // Check if current user (impersonated or real) is superadmin
-    const isSuperAdmin = user?.role === 'superadmin';
-    const isImpersonatingNonAdmin = impersonatedUserId && !isSuperAdmin;
+    // Check if current user (impersonated or real) is admin or superadmin
+    const userRole = user?.role;
+    const isSuperAdmin = userRole === 'superadmin';
+    const isAdmin = userRole === 'admin';
+    const isImpersonatingNonAdmin = impersonatedUserId && !isSuperAdmin && !isAdmin;
 
     const loadUsers = async () => {
         // Don't load admin data if impersonating a non-admin user
@@ -125,7 +127,12 @@ export default function AdminUserTable() {
     return (
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between gap-4">
-                <h3 className="text-white font-medium">User Management</h3>
+                <div>
+                    <h3 className="text-white font-medium">User Management</h3>
+                    {isAdmin && !isSuperAdmin && (
+                        <p className="text-xs text-zinc-500 mt-1">View only - Admin access</p>
+                    )}
+                </div>
                 <div className="relative">
                     <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
@@ -168,9 +175,11 @@ export default function AdminUserTable() {
                                         "px-2 py-0.5 rounded text-xs font-medium inline-flex items-center gap-1",
                                         user.role === 'superadmin'
                                             ? "bg-purple-500/10 text-purple-400 border border-purple-500/20"
+                                            : user.role === 'admin'
+                                            ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
                                             : "bg-zinc-800 text-zinc-400"
                                     )}>
-                                        {user.role === 'superadmin' && <Shield className="w-3 h-3" />}
+                                        {(user.role === 'superadmin' || user.role === 'admin') && <Shield className="w-3 h-3" />}
                                         {user.role}
                                     </span>
                                 </td>
@@ -188,7 +197,8 @@ export default function AdminUserTable() {
                                     {user.created_at ? format(new Date(user.created_at), 'MMM d, yyyy') : '-'}
                                 </td>
                                 <td className="px-4 py-3 text-right">
-                                    {user.role !== 'superadmin' && (
+                                    {/* Only superadmin can perform actions */}
+                                    {isSuperAdmin && user.role !== 'superadmin' && (
                                         <div className="flex items-center justify-end gap-1">
                                             <button
                                                 onClick={() => {
@@ -221,6 +231,12 @@ export default function AdminUserTable() {
                                                     <CheckCircle className="w-4 h-4" />
                                                 )}
                                             </button>
+                                        </div>
+                                    )}
+                                    {/* Admin can only view, no actions */}
+                                    {isAdmin && (
+                                        <div className="text-zinc-500 text-xs">
+                                            View Only
                                         </div>
                                     )}
                                 </td>

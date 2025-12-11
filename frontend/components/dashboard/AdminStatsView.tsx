@@ -23,9 +23,11 @@ export default function AdminStatsView() {
     const user = useStore(state => state.user);
     const impersonatedUserId = useStore(state => state.impersonatedUserId);
     
-    // Check if current user (impersonated or real) is superadmin
-    const isSuperAdmin = user?.role === 'superadmin';
-    const isImpersonatingNonAdmin = impersonatedUserId && !isSuperAdmin;
+    // Check if current user (impersonated or real) is admin or superadmin
+    const userRole = user?.role;
+    const isSuperAdmin = userRole === 'superadmin';
+    const isAdmin = userRole === 'admin';
+    const isImpersonatingNonAdmin = impersonatedUserId && !isSuperAdmin && !isAdmin;
 
     useEffect(() => {
         // Don't load admin data if impersonating a non-admin user

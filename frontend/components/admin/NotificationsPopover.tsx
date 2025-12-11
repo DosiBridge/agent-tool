@@ -1,62 +1,105 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Bell, X, Check, Info, AlertTriangle, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
-
-export interface Notification {
-    id: string;
-    title: string;
-    message: string;
-    type: 'info' | 'success' | 'warning' | 'error';
-    timestamp: Date;
-    read: boolean;
-}
-
-// Mock notifications for now
-const MOCK_NOTIFICATIONS: Notification[] = [
-    {
-        id: '1',
-        title: 'System Update',
-        message: 'System effectively updated to version 2.4.0 with new dashboard features.',
-        type: 'success',
-        timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 mins ago
-        read: false,
-    },
-    {
-        id: '2',
-        title: 'High Token Usage',
-        message: 'Global token usage has reached 80% of the daily limit.',
-        type: 'warning',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-        read: false,
-    },
-    {
-        id: '3',
-        title: 'New User Registration',
-        message: 'User "John Doe" has registered and requires approval.',
-        type: 'info',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
-        read: true,
-    },
-];
+import { getNotifications, markNotificationRead, markAllNotificationsRead, type Notification } from '@/lib/api/admin';
+import { useStore } from '@/lib/store';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function NotificationsPopover() {
     const [isOpen, setIsOpen] = useState(false);
-    const [notifications, setNotifications] = useState<Notification[]>(MOCK_NOTIFICATIONS);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [readNotifications, setReadNotifications] = useState<Set<string>>(new Set());
+    const isAuthenticated = useStore(state => state.isAuthenticated);
+    const router = useRouter();
 
-    const unreadCount = notifications.filter(n => !n.read).length;
+    // Fetch notifications
+    useEffect(() => {
+        if (isAuthenticated) {
+            loadNotifications();
+            // Refresh every 30 seconds
+            const interval = setInterval(loadNotifications, 30000);
+            return () => clearInterval(interval);
+        } else {
+            setNotifications([]);
+            setLoading(false);
+        }
+    }, [isAuthenticated]);
 
-    const handleMarkAsRead = (id: string) => {
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    // Don't render if not authenticated
+    if (!isAuthenticated) {
+        return null;
+    }
+
+    const loadNotifications = async () => {
+        try {
+            setLoading(true);
+            const data = await getNotifications();
+            setNotifications(data);
+        } catch (error) {
+            console.error('Failed to load notifications:', error);
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleMarkAllAsRead = () => {
-        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    // Combine API read status with local read status
+    const isNotificationRead = (notification: Notification) => {
+        return notification.read || readNotifications.has(notification.id);
+    };
+
+    const unreadCount = notifications.filter(n => !isNotificationRead(n)).length;
+
+    const handleMarkAsRead = async (id: string) => {
+        // Optimistically update UI
+        setReadNotifications(prev => new Set(prev).add(id));
+        
+        try {
+            await markNotificationRead(id);
+        } catch (error) {
+            console.error('Failed to mark notification as read:', error);
+            // Revert on error
+            setReadNotifications(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(id);
+                return newSet;
+            });
+        }
+    };
+
+    const handleMarkAllAsRead = async () => {
+        // Optimistically update UI
+        const allIds = new Set(notifications.map(n => n.id));
+        setReadNotifications(allIds);
+        
+        try {
+            await markAllNotificationsRead();
+        } catch (error) {
+            console.error('Failed to mark all notifications as read:', error);
+            setReadNotifications(new Set());
+        }
     };
 
     const handleRemove = (id: string) => {
         setNotifications(prev => prev.filter(n => n.id !== id));
+        setReadNotifications(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(id);
+            return newSet;
+        });
+    };
+
+    const handleNotificationClick = (notification: Notification) => {
+        if (!isNotificationRead(notification)) {
+            handleMarkAsRead(notification.id);
+        }
+        if (notification.link) {
+            setIsOpen(false);
+            router.push(notification.link);
+        }
     };
 
     const getIcon = (type: Notification['type']) => {
@@ -126,66 +169,83 @@ export default function NotificationsPopover() {
                             </div>
 
                             <div className="overflow-y-auto flex-1 p-2 space-y-2">
-                                {notifications.length === 0 ? (
+                                {loading ? (
+                                    <div className="py-8 text-center text-zinc-500">
+                                        <Bell className="w-8 h-8 mx-auto mb-2 opacity-50 animate-pulse" />
+                                        <p className="text-sm">Loading notifications...</p>
+                                    </div>
+                                ) : notifications.length === 0 ? (
                                     <div className="py-8 text-center text-zinc-500">
                                         <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
                                         <p className="text-sm">No notifications</p>
                                     </div>
                                 ) : (
-                                    notifications.map((notification) => (
-                                        <motion.div
-                                            layout
-                                            key={notification.id}
-                                            initial={{ opacity: 0, x: -20 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            exit={{ opacity: 0, x: 20 }}
-                                            className={cn(
-                                                "relative p-3 rounded-xl border transition-all duration-200 group",
-                                                getBgColor(notification.type),
-                                                !notification.read && "bg-white/5"
-                                            )}
-                                        >
-                                            <div className="flex gap-3">
-                                                <div className={cn("mt-1 flex-shrink-0")}>
-                                                    {getIcon(notification.type)}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-start justify-between gap-2">
-                                                        <h4 className={cn("text-sm font-medium truncate pr-4", notification.read ? "text-zinc-400" : "text-white")}>
-                                                            {notification.title}
-                                                        </h4>
-                                                        <span className="text-[10px] text-zinc-500 whitespace-nowrap">
-                                                            {formatDistanceToNow(notification.timestamp, { addSuffix: true })}
-                                                        </span>
-                                                    </div>
-                                                    <p className="text-xs text-zinc-400 mt-1 leading-normal line-clamp-2">
-                                                        {notification.message}
-                                                    </p>
-
-                                                    <div className="flex items-center gap-3 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {!notification.read && (
-                                                            <button
-                                                                onClick={() => handleMarkAsRead(notification.id)}
-                                                                className="text-[10px] font-medium text-indigo-400 hover:text-indigo-300"
-                                                            >
-                                                                Mark as read
-                                                            </button>
-                                                        )}
-                                                        <button
-                                                            onClick={() => handleRemove(notification.id)}
-                                                            className="text-[10px] font-medium text-zinc-500 hover:text-zinc-300"
-                                                        >
-                                                            Dismiss
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {!notification.read && (
-                                                    <div className="absolute top-4 right-3 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                                    notifications.map((notification) => {
+                                        const isRead = isNotificationRead(notification);
+                                        const timestamp = new Date(notification.timestamp);
+                                        return (
+                                            <motion.div
+                                                layout
+                                                key={notification.id}
+                                                initial={{ opacity: 0, x: -20 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                exit={{ opacity: 0, x: 20 }}
+                                                onClick={() => handleNotificationClick(notification)}
+                                                className={cn(
+                                                    "relative p-3 rounded-xl border transition-all duration-200 group cursor-pointer",
+                                                    getBgColor(notification.type),
+                                                    !isRead && "bg-white/5",
+                                                    notification.link && "hover:bg-white/10"
                                                 )}
-                                            </div>
-                                        </motion.div>
-                                    ))
+                                            >
+                                                <div className="flex gap-3">
+                                                    <div className={cn("mt-1 flex-shrink-0")}>
+                                                        {getIcon(notification.type)}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <h4 className={cn("text-sm font-medium truncate pr-4", isRead ? "text-zinc-400" : "text-white")}>
+                                                                {notification.title}
+                                                            </h4>
+                                                            <span className="text-[10px] text-zinc-500 whitespace-nowrap">
+                                                                {formatDistanceToNow(timestamp, { addSuffix: true })}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-xs text-zinc-400 mt-1 leading-normal line-clamp-2">
+                                                            {notification.message}
+                                                        </p>
+
+                                                        <div className="flex items-center gap-3 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            {!isRead && (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleMarkAsRead(notification.id);
+                                                                    }}
+                                                                    className="text-[10px] font-medium text-indigo-400 hover:text-indigo-300"
+                                                                >
+                                                                    Mark as read
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleRemove(notification.id);
+                                                                }}
+                                                                className="text-[10px] font-medium text-zinc-500 hover:text-zinc-300"
+                                                            >
+                                                                Dismiss
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {!isRead && (
+                                                        <div className="absolute top-4 right-3 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                                                    )}
+                                                </div>
+                                            </motion.div>
+                                        );
+                                    })
                                 )}
                             </div>
                         </motion.div>

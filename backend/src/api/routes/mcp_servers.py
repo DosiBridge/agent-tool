@@ -37,30 +37,30 @@ async def list_mcp_servers(
         
         if is_superadmin:
             # Superadmin sees ALL global servers (enabled and disabled)
-            # Global servers are owned by superadmin (user_id=1) or None (for backward compatibility)
+            # Global servers use user_id=None (backward compatible with user_id=1)
             db_servers = db.query(MCPServer).filter(
                 or_(
                     MCPServer.user_id == current_user.id,  # User's own servers (all)
-                    MCPServer.user_id == 1,                # Global servers owned by superadmin
-                    MCPServer.user_id.is_(None)             # Global servers (backward compatibility)
+                    MCPServer.user_id.is_(None),           # Global servers (user_id=None)
+                    MCPServer.user_id == 1                  # Legacy global servers (backward compatibility)
                 )
             ).order_by(
-                MCPServer.user_id.asc(),  # User servers first, then global (1 and None come after)
+                MCPServer.user_id.asc(),  # User servers first, then global (None and 1 come after)
                 MCPServer.created_at.desc()
             ).all()
         else:
             # Regular users see ONLY ENABLED global servers
-            # Global servers are owned by superadmin (user_id=1) or None (for backward compatibility)
+            # Global servers use user_id=None (backward compatible with user_id=1)
             db_servers = db.query(MCPServer).filter(
                 or_(
                     MCPServer.user_id == current_user.id,  # User's own servers (all, including disabled)
                     and_(
-                        or_(MCPServer.user_id == 1, MCPServer.user_id.is_(None)),  # Global servers (user_id=1 or None)
+                        or_(MCPServer.user_id.is_(None), MCPServer.user_id == 1),  # Global servers: None or legacy ID=1
                         MCPServer.enabled == True      # But only enabled ones
                     )
                 )
             ).order_by(
-                MCPServer.user_id.asc(),  # User servers first, then global (1 and None come after)
+                MCPServer.user_id.asc(),  # User servers first, then global (None and 1 come after)
                 MCPServer.created_at.desc()
             ).all()
         
@@ -81,8 +81,8 @@ async def list_mcp_servers(
             safe_server = server.to_dict(include_api_key=False)
             safe_server["has_api_key"] = bool(server.api_key)
             safe_server["user_id"] = server.user_id  # Include user_id to identify global servers
-            is_global = (server.user_id == 1 or server.user_id is None)
-            safe_server["is_global"] = is_global  # Mark global servers (user_id=1 or None)
+            is_global = (server.user_id is None or server.user_id == 1)
+            safe_server["is_global"] = is_global  # Mark global servers (user_id=None, or legacy ID=1)
             # Ensure enabled field exists (default to True if not present)
             if "enabled" not in safe_server:
                 safe_server["enabled"] = True

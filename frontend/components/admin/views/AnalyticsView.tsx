@@ -14,6 +14,7 @@ import {
     BarChart as BarChartIcon
 } from 'lucide-react';
 import { getSystemStats, SystemStats, getUsageAnalytics, getModelAnalytics, getTopUsersAnalytics } from '@/lib/api/admin';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import {
@@ -25,6 +26,7 @@ import {
 const COLORS = ['#818cf8', '#34d399', '#f472b6', '#fbbf24', '#60a5fa'];
 
 export default function AnalyticsView() {
+    const user = useStore(state => state.user);
     const [stats, setStats] = useState<SystemStats | null>(null);
     const [usageData, setUsageData] = useState<any[]>([]);
     const [modelData, setModelData] = useState<any[]>([]);
@@ -33,11 +35,24 @@ export default function AnalyticsView() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        // Don't load stats if user is blocked
+        if (user && !user.is_active) {
+            setError("Your account is blocked. You cannot access admin features.");
+            setLoading(false);
+            return;
+        }
+
         const loadStats = async () => {
             try {
                 setError(null);
                 const [data, usage, models, users] = await Promise.all([
-                    getSystemStats(),
+                    getSystemStats().catch((err) => {
+                        // Handle 403 errors gracefully
+                        if (err?.statusCode === 403 || err?.message?.includes("inactive")) {
+                            throw new Error("Your account is blocked. You cannot access admin features.");
+                        }
+                        throw err;
+                    }),
                     getUsageAnalytics(30).catch(() => []),
                     getModelAnalytics(30).catch(() => []),
                     getTopUsersAnalytics(5, 30).catch(() => [])
@@ -48,19 +63,42 @@ export default function AnalyticsView() {
                 setTopUsers(users || []);
             } catch (error: any) {
                 console.error("Failed to load stats:", error);
-                setError(error?.message || "Failed to load analytics data");
+                const errorMessage = error?.message || error?.detail || "Failed to load analytics data";
+                // Check if it's a blocked user error
+                if (error?.statusCode === 403 || errorMessage.includes("inactive") || errorMessage.includes("blocked")) {
+                    setError("Your account is blocked. You cannot access admin features.");
+                } else {
+                    setError(errorMessage);
+                }
             } finally {
                 setLoading(false);
             }
         };
         loadStats();
-    }, []);
+    }, [user]);
 
     if (loading) {
         return (
             <div className="p-8 text-center text-zinc-500 flex flex-col items-center justify-center min-h-[400px]">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mb-4"></div>
                 <p>Loading analytics...</p>
+            </div>
+        );
+    }
+
+    if (error && (error.includes("blocked") || error.includes("inactive"))) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <div className="text-center max-w-md">
+                    <div className="w-16 h-16 border-4 border-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Lock className="w-8 h-8 text-red-400" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-white mb-2">Account Blocked</h3>
+                    <p className="text-zinc-400 mb-4">{error}</p>
+                    <p className="text-sm text-zinc-500">
+                        Please contact a superadmin to unblock your account or send an appeal message.
+                    </p>
+                </div>
             </div>
         );
     }

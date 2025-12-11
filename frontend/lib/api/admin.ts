@@ -97,6 +97,26 @@ export const promoteToSuperadmin = async (userId: number): Promise<AdminUser> =>
   return data.user;
 };
 
+export const promoteToAdmin = async (userId: number): Promise<AdminUser> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/users/${userId}/promote-to-admin`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+  });
+  const data = await handleResponse<{ status: string; user: AdminUser }>(response);
+  return data.user;
+};
+
+export const demoteToUser = async (userId: number): Promise<AdminUser> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/users/${userId}/demote-to-user`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+  });
+  const data = await handleResponse<{ status: string; user: AdminUser }>(response);
+  return data.user;
+};
+
 export const getSystemStats = async (): Promise<SystemStats> => {
   // Check if impersonating a non-admin user before making API call
   try {
@@ -409,6 +429,98 @@ export const getTopUsersAnalytics = async (limit: number = 5, days: number = 30)
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/admin/analytics/top-users?limit=${limit}&days=${days}`, {
     headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
+// --- User Appeals ---
+
+export interface UserAppeal {
+  id: number;
+  user_id: number;
+  user_name?: string;
+  user_email?: string;
+  message: string;
+  status: string;
+  admin_response?: string;
+  reviewed_by?: number;
+  reviewer_name?: string;
+  reviewed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// --- Notifications ---
+
+export interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  timestamp: string;
+  read: boolean;
+  link?: string;
+  metadata?: Record<string, any>;
+}
+
+export const getNotifications = async (): Promise<Notification[]> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/notifications`, {
+    headers: getAuthHeaders(),
+  });
+  const data = await handleResponse<Notification[]>(response);
+  return data;
+};
+
+export const markNotificationRead = async (notificationId: string): Promise<void> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  await fetch(`${apiBaseUrl}/api/admin/notifications/${notificationId}/read`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+  });
+};
+
+export const markAllNotificationsRead = async (): Promise<void> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  await fetch(`${apiBaseUrl}/api/admin/notifications/read-all`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+  });
+};
+
+// --- User Appeals ---
+
+export const createAppeal = async (message: string): Promise<UserAppeal> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/appeals`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  return handleResponse<UserAppeal>(response);
+};
+
+export const listAppeals = async (status?: string): Promise<UserAppeal[]> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const url = status 
+    ? `${apiBaseUrl}/api/admin/appeals?status=${status}`
+    : `${apiBaseUrl}/api/admin/appeals`;
+  const response = await fetch(url, {
+    headers: getAuthHeaders(),
+  });
+  return handleResponse<UserAppeal[]>(response);
+};
+
+export const respondToAppeal = async (
+  appealId: number,
+  adminResponse: string,
+  status: string = "reviewed"
+): Promise<{ status: string; appeal: UserAppeal }> => {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/admin/appeals/${appealId}/respond`, {
+    method: "PUT",
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ admin_response: adminResponse, status }),
   });
   return handleResponse(response);
 };

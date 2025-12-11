@@ -2,7 +2,7 @@
 Core domain models and database configuration
 """
 from .database import Base, get_db, get_db_context, init_db, DB_AVAILABLE
-from .models import User, LLMConfig, MCPServer, Conversation, Message, DocumentCollection, CustomRAGTool, AppointmentRequest, UserGlobalConfigPreference
+from .models import User, LLMConfig, MCPServer, Conversation, Message, DocumentCollection, CustomRAGTool, AppointmentRequest, UserGlobalConfigPreference, UserAppeal
 from .config import Config
 from .constants import (
     RATE_LIMIT_CHAT,
@@ -39,6 +39,7 @@ __all__ = [
     "DocumentCollection",
     "CustomRAGTool",
     "AppointmentRequest",
+    "UserAppeal",
     "Config",
 
     "get_current_user",

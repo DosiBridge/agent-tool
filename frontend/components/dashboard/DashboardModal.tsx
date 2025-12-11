@@ -19,12 +19,14 @@ export default function DashboardModal({ isOpen, onClose }: DashboardModalProps)
     const impersonatedUserId = useStore(state => state.impersonatedUserId);
     const [activeTab, setActiveTab] = useState<'overview' | 'admin'>('overview');
 
-    // Check if current user (impersonated or real) is superadmin
-    // When impersonating, user is the impersonated user, so check their role
-    const isSuperAdmin = user?.role === 'superadmin';
+    // Check user role (admin or superadmin)
+    const userRole = user?.role;
+    const isSuperAdmin = userRole === 'superadmin';
+    const isAdmin = userRole === 'admin';
     
-    // If impersonating a non-superadmin, don't show admin features
-    const canAccessAdmin = isSuperAdmin && (!impersonatedUserId || user?.role === 'superadmin');
+    // Admin and superadmin can access admin console
+    // If impersonating a non-admin, don't show admin features
+    const canAccessAdmin = (isSuperAdmin || isAdmin) && (!impersonatedUserId || (userRole === 'superadmin' || userRole === 'admin'));
 
     return (
         <Transition appear show={isOpen} as={Fragment}>
@@ -59,8 +61,18 @@ export default function DashboardModal({ isOpen, onClose }: DashboardModalProps)
                                             <LayoutDashboard className="w-6 h-6" />
                                         </div>
                                         <div>
-                                            <Dialog.Title as="h3" className="text-xl font-semibold text-white">
+                                            <Dialog.Title as="h3" className="text-xl font-semibold text-white flex items-center gap-2">
                                                 Dashboard
+                                                {isSuperAdmin && (
+                                                    <span className="px-2 py-0.5 text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded">
+                                                        SuperAdmin
+                                                    </span>
+                                                )}
+                                                {isAdmin && !isSuperAdmin && (
+                                                    <span className="px-2 py-0.5 text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">
+                                                        Admin
+                                                    </span>
+                                                )}
                                             </Dialog.Title>
                                             <p className="text-sm text-zinc-400">
                                                 Welcome back, {user?.name}
@@ -95,22 +107,24 @@ export default function DashboardModal({ isOpen, onClose }: DashboardModalProps)
                                             className={cn(
                                                 "px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2",
                                                 activeTab === 'admin'
-                                                    ? "border-purple-500 text-purple-400"
+                                                    ? isSuperAdmin 
+                                                        ? "border-purple-500 text-purple-400"
+                                                        : "border-blue-500 text-blue-400"
                                                     : "border-transparent text-zinc-400 hover:text-white"
                                             )}
                                         >
                                             <SettingsIcon className="w-4 h-4" />
-                                            Admin Console
+                                            {isSuperAdmin ? 'SuperAdmin Console' : 'Admin Console'}
                                         </button>
                                     )}
                                     {canAccessAdmin && (
                                         <div className="flex items-center gap-2 ml-auto">
                                             <Link
-                                            href="/admin"
+                                                href="/admin"
                                                 className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors flex items-center gap-1.5"
                                             >
                                                 <LayoutDashboard className="w-3.5 h-3.5" />
-                                                Full Admin Page
+                                                Full {isSuperAdmin ? 'SuperAdmin' : 'Admin'} Dashboard
                                             </Link>
                                         </div>
                                     )}
