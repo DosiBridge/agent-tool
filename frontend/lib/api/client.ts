@@ -5,14 +5,16 @@
 
 // Runtime config loader - reads from public/runtime-config.json if available
 // This allows the API URL to be configured at container startup time
-let runtimeConfig: { 
+type RuntimeConfig = {
   API_BASE_URL?: string;
   AUTH0_DOMAIN?: string;
   AUTH0_CLIENT_ID?: string;
   AUTH0_AUDIENCE?: string;
-} | null = null;
+};
+
+let runtimeConfig: RuntimeConfig | null = null;
 let configLoadPromise: Promise<string> | null = null;
-let fullConfigPromise: Promise<typeof runtimeConfig> | null = null;
+let fullConfigPromise: Promise<RuntimeConfig | null> | null = null;
 
 /**
  * Get API base URL - loads runtime config on first call, then caches it
@@ -75,7 +77,7 @@ export async function getApiBaseUrl(): Promise<string> {
 /**
  * Get full runtime config including Auth0 settings
  */
-export async function getRuntimeConfig(): Promise<typeof runtimeConfig> {
+export async function getRuntimeConfig(): Promise<RuntimeConfig | null> {
   // Return cached value if already loaded
   if (runtimeConfig) {
     return runtimeConfig;

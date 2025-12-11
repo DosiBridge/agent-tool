@@ -24,7 +24,7 @@ import type { KeyboardEvent, ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import RAGEnablePopup from "@/components/RAGEnablePopup";
-import GuestEmailDialog from "@/components/chat/GuestEmailDialog";
+import GuestEmailDialog from "./chat/GuestEmailDialog";
 
 import { cn } from "@/lib/utils";
 
