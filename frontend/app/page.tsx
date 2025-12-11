@@ -11,6 +11,7 @@ import { InfiniteMovingCards } from "@/components/ui/infinite-moving-cards";
 import { EvervaultCard, Icon } from "@/components/ui/evervault-card";
 import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
 import { IconHome, IconInfoCircle, IconMail, IconFileText, IconBrandGithub } from "@tabler/icons-react";
+import { Github, Star } from "lucide-react";
 import Link from "next/link";
 
 import { useStore } from "@/lib/store";
@@ -26,35 +27,100 @@ export default function Home() {
 
   const navItems = [
     {
-      name: "Home",
-      link: "/",
-      icon: <IconHome className="h-4 w-4 text-neutral-500 dark:text-white" />,
-    },
-    {
       name: "About",
       link: "#about",
       icon: <IconInfoCircle className="h-4 w-4 text-neutral-500 dark:text-white" />,
+      dropdown: [
+        {
+          title: "About DosiBridge",
+          description: "Learn about our mission and vision",
+          link: "#about",
+        },
+        {
+          title: "Open Source",
+          description: "Fully open source under MIT License",
+          link: "#about",
+        },
+        {
+          title: "Security",
+          description: "Enterprise-grade security and privacy",
+          link: "#about",
+        },
+      ],
     },
     {
       name: "Features",
       link: "#features",
       icon: <IconFileText className="h-4 w-4 text-neutral-500 dark:text-white" />,
+      dropdown: [
+        {
+          title: "RAG Technology",
+          description: "Retrieval-Augmented Generation",
+          link: "#features",
+        },
+        {
+          title: "AI Agents",
+          description: "Intelligent autonomous agents",
+          link: "#features",
+        },
+        {
+          title: "Document Upload",
+          description: "Upload and query your documents",
+          link: "#features",
+        },
+        {
+          title: "Tool Integration",
+          description: "Extensible tool ecosystem",
+          link: "#features",
+        },
+      ],
     },
     {
       name: "Docs",
       link: "/docs",
       icon: <IconFileText className="h-4 w-4 text-neutral-500 dark:text-white" />,
+      dropdown: [
+        {
+          title: "Getting Started",
+          description: "Quick start guide",
+          link: "/docs",
+        },
+        {
+          title: "API Reference",
+          description: "Complete API documentation",
+          link: "/docs",
+        },
+        {
+          title: "Examples",
+          description: "Code examples and tutorials",
+          link: "/docs",
+        },
+      ],
     },
     {
       name: "Contact",
       link: "#contact",
       icon: <IconMail className="h-4 w-4 text-neutral-500 dark:text-white" />,
+      dropdown: [
+        {
+          title: "Get Support",
+          description: "Get help from our team",
+          link: "#contact",
+        },
+        {
+          title: "Report Issue",
+          description: "Report bugs or issues",
+          link: "https://github.com/DosiBridge/agent-tool/issues",
+          external: true,
+        },
+        {
+          title: "Feature Request",
+          description: "Suggest new features",
+          link: "https://github.com/DosiBridge/agent-tool/issues",
+          external: true,
+        },
+      ],
     },
-    ...(mounted && isAuthenticated && user?.role === 'superadmin' ? [{
-      name: "Dashboard",
-      link: "/admin",
-      icon: <IconBrandGithub className="h-4 w-4 text-neutral-500 dark:text-white" />, // Using Github icon as placeholder, or could import LayoutDashboard
-    }] : []),
   ];
 
   const words = ["Intelligent", "Autonomous", "Creative", "Secure"];
@@ -117,9 +183,16 @@ export default function Home() {
                 <span className="text-sm sm:text-base">Get Started</span>
               </HoverBorderGradient>
             </Link>
-            <Link href="/docs" className="w-full sm:w-auto">
-              <button className="w-full sm:w-auto px-6 sm:px-8 py-2.5 sm:py-2 rounded-full bg-transparent border border-white/20 text-white text-sm sm:text-base hover:bg-white/10 transition duration-200">
-                Learn More
+            <Link 
+              href="https://github.com/DosiBridge/agent-tool"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto"
+            >
+              <button className="w-full sm:w-auto px-6 sm:px-8 py-2.5 sm:py-2 rounded-full bg-transparent border border-white/20 text-white text-sm sm:text-base hover:bg-white/10 transition duration-200 flex items-center justify-center gap-2">
+                <Github className="w-4 h-4" />
+                <span>Star on GitHub</span>
+                <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
               </button>
             </Link>
           </div>

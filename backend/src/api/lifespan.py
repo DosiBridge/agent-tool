@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from src.core import get_db_context, DB_AVAILABLE, init_db, LLMConfig
 from src.core.models import User, EmbeddingConfig, MCPServer
 from src.core.env_validation import validate_and_exit_on_error
-from src.core.auth import get_password_hash
+# from src.core.auth import get_password_hash # Removed
 from src.mcp import MCP_SERVERS
 from src.utils import suppress_mcp_cleanup_errors
 
@@ -26,33 +26,35 @@ async def mcp_lifespan(app: FastAPI):
         print("✓ Database initialized")
         
         # First-time initialization: Ensure superadmin exists, then create default configs
-        # All global configs are owned by superadmin (user_id=1)
+        # Global configs use user_id=None (more professional than hardcoding an ID)
         try:
             if DB_AVAILABLE:
                 with get_db_context() as db:
-                    # Step 1: Ensure superadmin exists with ID=1
+                    # Step 1: Ensure superadmin exists (find by role, not hardcoded ID)
                     superadmin_email = os.getenv("SUPERADMIN_EMAIL", "super@mail.com")
                     superadmin_password = os.getenv("SUPERADMIN_PASSWORD", "sparrow")
                     
-                    superadmin = db.query(User).filter(User.id == 1).first()
+                    # Find superadmin by role (more flexible than hardcoding ID=1)
+                    superadmin = db.query(User).filter(User.role == "superadmin").first()
+                    
                     if not superadmin:
-                        # Check if superadmin exists with different ID
-                        existing_superadmin = db.query(User).filter(
-                            User.email == superadmin_email,
-                            User.role == "superadmin"
-                        ).first()
+                        # Check if user with superadmin email exists
+                        existing_user = db.query(User).filter(User.email == superadmin_email).first()
                         
-                        if existing_superadmin:
-                            print(f"⚠️  Superadmin exists with ID={existing_superadmin.id}, but ID=1 is required.")
-                            print(f"   Please manually update user ID={existing_superadmin.id} to ID=1.")
+                        if existing_user:
+                            # Promote existing user to superadmin
+                            existing_user.role = "superadmin"
+                            existing_user.is_active = True
+                            db.commit()
+                            db.refresh(existing_user)
+                            superadmin = existing_user
+                            print(f"✓ Promoted existing user to superadmin (ID={superadmin.id}): {superadmin.email}")
                         else:
-                            # Create superadmin with ID=1
-                            hashed_password = get_password_hash(superadmin_password)
+                            # Create new superadmin (let database assign ID)
                             superadmin = User(
-                                id=1,  # Explicitly set ID=1
                                 email=superadmin_email,
                                 name="Super Admin",
-                                hashed_password=hashed_password,
+                                hashed_password=None, # Password login disabled
                                 is_active=True,
                                 role="superadmin"
                             )
@@ -60,49 +62,37 @@ async def mcp_lifespan(app: FastAPI):
                             try:
                                 db.commit()
                                 db.refresh(superadmin)
-                                print(f"✓ Created superadmin (ID=1) from environment variables")
+                                print(f"✓ Created superadmin (ID={superadmin.id}) from environment variables: {superadmin.email}")
                             except Exception as e:
                                 db.rollback()
-                                # If explicit ID fails, try without ID and update sequence
-                                print(f"⚠️  Could not create superadmin with ID=1: {e}")
-                                print("   Attempting without explicit ID...")
-                                superadmin = User(
-                                    email=superadmin_email,
-                                    name="Super Admin",
-                                    hashed_password=hashed_password,
-                                    is_active=True,
-                                    role="superadmin"
-                                )
-                                db.add(superadmin)
-                                db.commit()
-                                db.refresh(superadmin)
-                                if superadmin.id != 1:
-                                    print(f"⚠️  WARNING: Superadmin created with ID={superadmin.id}, not 1")
+                                print(f"⚠️  Failed to create superadmin: {e}")
+                                raise
                     else:
-                        # Ensure existing superadmin has correct role
+                        # Ensure existing superadmin has correct role and is active
                         if not hasattr(superadmin, 'role') or superadmin.role != "superadmin":
                             superadmin.role = "superadmin"
+                        if not superadmin.is_active:
                             superadmin.is_active = True
                             db.commit()
-                            print(f"✓ Updated user ID=1 to superadmin role")
-                        else:
-                            print(f"✓ Superadmin (ID=1) exists: {superadmin.email}")
+                        print(f"✓ Superadmin exists (ID={superadmin.id}): {superadmin.email}")
                     
-                    # Get superadmin ID (should be 1)
+                    # Get superadmin ID for reference (but global configs use None)
                     superadmin_id = superadmin.id if superadmin else None
-                    if superadmin_id != 1:
-                        print(f"⚠️  WARNING: Superadmin ID is {superadmin_id}, not 1. Global configs may not work correctly.")
+                    if not superadmin_id:
+                        print(f"⚠️  WARNING: Could not determine superadmin ID. Global configs may not work correctly.")
+                        raise RuntimeError("Superadmin not found or has no ID")
                     
-                    # Step 2: Check if any active default global configs exist (user_id=1 or user_id=None for backward compatibility)
+                    # Step 2: Check if any active default global configs exist (user_id=None for global configs)
                     # We check for active defaults to allow re-initialization if configs were deleted or deactivated
+                    # Global configs use user_id=None (more professional than hardcoding an ID)
                     active_default_llm = db.query(LLMConfig).filter(
-                        ((LLMConfig.user_id == 1) | (LLMConfig.user_id == None)),
+                        LLMConfig.user_id.is_(None),  # Global configs use None
                         LLMConfig.active == True,
                         LLMConfig.is_default == True
                     ).first()
                     
                     active_default_embedding = db.query(EmbeddingConfig).filter(
-                        ((EmbeddingConfig.user_id == 1) | (EmbeddingConfig.user_id == None)),
+                        EmbeddingConfig.user_id.is_(None),  # Global configs use None
                         EmbeddingConfig.active == True,
                         EmbeddingConfig.is_default == True
                     ).first()
@@ -117,12 +107,12 @@ async def mcp_lifespan(app: FastAPI):
                             from src.utils.encryption import encrypt_value
                             # Unset any existing defaults first
                             db.query(LLMConfig).filter(
-                                ((LLMConfig.user_id == 1) | (LLMConfig.user_id == None)),
+                                LLMConfig.user_id.is_(None),  # Global configs use None
                                 LLMConfig.is_default == True
                             ).update({LLMConfig.is_default: False})
                             
                             default_llm_config = LLMConfig(
-                                user_id=superadmin_id,  # Owned by superadmin
+                                user_id=None,  # Global configs use None (not tied to specific user ID)
                                 type="deepseek",
                                 model="deepseek-chat",
                                 api_key=encrypt_value(deepseek_api_key),
@@ -134,7 +124,7 @@ async def mcp_lifespan(app: FastAPI):
                             try:
                                 db.commit()
                                 db.refresh(default_llm_config)
-                                print(f"✓ Created default global LLM config (owned by superadmin ID={superadmin_id}): DeepSeek (deepseek-chat)")
+                                print(f"✓ Created default global LLM config: DeepSeek (deepseek-chat)")
                             except Exception as commit_error:
                                 db.rollback()
                                 print(f"⚠️  Failed to create default LLM config: {commit_error}")
@@ -151,12 +141,12 @@ async def mcp_lifespan(app: FastAPI):
                             from src.utils.encryption import encrypt_value
                             # Unset any existing defaults first
                             db.query(EmbeddingConfig).filter(
-                                ((EmbeddingConfig.user_id == 1) | (EmbeddingConfig.user_id == None)),
+                                EmbeddingConfig.user_id.is_(None),  # Global configs use None
                                 EmbeddingConfig.is_default == True
                             ).update({EmbeddingConfig.is_default: False})
                             
                             default_embedding_config = EmbeddingConfig(
-                                user_id=superadmin_id,  # Owned by superadmin
+                                user_id=None,  # Global configs use None (not tied to specific user ID)
                                 provider="openai",
                                 model="text-embedding-3-small",
                                 api_key=encrypt_value(openai_api_key),
@@ -167,7 +157,7 @@ async def mcp_lifespan(app: FastAPI):
                             try:
                                 db.commit()
                                 db.refresh(default_embedding_config)
-                                print(f"✓ Created default global embedding config (owned by superadmin ID={superadmin_id}): OpenAI (text-embedding-3-small)")
+                                print(f"✓ Created default global embedding config: OpenAI (text-embedding-3-small)")
                             except Exception as commit_error:
                                 db.rollback()
                                 print(f"⚠️  Failed to create default embedding config: {commit_error}")
@@ -175,16 +165,26 @@ async def mcp_lifespan(app: FastAPI):
                             print("⚠️  OPENAI_API_KEY not set. Please configure embedding providers via the superadmin dashboard.")
                     
                     # Step 3: Check status of existing configs (re-check after potential initialization)
+                    # Also check for legacy configs with user_id=1 for migration purposes
                     global_llm_count = db.query(LLMConfig).filter(
-                        ((LLMConfig.user_id == 1) | (LLMConfig.user_id == None))
+                        LLMConfig.user_id.is_(None)  # Global configs use None
                     ).count()
+                    # Count legacy configs with user_id=1 for migration info
+                    legacy_llm_count = db.query(LLMConfig).filter(LLMConfig.user_id == 1).count()
+                    
                     global_embedding_count = db.query(EmbeddingConfig).filter(
-                        ((EmbeddingConfig.user_id == 1) | (EmbeddingConfig.user_id == None))
+                        EmbeddingConfig.user_id.is_(None)  # Global configs use None
                     ).count()
+                    # Count legacy configs with user_id=1 for migration info
+                    legacy_embedding_count = db.query(EmbeddingConfig).filter(EmbeddingConfig.user_id == 1).count()
+                    
+                    if legacy_llm_count > 0 or legacy_embedding_count > 0:
+                        print(f"ℹ️  Found {legacy_llm_count} legacy LLM config(s) and {legacy_embedding_count} legacy embedding config(s) with user_id=1.")
+                        print("   These will continue to work but new global configs use user_id=None.")
                     
                     if global_llm_count > 0:
                         active_default_llm_count = db.query(LLMConfig).filter(
-                            ((LLMConfig.user_id == 1) | (LLMConfig.user_id == None)),
+                            LLMConfig.user_id.is_(None),  # Global configs use None
                             LLMConfig.active == True,
                             LLMConfig.is_default == True
                         ).count()
@@ -195,7 +195,7 @@ async def mcp_lifespan(app: FastAPI):
                     
                     if global_embedding_count > 0:
                         active_default_embedding_count = db.query(EmbeddingConfig).filter(
-                            ((EmbeddingConfig.user_id == 1) | (EmbeddingConfig.user_id == None)),
+                            EmbeddingConfig.user_id.is_(None),  # Global configs use None
                             EmbeddingConfig.active == True,
                             EmbeddingConfig.is_default == True
                         ).count()

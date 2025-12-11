@@ -77,8 +77,8 @@ class Config:
             print("⚠️  MCP servers require authentication - user_id is required. No MCP access for unauthenticated users.")
             return []
         
-        # Load from database - user-specific servers AND global servers (user_id=1 or None)
-        # Global servers are owned by superadmin (user_id=1) or None (for backward compatibility)
+        # Load from database - user-specific servers AND global servers (user_id=None)
+        # Global servers use user_id=None (backward compatible with user_id=1)
         if DB_AVAILABLE:
             try:
                 # Load user preferences for global MCP servers
@@ -109,8 +109,8 @@ class Config:
                         MCPServer.enabled == True,
                         or_(
                             MCPServer.user_id == user_id,  # User's own servers
-                            MCPServer.user_id == 1,        # Global servers owned by superadmin
-                            MCPServer.user_id.is_(None)    # Global servers (backward compatibility)
+                            MCPServer.user_id.is_(None),   # Global servers (user_id=None)
+                            MCPServer.user_id == 1         # Legacy global servers (backward compatibility)
                         )
                     )
                     db_servers = query.all()
@@ -119,7 +119,7 @@ class Config:
                     for server in db_servers:
                         server_dict = server.to_dict(include_api_key=True)
                         server_user_id = server.user_id
-                        is_global = (server_user_id == 1 or server_user_id is None)
+                        is_global = (server_user_id is None or server_user_id == 1)
                         server_dict['is_global'] = is_global
                         
                         # For global servers, check user preference
@@ -149,7 +149,7 @@ class Config:
                         for server in db_servers:
                             server_dict = server.to_dict(include_api_key=True)
                             server_user_id = server.user_id
-                            is_global = (server_user_id == 1 or server_user_id is None)
+                            is_global = (server_user_id is None or server_user_id == 1)
                             server_dict['is_global'] = is_global
                             
                             # For global servers, check user preference
@@ -214,12 +214,12 @@ class Config:
                         
                         # If no user-specific active config, fall back to global config
                         # Regular users can only use global configs that are BOTH active AND default
-                        # Global configs are owned by superadmin (user_id=1) or None (for backward compatibility)
+                        # Global configs use user_id=None (backward compatible with user_id=1)
                         # Prioritize global configs marked as default, then by creation date
                         if not llm_config:
                             from sqlalchemy import or_
                             llm_config = db.query(LLMConfig).filter(
-                                or_(LLMConfig.user_id == 1, LLMConfig.user_id.is_(None)),
+                                or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
                                 LLMConfig.active == True,
                                 LLMConfig.is_default == True  # Must be default for regular users
                             ).order_by(
@@ -229,10 +229,10 @@ class Config:
                     else:
                         # Load global default config (no user_id)
                         # Only load global configs that are BOTH active AND default
-                        # Global configs are owned by superadmin (user_id=1) or None (for backward compatibility)
+                        # Global configs use user_id=None (backward compatible with user_id=1)
                         from sqlalchemy import or_
                         llm_config = db.query(LLMConfig).filter(
-                            or_(LLMConfig.user_id == 1, LLMConfig.user_id.is_(None)),
+                            or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
                             LLMConfig.active == True,
                             LLMConfig.is_default == True  # Must be default
                         ).order_by(
@@ -272,12 +272,12 @@ class Config:
                             ).first()
                             
                             # If no user-specific config, fall back to global config
-                            # Global configs are owned by superadmin (user_id=1) or None (for backward compatibility)
+                            # Global configs use user_id=None (backward compatible with user_id=1)
                             # Prioritize global configs marked as default, then by creation date
                             if not llm_config:
                                 from sqlalchemy import or_
                                 llm_config = session.query(LLMConfig).filter(
-                                    or_(LLMConfig.user_id == 1, LLMConfig.user_id.is_(None)),
+                                    or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
                                     LLMConfig.active == True
                                 ).order_by(
                                     LLMConfig.is_default.desc(),  # Default configs first
@@ -285,11 +285,11 @@ class Config:
                             ).first()
                         else:
                             # Load global default config (no user_id)
-                            # Global configs are owned by superadmin (user_id=1) or None (for backward compatibility)
+                            # Global configs use user_id=None (backward compatible with user_id=1)
                             # Prioritize global configs marked as default, then by creation date
                             from sqlalchemy import or_
                             llm_config = session.query(LLMConfig).filter(
-                                or_(LLMConfig.user_id == 1, LLMConfig.user_id.is_(None)),
+                                or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
                                 LLMConfig.active == True
                             ).order_by(
                                 LLMConfig.is_default.desc(),  # Default configs first

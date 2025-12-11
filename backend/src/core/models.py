@@ -194,9 +194,12 @@ if Base is not None:
         id = Column(Integer, primary_key=True, index=True)
         email = Column(String(255), unique=True, nullable=False, index=True)
         name = Column(String(255), nullable=False)
-        hashed_password = Column(String(255), nullable=False)
+        hashed_password = Column(String(255), nullable=True) # made nullable for OAuth/OTP users
+        otp_hash = Column(String(255), nullable=True)
+        otp_expires_at = Column(DateTime(timezone=True), nullable=True)
         is_active = Column(Boolean, default=True, nullable=False)
         role = Column(String(50), default="user", nullable=False)  # "user" or "superadmin"
+        picture = Column(String(500), nullable=True)  # URL to user's profile picture
         created_at = Column(DateTime(timezone=True), server_default=func.now())
         updated_at = Column(DateTime(timezone=True), onupdate=func.now())
         
@@ -206,6 +209,7 @@ if Base is not None:
                 "id": self.id,
                 "email": self.email,
                 "name": self.name,
+                "picture": self.picture,
                 "is_active": self.is_active,
                 "role": getattr(self, 'role', 'user'),  # Support both old and new schemas
                 "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -508,6 +512,7 @@ if Base is not None:
         
         id = Column(Integer, primary_key=True, index=True)
         user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)  # Nullable for anonymous users
+        guest_email = Column(String(255), nullable=True, index=True)  # Email for guest users
         ip_address = Column(String(45), nullable=True, index=True)  # IP address for anonymous users (IPv6 max length)
         usage_date = Column(DateTime(timezone=True), nullable=False, index=True)  # Date of usage (normalized to start of day)
         request_count = Column(Integer, default=0, nullable=False)  # Number of requests today
@@ -527,6 +532,7 @@ if Base is not None:
         __table_args__ = (
             UniqueConstraint('user_id', 'usage_date', name='uq_api_usage_user_date'),
             UniqueConstraint('ip_address', 'usage_date', name='uq_api_usage_ip_date'),
+            UniqueConstraint('guest_email', 'usage_date', name='uq_api_usage_guest_email_date'),
         )
         
         def to_dict(self) -> dict:
@@ -534,6 +540,7 @@ if Base is not None:
             return {
                 "id": self.id,
                 "user_id": self.user_id,
+                "guest_email": self.guest_email,
                 "ip_address": self.ip_address,
                 "usage_date": self.usage_date.isoformat() if self.usage_date else None,
                 "request_count": self.request_count,
@@ -554,6 +561,7 @@ if Base is not None:
         
         id = Column(Integer, primary_key=True, index=True)
         user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)  # Nullable for anonymous users
+        guest_email = Column(String(255), nullable=True, index=True)  # Email for guest users
         request_timestamp = Column(DateTime(timezone=True), nullable=False, index=True)  # Exact timestamp of the request
         llm_provider = Column(String(50), nullable=True)  # Which LLM provider was used
         llm_model = Column(String(100), nullable=True)  # Which model was used
@@ -574,6 +582,7 @@ if Base is not None:
             return {
                 "id": self.id,
                 "user_id": self.user_id,
+                "guest_email": self.guest_email,
                 "request_timestamp": self.request_timestamp.isoformat() if self.request_timestamp else None,
                 "llm_provider": self.llm_provider,
                 "llm_model": self.llm_model,
@@ -585,6 +594,40 @@ if Base is not None:
                 "session_id": self.session_id,
                 "success": self.success,
                 "created_at": self.created_at.isoformat() if self.created_at else None,
+            }
+
+    class UserAppeal(Base):
+        """User appeals/messages from blocked users to superadmin"""
+        __tablename__ = "user_appeals"
+        
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+        message = Column(Text, nullable=False)
+        status = Column(String(50), default="pending", nullable=False)  # pending, reviewed, resolved
+        admin_response = Column(Text, nullable=True)  # Response from superadmin
+        reviewed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+        reviewed_at = Column(DateTime(timezone=True), nullable=True)
+        created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+        updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+        
+        # Relationships
+        user = relationship("User", foreign_keys=[user_id], backref="appeals")
+        reviewer = relationship("User", foreign_keys=[reviewed_by])
+        
+        def to_dict(self) -> dict:
+            return {
+                "id": self.id,
+                "user_id": self.user_id,
+                "user_name": self.user.name if self.user else None,
+                "user_email": self.user.email if self.user else None,
+                "message": self.message,
+                "status": self.status,
+                "admin_response": self.admin_response,
+                "reviewed_by": self.reviewed_by,
+                "reviewer_name": self.reviewer.name if self.reviewer else None,
+                "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+                "created_at": self.created_at.isoformat() if self.created_at else None,
+                "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             }
 else:
     # Dummy classes when database is not available
@@ -600,3 +643,4 @@ else:
     CustomRAGTool = None  # type: ignore
     AppointmentRequest = None  # type: ignore
     APIUsage = None  # type: ignore
+    UserAppeal = None  # type: ignore

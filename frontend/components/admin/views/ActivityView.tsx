@@ -1,30 +1,55 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Activity as ActivityIcon, Clock, CheckCircle, AlertCircle, Sparkles, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Activity as ActivityIcon, Clock, CheckCircle, AlertCircle, Sparkles, Loader2, ChevronLeft, ChevronRight, RefreshCw, Lock } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getSystemActivity } from '@/lib/api/admin';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/lib/store';
 
 const ITEMS_PER_PAGE = 20;
 
 export default function ActivityView() {
+    const user = useStore(state => state.user);
     const [activities, setActivities] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
+    const [error, setError] = useState<string | null>(null);
+
+    const loadActivity = async () => {
+        // Don't load activity if user is blocked
+        if (user && !user.is_active) {
+            setError("Your account is blocked. You cannot access admin features.");
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const data = await getSystemActivity(100).catch((err) => {
+                if (err?.statusCode === 403 || err?.message?.includes("inactive")) {
+                    throw new Error("Your account is blocked. You cannot access admin features.");
+                }
+                return [];
+            });
+            setActivities(data || []);
+            setCurrentPage(1); // Reset to first page on refresh
+            setError(null);
+        } catch (error: any) {
+            console.error("Failed to load activity", error);
+            const errorMessage = error?.message || error?.detail || "Failed to load activity";
+            if (error?.statusCode === 403 || errorMessage.includes("inactive") || errorMessage.includes("blocked")) {
+                setError("Your account is blocked. You cannot access admin features.");
+            } else {
+                setError(errorMessage);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const loadActivity = async () => {
-            try {
-                const data = await getSystemActivity(100).catch(() => []);
-                setActivities(data || []);
-            } catch (error) {
-                console.error("Failed to load activity", error);
-            } finally {
-                setLoading(false);
-            }
-        };
         loadActivity();
-    }, []);
+    }, [user]);
 
     const totalPages = Math.ceil(activities.length / ITEMS_PER_PAGE);
     const paginatedActivities = useMemo(() => {
@@ -36,16 +61,43 @@ export default function ActivityView() {
         return <div className="p-12 text-center text-zinc-500 flex flex-col items-center"><Loader2 className="w-8 h-8 animate-spin mb-2" />Loading activity log...</div>;
     }
 
+    if (error && (error.includes("blocked") || error.includes("inactive"))) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <div className="text-center max-w-md">
+                    <div className="w-16 h-16 border-4 border-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Lock className="w-8 h-8 text-red-400" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-white mb-2">Account Blocked</h3>
+                    <p className="text-zinc-400 mb-4">{error}</p>
+                    <p className="text-sm text-zinc-500">
+                        Please contact a superadmin to unblock your account or send an appeal message.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6 h-full flex flex-col">
-            <div className="flex items-center gap-4 flex-shrink-0">
-                <div className="p-3 bg-purple-500/10 rounded-2xl border border-purple-500/20">
-                    <ActivityIcon className="h-6 w-6 text-purple-400" />
+            <div className="flex items-center justify-between gap-4 flex-shrink-0">
+                <div className="flex items-center gap-4">
+                    <div className="p-3 bg-purple-500/10 rounded-2xl border border-purple-500/20">
+                        <ActivityIcon className="h-6 w-6 text-purple-400" />
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-bold text-white">System Activity</h2>
+                        <p className="text-zinc-400 text-sm">Real-time log of important system events.</p>
+                    </div>
                 </div>
-                <div>
-                    <h2 className="text-2xl font-bold text-white">System Activity</h2>
-                    <p className="text-zinc-400 text-sm">Real-time log of important system events.</p>
-                </div>
+                <button
+                    onClick={loadActivity}
+                    disabled={loading}
+                    className="p-2.5 rounded-full bg-white/5 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-400 hover:text-white transition-colors border border-white/5"
+                    title="Refresh activity log"
+                >
+                    <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+                </button>
             </div>
 
             <div className="bg-zinc-900/50 backdrop-blur-sm border border-white/5 rounded-3xl overflow-hidden relative flex-1 flex flex-col min-h-0">

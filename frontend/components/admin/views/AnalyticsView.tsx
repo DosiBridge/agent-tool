@@ -14,6 +14,7 @@ import {
     BarChart as BarChartIcon
 } from 'lucide-react';
 import { getSystemStats, SystemStats, getUsageAnalytics, getModelAnalytics, getTopUsersAnalytics } from '@/lib/api/admin';
+import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import {
@@ -25,6 +26,7 @@ import {
 const COLORS = ['#818cf8', '#34d399', '#f472b6', '#fbbf24', '#60a5fa'];
 
 export default function AnalyticsView() {
+    const user = useStore(state => state.user);
     const [stats, setStats] = useState<SystemStats | null>(null);
     const [usageData, setUsageData] = useState<any[]>([]);
     const [modelData, setModelData] = useState<any[]>([]);
@@ -33,11 +35,24 @@ export default function AnalyticsView() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        // Don't load stats if user is blocked
+        if (user && !user.is_active) {
+            setError("Your account is blocked. You cannot access admin features.");
+            setLoading(false);
+            return;
+        }
+
         const loadStats = async () => {
             try {
                 setError(null);
                 const [data, usage, models, users] = await Promise.all([
-                    getSystemStats(),
+                    getSystemStats().catch((err) => {
+                        // Handle 403 errors gracefully
+                        if (err?.statusCode === 403 || err?.message?.includes("inactive")) {
+                            throw new Error("Your account is blocked. You cannot access admin features.");
+                        }
+                        throw err;
+                    }),
                     getUsageAnalytics(30).catch(() => []),
                     getModelAnalytics(30).catch(() => []),
                     getTopUsersAnalytics(5, 30).catch(() => [])
@@ -48,19 +63,42 @@ export default function AnalyticsView() {
                 setTopUsers(users || []);
             } catch (error: any) {
                 console.error("Failed to load stats:", error);
-                setError(error?.message || "Failed to load analytics data");
+                const errorMessage = error?.message || error?.detail || "Failed to load analytics data";
+                // Check if it's a blocked user error
+                if (error?.statusCode === 403 || errorMessage.includes("inactive") || errorMessage.includes("blocked")) {
+                    setError("Your account is blocked. You cannot access admin features.");
+                } else {
+                    setError(errorMessage);
+                }
             } finally {
                 setLoading(false);
             }
         };
         loadStats();
-    }, []);
+    }, [user]);
 
     if (loading) {
         return (
             <div className="p-8 text-center text-zinc-500 flex flex-col items-center justify-center min-h-[400px]">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mb-4"></div>
                 <p>Loading analytics...</p>
+            </div>
+        );
+    }
+
+    if (error && (error.includes("blocked") || error.includes("inactive"))) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <div className="text-center max-w-md">
+                    <div className="w-16 h-16 border-4 border-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Lock className="w-8 h-8 text-red-400" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-white mb-2">Account Blocked</h3>
+                    <p className="text-zinc-400 mb-4">{error}</p>
+                    <p className="text-sm text-zinc-500">
+                        Please contact a superadmin to unblock your account or send an appeal message.
+                    </p>
+                </div>
             </div>
         );
     }
@@ -194,9 +232,9 @@ export default function AnalyticsView() {
                                 No usage data available
                             </div>
                         ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={usageData}>
-                                <defs>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={usageData}>
+                                    <defs>
                                         <linearGradient id="colorInput" x1="0" y1="0" x2="0" y2="1">
                                             <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
                                             <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
@@ -204,15 +242,15 @@ export default function AnalyticsView() {
                                         <linearGradient id="colorOutput" x1="0" y1="0" x2="0" y2="1">
                                             <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
                                             <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                                <XAxis dataKey="date" hide />
-                                <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 2 }} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                                    <XAxis dataKey="date" hide />
+                                    <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 2 }} />
                                     <Area type="monotone" stackId="1" dataKey="input_tokens" name="Input Tokens" stroke="#34d399" strokeWidth={2} fillOpacity={1} fill="url(#colorInput)" />
                                     <Area type="monotone" stackId="1" dataKey="output_tokens" name="Output Tokens" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorOutput)" />
-                            </AreaChart>
-                        </ResponsiveContainer>
+                                </AreaChart>
+                            </ResponsiveContainer>
                         )}
                     </div>
                 </motion.div>
@@ -235,20 +273,20 @@ export default function AnalyticsView() {
                                 No request data available
                             </div>
                         ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={usageData}>
-                                <defs>
-                                    <linearGradient id="colorRequests" x1="0" y1="0" x2="0" y2="1">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={usageData}>
+                                    <defs>
+                                        <linearGradient id="colorRequests" x1="0" y1="0" x2="0" y2="1">
                                             <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
                                             <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                                <XAxis dataKey="date" hide />
-                                <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 2 }} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                                    <XAxis dataKey="date" hide />
+                                    <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 2 }} />
                                     <Area type="monotone" dataKey="requests" name="Total Requests" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorRequests)" />
-                            </AreaChart>
-                        </ResponsiveContainer>
+                                </AreaChart>
+                            </ResponsiveContainer>
                         )}
                     </div>
                 </motion.div>
@@ -324,7 +362,37 @@ export default function AnalyticsView() {
                                 <BarChart data={topUsers} layout="vertical" margin={{ left: 40, right: 20 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
                                     <XAxis type="number" hide />
-                                    <YAxis dataKey="name" type="category" width={100} tick={{ fill: '#a1a1aa' }} />
+                                    <YAxis
+                                        dataKey="name"
+                                        type="category"
+                                        width={200}
+                                        tick={({ x, y, payload }) => {
+                                            // Format: "Guest (email)" or "Name" - and potentially split
+                                            const name = payload.value;
+                                            const isGuest = name.startsWith("Guest");
+                                            // Hacky way to pass picture url if it were available, but for now just initials/guest icon
+                                            // Ideally the API would return an object with name and picture, but current recharts dataKey="name" expects string
+
+                                            return (
+                                                <g transform={`translate(${x},${y})`}>
+                                                    <foreignObject x={-200} y={-15} width={190} height={30}>
+                                                        <div className="flex items-center justify-end gap-2 h-full pr-2">
+                                                            <span className="text-xs text-zinc-400 truncate max-w-[150px]">{name}</span>
+                                                            {isGuest ? (
+                                                                <div className="w-5 h-5 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center">
+                                                                    <Users className="w-3 h-3 text-zinc-500" />
+                                                                </div>
+                                                            ) : (
+                                                                <div className="w-5 h-5 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
+                                                                    <span className="text-[9px] font-bold text-indigo-400">{name[0]?.toUpperCase()}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </foreignObject>
+                                                </g>
+                                            );
+                                        }}
+                                    />
                                     <Tooltip
                                         cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                                         contentStyle={{ backgroundColor: '#18181b', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px' }}

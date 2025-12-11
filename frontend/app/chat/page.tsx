@@ -15,8 +15,11 @@ import UsageIndicator from "@/components/UsageIndicator";
 import CommandPalette from "@/components/ui/CommandPalette";
 import DashboardModal from "@/components/dashboard/DashboardModal";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
+import BlockedUserView from "@/components/BlockedUserView";
+import NotificationsPopover from "@/components/admin/NotificationsPopover";
 import { useStore } from "@/lib/store";
 import { healthWebSocket } from "@/lib/websocket";
+import { cn } from "@/lib/utils";
 import {
   Activity,
   ArrowLeft,
@@ -69,10 +72,11 @@ export default function ChatPage() {
   // Suppress console errors for permission errors during impersonation
   useEffect(() => {
     const impersonatedUserId = useStore.getState().impersonatedUserId;
-    const user = useStore.getState().user;
-    const isImpersonatingNonAdmin = impersonatedUserId && user?.role !== 'superadmin';
+    const isSuperAdmin = useStore.getState().isSuperadmin();
+    // Only suppress errors if impersonating (superadmin can still access everything)
+    const isImpersonating = !!impersonatedUserId;
 
-    if (isImpersonatingNonAdmin) {
+    if (isImpersonating) {
       // Override console.error to suppress permission errors
       const originalError = console.error;
       console.error = (...args: any[]) => {
@@ -249,6 +253,11 @@ export default function ChatPage() {
     }
   }, [messages, currentSessionId]);
 
+  // Show blocked user view if user is authenticated but blocked
+  if (isAuthenticated && user && !user.is_active) {
+    return <BlockedUserView />;
+  }
+
   return (
     <div className="flex h-screen bg-neutral-950 overflow-hidden relative w-full">
       <BackgroundBeams className="opacity-40" />
@@ -397,6 +406,11 @@ export default function ChatPage() {
               <div>
                 <UsageIndicator />
               </div>
+              {isAuthenticated && (
+                <div className="hidden sm:block">
+                  <NotificationsPopover />
+                </div>
+              )}
               <Link
                 href="/monitoring"
                 className="p-1.5 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-95 touch-manipulation flex items-center justify-center"
@@ -410,6 +424,7 @@ export default function ChatPage() {
               </Link>
               {isAuthenticated && (
                 <>
+                  {/* Dashboard button - available to all authenticated users */}
                   <button
                     onClick={() => setDashboardOpen(true)}
                     className="p-1.5 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-95 touch-manipulation flex items-center justify-center"
@@ -421,15 +436,19 @@ export default function ChatPage() {
                       aria-hidden="true"
                     />
                   </button>
-                  {user?.role === "superadmin" && (
+                  {/* Admin/SuperAdmin Dashboard Link */}
+                  {(user?.role === "superadmin" || user?.role === "admin") && (
                     <Link
                       href="/admin"
                       className="p-1.5 bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-95 touch-manipulation flex items-center justify-center"
-                      aria-label="Go to admin dashboard"
-                      title="Admin Dashboard"
+                      aria-label={user?.role === "superadmin" ? "Go to SuperAdmin dashboard" : "Go to Admin dashboard"}
+                      title={user?.role === "superadmin" ? "SuperAdmin Dashboard" : "Admin Dashboard"}
                     >
                       <Shield
-                        className="w-4 h-4 text-white"
+                        className={cn(
+                          "w-4 h-4",
+                          user?.role === "superadmin" ? "text-purple-400" : "text-blue-400"
+                        )}
                         aria-hidden="true"
                       />
                     </Link>

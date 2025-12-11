@@ -124,9 +124,63 @@ def init_db():
         Base.metadata.create_all(bind=engine)
         print("✓ Database tables initialized")
         
-        # Add user_id columns if they don't exist (migration)
+        # Migration: Add missing columns to existing tables
         try:
             with engine.connect() as conn:
+                # Check and add otp_hash column to users table
+                result = conn.execute(
+                    text("SELECT column_name FROM information_schema.columns "
+                         "WHERE table_name='users' AND column_name='otp_hash'")
+                )
+                if not result.fetchone():
+                    print("📝 Adding otp_hash column to users table...")
+                    conn.execute(
+                        text("ALTER TABLE users ADD COLUMN otp_hash VARCHAR(255)")
+                    )
+                    conn.commit()
+                    print("✓ Added otp_hash column to users table")
+                
+                # Check and add otp_expires_at column to users table
+                result = conn.execute(
+                    text("SELECT column_name FROM information_schema.columns "
+                         "WHERE table_name='users' AND column_name='otp_expires_at'")
+                )
+                if not result.fetchone():
+                    print("📝 Adding otp_expires_at column to users table...")
+                    conn.execute(
+                        text("ALTER TABLE users ADD COLUMN otp_expires_at TIMESTAMP WITH TIME ZONE")
+                    )
+                    conn.commit()
+                    print("✓ Added otp_expires_at column to users table")
+                
+                # Check and add picture column to users table
+                result = conn.execute(
+                    text("SELECT column_name FROM information_schema.columns "
+                         "WHERE table_name='users' AND column_name='picture'")
+                )
+                if not result.fetchone():
+                    print("📝 Adding picture column to users table...")
+                    conn.execute(
+                        text("ALTER TABLE users ADD COLUMN picture VARCHAR(500)")
+                    )
+                    conn.commit()
+                    print("✓ Added picture column to users table")
+                
+                # Make hashed_password nullable (for OAuth users)
+                result = conn.execute(
+                    text("SELECT is_nullable FROM information_schema.columns "
+                         "WHERE table_name='users' AND column_name='hashed_password'")
+                )
+                row = result.fetchone()
+                if row and row[0] == 'NO':
+                    print("📝 Making hashed_password column nullable (for OAuth users)...")
+                    conn.execute(
+                        text("ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL")
+                    )
+                    conn.commit()
+                    print("✓ Made hashed_password column nullable")
+                
+                # Add user_id columns if they don't exist (migration)
                 # Check and add user_id to mcp_servers table
                 result = conn.execute(
                     text("SELECT column_name FROM information_schema.columns "
@@ -534,6 +588,34 @@ def init_db():
                     conn.execute(text("CREATE INDEX idx_user_global_config_pref_config ON user_global_config_preferences(config_type, config_id)"))
                     conn.commit()
                     print("✓ Created user_global_config_preferences table")
+                
+                # Check if user_appeals table exists
+                result = conn.execute(
+                    text("SELECT table_name FROM information_schema.tables "
+                         "WHERE table_name='user_appeals'")
+                )
+                if not result.fetchone():
+                    print("📝 Creating user_appeals table...")
+                    conn.execute(
+                        text("""
+                            CREATE TABLE user_appeals (
+                                id SERIAL PRIMARY KEY,
+                                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                message TEXT NOT NULL,
+                                status VARCHAR(50) DEFAULT 'pending' NOT NULL,
+                                admin_response TEXT,
+                                reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                                reviewed_at TIMESTAMP WITH TIME ZONE,
+                                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP WITH TIME ZONE
+                            )
+                        """)
+                    )
+                    conn.execute(text("CREATE INDEX idx_user_appeals_user_id ON user_appeals(user_id)"))
+                    conn.execute(text("CREATE INDEX idx_user_appeals_status ON user_appeals(status)"))
+                    conn.execute(text("CREATE INDEX idx_user_appeals_created_at ON user_appeals(created_at)"))
+                    conn.commit()
+                    print("✓ Created user_appeals table")
         except Exception as e:
             print(f"⚠️  Migration check failed (this is okay if columns already exist): {e}")
     except Exception as e:

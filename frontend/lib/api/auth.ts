@@ -16,45 +16,49 @@ import {
   setAuthToken,
 } from "./client";
 
-export async function register(
-  data: RegisterRequest,
-  persistentAccess: boolean = false
-): Promise<AuthResponse> {
+export async function requestOtp(email: string): Promise<{ message: string }> {
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/auth/register`, {
+  const response = await fetch(`${apiBaseUrl}/api/auth/request-otp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ email }),
+  });
+  return handleResponse<{ message: string }>(response);
+}
+
+export async function verifyOtp(email: string, otp: string): Promise<AuthResponse> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/auth/verify-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, otp }),
   });
   const result = await handleResponse<AuthResponse>(response);
-  
+
   // Determine if user is superadmin
   const isSuperadmin = result.user?.role === "superadmin";
-  
-  // Store token with appropriate persistence
-  setAuthToken(result.access_token, isSuperadmin, persistentAccess && isSuperadmin);
+
+  // Store token (always persistent for now? Or session? Standard is persistent for OAuth/modern apps)
+  setAuthToken(result.access_token, isSuperadmin, true);
   return result;
 }
 
+// Deprecated: Legacy login
 export async function login(
   data: LoginRequest,
   persistentAccess: boolean = false
 ): Promise<AuthResponse> {
-  const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  const result = await handleResponse<AuthResponse>(response);
-  
-  // Determine if user is superadmin
-  const isSuperadmin = result.user?.role === "superadmin";
-  
-  // Store token with appropriate persistence
-  // Only superadmin can use persistent access
-  setAuthToken(result.access_token, isSuperadmin, persistentAccess && isSuperadmin);
-  return result;
+  // Redirect to new flow or keep for backward compat if needed during transition
+  // For now, throwing error to force new flow usage
+  throw new Error("Password login is deprecated. Please use OTP login.");
+}
+
+// Deprecated: Legacy register
+export async function register(
+  data: RegisterRequest,
+  persistentAccess: boolean = false
+): Promise<AuthResponse> {
+  throw new Error("Password registration is deprecated. Please use OTP login.");
 }
 
 export async function logout(): Promise<void> {
