@@ -9,7 +9,8 @@ from fastapi import FastAPI
 from src.core import get_db_context, DB_AVAILABLE, init_db, LLMConfig
 from src.core.models import User, EmbeddingConfig, MCPServer
 from src.core.env_validation import validate_and_exit_on_error
-from src.core.auth import get_password_hash
+from src.core.env_validation import validate_and_exit_on_error
+# from src.core.auth import get_password_hash # Removed
 from src.mcp import MCP_SERVERS
 from src.utils import suppress_mcp_cleanup_errors
 
@@ -47,12 +48,12 @@ async def mcp_lifespan(app: FastAPI):
                             print(f"   Please manually update user ID={existing_superadmin.id} to ID=1.")
                         else:
                             # Create superadmin with ID=1
-                            hashed_password = get_password_hash(superadmin_password)
+                            # hashed_password = get_password_hash(superadmin_password) # Removed: Password login disabled
                             superadmin = User(
                                 id=1,  # Explicitly set ID=1
                                 email=superadmin_email,
                                 name="Super Admin",
-                                hashed_password=hashed_password,
+                                hashed_password=None, # Password login disabled
                                 is_active=True,
                                 role="superadmin"
                             )
@@ -69,7 +70,7 @@ async def mcp_lifespan(app: FastAPI):
                                 superadmin = User(
                                     email=superadmin_email,
                                     name="Super Admin",
-                                    hashed_password=hashed_password,
+                                    hashed_password=None,
                                     is_active=True,
                                     role="superadmin"
                                 )

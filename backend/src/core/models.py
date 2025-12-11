@@ -194,7 +194,9 @@ if Base is not None:
         id = Column(Integer, primary_key=True, index=True)
         email = Column(String(255), unique=True, nullable=False, index=True)
         name = Column(String(255), nullable=False)
-        hashed_password = Column(String(255), nullable=False)
+        hashed_password = Column(String(255), nullable=True) # made nullable for OAuth/OTP users
+        otp_hash = Column(String(255), nullable=True)
+        otp_expires_at = Column(DateTime(timezone=True), nullable=True)
         is_active = Column(Boolean, default=True, nullable=False)
         role = Column(String(50), default="user", nullable=False)  # "user" or "superadmin"
         created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -21,12 +21,8 @@ from .constants import (
 
 # Import auth functions for convenience
 from .auth import (
-    get_password_hash,
-    verify_password,
-    create_access_token,
     get_current_user,
     get_current_active_user,
-    ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 
 __all__ = [
@@ -44,12 +40,10 @@ __all__ = [
     "CustomRAGTool",
     "AppointmentRequest",
     "Config",
-    "get_password_hash",
-    "verify_password",
-    "create_access_token",
+
     "get_current_user",
     "get_current_active_user",
-    "ACCESS_TOKEN_EXPIRE_MINUTES",
+
     # Constants
     "RATE_LIMIT_CHAT",
     "RATE_LIMIT_DEFAULT",
