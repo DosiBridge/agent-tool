@@ -207,7 +207,7 @@ async def create_global_llm_config(
         # Test configuration before saving
         test_message = None
         if config.api_key:
-            from src.api.routes.llm_config import test_llm_config
+            from src.services.llm_testing import test_llm_config
             
             # Build config dict for testing
             config_dict = {
