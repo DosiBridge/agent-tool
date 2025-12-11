@@ -54,7 +54,7 @@ export default function UserDashboard() {
       } catch (error: any) {
         // Don't log errors for inactive accounts
         if (!error?.isInactiveAccount && !(error?.message && error.message.includes("User account is inactive"))) {
-          console.error("Failed to load sessions:", error);
+        console.error("Failed to load sessions:", error);
         }
       } finally {
         setSessionsLoading(false);
@@ -67,14 +67,14 @@ export default function UserDashboard() {
       } catch (error: any) {
         // Don't log errors for inactive accounts
         if (!error?.isInactiveAccount && !(error?.message && error.message.includes("User account is inactive"))) {
-          console.error("Failed to load recent requests:", error);
+        console.error("Failed to load recent requests:", error);
         }
       }
 
     } catch (error: any) {
       // Don't log errors for inactive accounts
       if (!error?.isInactiveAccount && !(error?.message && error.message.includes("User account is inactive"))) {
-        console.error("Failed to load dashboard data:", error);
+      console.error("Failed to load dashboard data:", error);
       }
     } finally {
       setLoading(false);
@@ -117,13 +117,13 @@ export default function UserDashboard() {
             </div>
             <div className="flex items-center gap-3">
               <NotificationsPopover />
-              <Link
-                href="/chat"
-                className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
-              >
-                <MessageSquare className="w-4 h-4" />
-                Go to Chat
-              </Link>
+            <Link
+              href="/chat"
+              className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              <MessageSquare className="w-4 h-4" />
+              Go to Chat
+            </Link>
             </div>
           </div>
         </div>

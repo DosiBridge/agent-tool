@@ -74,7 +74,7 @@ async def mcp_lifespan(app: FastAPI):
                             superadmin.role = "superadmin"
                         if not superadmin.is_active:
                             superadmin.is_active = True
-                        db.commit()
+                            db.commit()
                         print(f"✓ Superadmin exists (ID={superadmin.id}): {superadmin.email}")
                     
                     # Get superadmin ID for reference (but global configs use None)

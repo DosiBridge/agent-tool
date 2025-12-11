@@ -203,66 +203,66 @@ export default function NotificationsPopover() {
                                         const isRead = isNotificationRead(notification);
                                         const timestamp = new Date(notification.timestamp);
                                         return (
-                                            <motion.div
-                                                layout
-                                                key={notification.id}
-                                                initial={{ opacity: 0, x: -20 }}
-                                                animate={{ opacity: 1, x: 0 }}
-                                                exit={{ opacity: 0, x: 20 }}
+                                        <motion.div
+                                            layout
+                                            key={notification.id}
+                                            initial={{ opacity: 0, x: -20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, x: 20 }}
                                                 onClick={() => handleNotificationClick(notification)}
-                                                className={cn(
+                                            className={cn(
                                                     "relative p-3 rounded-xl border transition-all duration-200 group cursor-pointer",
-                                                    getBgColor(notification.type),
+                                                getBgColor(notification.type),
                                                     !isRead && "bg-white/5",
                                                     notification.link && "hover:bg-white/10"
-                                                )}
-                                            >
-                                                <div className="flex gap-3">
-                                                    <div className={cn("mt-1 flex-shrink-0")}>
-                                                        {getIcon(notification.type)}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-start justify-between gap-2">
+                                            )}
+                                        >
+                                            <div className="flex gap-3">
+                                                <div className={cn("mt-1 flex-shrink-0")}>
+                                                    {getIcon(notification.type)}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-start justify-between gap-2">
                                                             <h4 className={cn("text-sm font-medium truncate pr-4", isRead ? "text-zinc-400" : "text-white")}>
-                                                                {notification.title}
-                                                            </h4>
-                                                            <span className="text-[10px] text-zinc-500 whitespace-nowrap">
+                                                            {notification.title}
+                                                        </h4>
+                                                        <span className="text-[10px] text-zinc-500 whitespace-nowrap">
                                                                 {formatDistanceToNow(timestamp, { addSuffix: true })}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-xs text-zinc-400 mt-1 leading-normal line-clamp-2">
-                                                            {notification.message}
-                                                        </p>
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-zinc-400 mt-1 leading-normal line-clamp-2">
+                                                        {notification.message}
+                                                    </p>
 
-                                                        <div className="flex items-center gap-3 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <div className="flex items-center gap-3 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                             {!isRead && (
-                                                                <button
+                                                            <button
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         handleMarkAsRead(notification.id);
                                                                     }}
-                                                                    className="text-[10px] font-medium text-indigo-400 hover:text-indigo-300"
-                                                                >
-                                                                    Mark as read
-                                                                </button>
-                                                            )}
-                                                            <button
+                                                                className="text-[10px] font-medium text-indigo-400 hover:text-indigo-300"
+                                                            >
+                                                                Mark as read
+                                                            </button>
+                                                        )}
+                                                        <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     handleRemove(notification.id);
                                                                 }}
-                                                                className="text-[10px] font-medium text-zinc-500 hover:text-zinc-300"
-                                                            >
-                                                                Dismiss
-                                                            </button>
-                                                        </div>
+                                                            className="text-[10px] font-medium text-zinc-500 hover:text-zinc-300"
+                                                        >
+                                                            Dismiss
+                                                        </button>
                                                     </div>
+                                                </div>
 
                                                     {!isRead && (
-                                                        <div className="absolute top-4 right-3 w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                                                    )}
-                                                </div>
-                                            </motion.div>
+                                                    <div className="absolute top-4 right-3 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                                                )}
+                                            </div>
+                                        </motion.div>
                                         );
                                     })
                                 )}
