@@ -10,6 +10,14 @@ import { useEffect, useRef, useState } from "react";
 import MessageBubble from "./MessageBubble";
 import ThinkingIndicator from "./ThinkingIndicator";
 import { TextGenerateEffect } from "./ui/text-generate-effect";
+import * as constants from "@/lib/constants";
+import {
+  calculateDistanceFromBottom,
+  isNearBottom,
+  shouldAutoScroll,
+  getScrollBehavior,
+  getScrollDelay,
+} from "@/lib/scrollHelpers";
 
 export default function ChatWindow() {
   const messages = useStore((state) => state.messages);
@@ -51,16 +59,19 @@ export default function ChatWindow() {
       }
       scrollCheckTimeoutRef.current = setTimeout(() => {
         isUserScrollingRef.current = false;
-      }, 150);
+      }, constants.SCROLL_CHECK_TIMEOUT_MS);
 
       // Show/hide scroll button logic
-      const threshold = 100;
       const scrollTop = container.scrollTop;
       const scrollHeight = container.scrollHeight;
       const clientHeight = container.clientHeight;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      const distanceFromBottom = calculateDistanceFromBottom(
+        scrollTop,
+        scrollHeight,
+        clientHeight
+      );
 
-      setShowScrollButton(distanceFromBottom > threshold);
+      setShowScrollButton(distanceFromBottom > constants.SCROLL_THRESHOLD_PX);
     };
 
     container.addEventListener("scroll", handleScroll, { passive: true });
@@ -84,13 +95,12 @@ export default function ChatWindow() {
     const container = containerRef.current;
     const scrollElement = messagesEndRef.current;
 
-    // Check if user is near bottom (within 150px) to auto-scroll
-    const isNearBottom = () => {
-      const threshold = 150;
+    // Check if user is near bottom to auto-scroll
+    const checkNearBottom = () => {
       const scrollTop = container.scrollTop;
       const scrollHeight = container.scrollHeight;
       const clientHeight = container.clientHeight;
-      return scrollHeight - scrollTop - clientHeight < threshold;
+      return isNearBottom(scrollTop, scrollHeight, clientHeight);
     };
 
     // Check if content changed (new message or streaming update)
@@ -100,14 +110,16 @@ export default function ChatWindow() {
     lastMessageCountRef.current = displayMessages.length;
     lastContentLengthRef.current = currentContentLength;
 
-    // Only auto-scroll if:
-    // 1. User hasn't manually scrolled up (or was near bottom)
-    // 2. Content is updating (new message or streaming)
-    const shouldAutoScroll =
-      !isUserScrollingRef.current &&
-      (isNewMessage || (isStreaming && isContentUpdate) || isNearBottom());
+    // Only auto-scroll if conditions are met
+    const shouldAutoScrollNow = shouldAutoScroll(
+      isUserScrollingRef.current,
+      isNewMessage,
+      isStreaming,
+      isContentUpdate,
+      checkNearBottom()
+    );
 
-    if (shouldAutoScroll) {
+    if (shouldAutoScrollNow) {
       // Clear any pending scroll
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
@@ -118,12 +130,12 @@ export default function ChatWindow() {
         requestAnimationFrame(() => {
           if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({
-              behavior: isStreaming ? "smooth" : "auto",
+              behavior: getScrollBehavior(isStreaming),
               block: "end",
             });
           }
         });
-      }, isStreaming ? 50 : 0); // Small delay for streaming to batch updates
+      }, getScrollDelay(isStreaming));
     }
 
     return () => {
@@ -147,10 +159,17 @@ export default function ChatWindow() {
       const scrollTop = container.scrollTop;
       const scrollHeight = container.scrollHeight;
       const clientHeight = container.clientHeight;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      const distanceFromBottom = calculateDistanceFromBottom(
+        scrollTop,
+        scrollHeight,
+        clientHeight
+      );
 
-      // Only scroll if user is near bottom (within 200px) and not manually scrolling
-      if (distanceFromBottom < 200 && !isUserScrollingRef.current) {
+      // Only scroll if user is near bottom and not manually scrolling
+      if (
+        distanceFromBottom < constants.STREAMING_SCROLL_THRESHOLD_PX &&
+        !isUserScrollingRef.current
+      ) {
         requestAnimationFrame(() => {
           if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({
@@ -160,7 +179,7 @@ export default function ChatWindow() {
           }
         });
       }
-    }, 100); // Update every 100ms during streaming for smoother experience
+    }, constants.STREAMING_SCROLL_INTERVAL_MS);
 
     return () => clearInterval(scrollInterval);
   }, [isStreaming]);
@@ -235,7 +254,7 @@ export default function ChatWindow() {
               key={message.id}
               className="animate-fade-in"
               style={{
-                animationDelay: `${index * 50}ms`,
+                animationDelay: `${index * constants.MESSAGE_ANIMATION_DELAY_MS}ms`,
                 animationFillMode: "both",
               }}
             >

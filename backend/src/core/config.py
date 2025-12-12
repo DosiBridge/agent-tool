@@ -35,35 +35,42 @@ except ImportError as e:
 
 
 class Config:
-    """Application configuration"""
-    
-    # OpenAI settings (deprecated - use LLM config file)
+    """
+    Application configuration
+
+    NOTE: Most config is now in database (LLMConfig, MCPServer models).
+    This class still has some legacy methods and env var fallbacks.
+    TODO: Migrate remaining config to database or env vars only.
+    """
+
+    # OpenAI settings (deprecated - use LLM config in database)
+    # Keeping for backward compatibility
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
-    
-    # MCP settings
-    MCP_SERVERS_FILE = "config/mcp_servers.json"
-    MCP_SERVERS_ENV = os.getenv("MCP_SERVERS")
-    
-    # LLM settings
-    LLM_CONFIG_FILE = "config/llm_config.json"
-    
+
+    # MCP settings - these are legacy, MCP servers are in database now
+    MCP_SERVERS_FILE = "config/mcp_servers.json"  # Not used anymore
+    MCP_SERVERS_ENV = os.getenv("MCP_SERVERS")  # Not used anymore
+
+    # LLM settings - legacy, use database instead
+    LLM_CONFIG_FILE = "config/llm_config.json"  # Not used anymore
+
     # Project root
     ROOT_DIR = Path(__file__).parent.parent
-    
+
     @classmethod
     def load_mcp_servers(cls, additional_servers: list = None, db: Optional[Session] = None, user_id: Optional[int] = None) -> list[dict]:
         """
         Load MCP servers from database - USER-SPECIFIC AND PRIVATE ONLY.
-        
+
         Args:
             additional_servers: Optional list of additional servers to add (must also be user-specific)
             db: Optional database session (if None, creates a new one)
             user_id: User ID to filter servers (REQUIRED - no MCP access without authentication)
-        
+
         Returns:
             List of MCP server configurations for the specified user only
-            
+
         Note:
             - Without user_id, returns empty list (no MCP access for unauthenticated users)
             - No environment variable fallback (all MCPs must be user-specific and private)
@@ -71,12 +78,12 @@ class Config:
             - Users can only access their own MCP servers, not others
         """
         servers = []
-        
+
         # REQUIRE user_id - no MCP access without authentication
         if user_id is None:
             print("⚠️  MCP servers require authentication - user_id is required. No MCP access for unauthenticated users.")
             return []
-        
+
         # Load from database - user-specific servers AND global servers (user_id=None)
         # Global servers use user_id=None (backward compatible with user_id=1)
         if DB_AVAILABLE:
@@ -101,7 +108,7 @@ class Config:
                             ).all()
                             for pref in preferences:
                                 user_preferences[pref.config_id] = pref.enabled
-                
+
                 if db:
                     # Use provided session - get user-specific AND global servers
                     from sqlalchemy import or_
@@ -121,7 +128,7 @@ class Config:
                         server_user_id = server.user_id
                         is_global = (server_user_id is None or server_user_id == 1)
                         server_dict['is_global'] = is_global
-                        
+
                         # For global servers, check user preference
                         if is_global and user_id:
                             # Check if user has disabled this global server
@@ -129,7 +136,7 @@ class Config:
                             if not user_enabled:
                                 # User has disabled this global server, skip it
                                 continue
-                        
+
                         servers.append(server_dict)
                 else:
                     # Create new session - get user-specific AND global servers
@@ -151,7 +158,7 @@ class Config:
                             server_user_id = server.user_id
                             is_global = (server_user_id is None or server_user_id == 1)
                             server_dict['is_global'] = is_global
-                            
+
                             # For global servers, check user preference
                             if is_global and user_id:
                                 # Check if user has disabled this global server
@@ -159,9 +166,9 @@ class Config:
                                 if not user_enabled:
                                     # User has disabled this global server, skip it
                                     continue
-                            
+
                             servers.append(server_dict)
-                
+
                 user_servers = [s for s in servers if not s.get('is_global')]
                 global_servers = [s for s in servers if s.get('is_global')]
                 if servers:
@@ -172,31 +179,31 @@ class Config:
         else:
             print("⚠️  Database not available - cannot load user-specific MCP servers")
             return []
-        
+
         # NO environment variable fallback - all MCPs must be user-specific and private
         # Removed: MCP_SERVERS_ENV fallback for security and privacy (no global MCPs)
-        
+
         # Add any additional servers passed as argument (should also be user-specific)
         if additional_servers:
             servers.extend(additional_servers)
             print(f"📝 Added {len(additional_servers)} additional server(s) for user {user_id}")
-        
+
         # No servers configured for this user
         if not servers:
             print(f"📝 No MCP servers configured for user {user_id} - agent will use local tools only")
-        
+
         return servers
-    
+
     @classmethod
     def load_llm_config(cls, db: Optional[Session] = None, user_id: Optional[int] = None) -> Optional[dict]:
         """
         Load LLM configuration from database for a specific user, with fallback to default DeepSeek.
         Checks database for user's active config first, then falls back to default DeepSeek.
-        
+
         Args:
             db: Optional database session (if None, creates a new one)
             user_id: Optional user ID to load user-specific config. If None, loads default config.
-        
+
         Returns:
             Dictionary with LLM configuration including type, model, api_key, etc.
         """
@@ -211,7 +218,7 @@ class Config:
                             LLMConfig.user_id == user_id,
                             LLMConfig.active == True
                         ).first()
-                        
+
                         # If no user-specific active config, fall back to global config
                         # Regular users can only use global configs that are BOTH active AND default
                         # Global configs use user_id=None (backward compatible with user_id=1)
@@ -239,7 +246,7 @@ class Config:
                             LLMConfig.is_default.desc(),  # Default configs first
                             LLMConfig.created_at.desc()    # Then newest first
                         ).first()
-                    
+
                     if llm_config:
                         config = llm_config.to_dict(include_api_key=True)
                         # Ensure API key is loaded from environment if not in database
@@ -258,7 +265,7 @@ class Config:
                             elif config.get('type', '').lower() == 'ollama':
                                 # Ollama doesn't need API key
                                 pass
-                        
+
                         print(f"📝 Loaded LLM config from database (user_id={user_id}): {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
                         return config
                 else:
@@ -270,7 +277,7 @@ class Config:
                                 LLMConfig.user_id == user_id,
                                 LLMConfig.active == True
                             ).first()
-                            
+
                             # If no user-specific config, fall back to global config
                             # Global configs use user_id=None (backward compatible with user_id=1)
                             # Prioritize global configs marked as default, then by creation date
@@ -295,7 +302,7 @@ class Config:
                                 LLMConfig.is_default.desc(),  # Default configs first
                                 LLMConfig.created_at.desc()    # Then newest first
                             ).first()
-                        
+
                         if llm_config:
                             config = llm_config.to_dict(include_api_key=True)
                             # Fallback: Load API key from environment if missing in database
@@ -318,12 +325,12 @@ class Config:
                                 # If still no API key, warn but don't fail (superadmin should configure via dashboard)
                                 if not config.get('api_key'):
                                     print(f"⚠️  No API key found for {config.get('type')} config. Please configure via superadmin dashboard.")
-                            
+
                             print(f"📝 Loaded LLM config from database (user_id={user_id}): {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
                             return config
             except Exception as e:
                 print(f"⚠️  Failed to load LLM config from database: {e}")
-        
+
         # No automatic fallback to environment variables after first initialization
         # LLM configs must be configured via superadmin dashboard
         # If no config found, return None - callers should handle this gracefully
@@ -334,7 +341,7 @@ class Config:
             print("⚠️  No active LLM configuration found. "
                   "Please configure LLM providers via the superadmin dashboard.")
         return None
-    
+
     @classmethod
     def save_llm_config(cls, config: dict, db: Optional[Session] = None) -> bool:
         """
@@ -347,7 +354,7 @@ class Config:
         """
         if not DB_AVAILABLE:
             raise Exception("Database not available. Cannot save LLM config.")
-        
+
         try:
             if db:
                 # Use provided session (caller will commit)
@@ -358,7 +365,7 @@ class Config:
                     # Deactivate all existing configs (they are preserved, just not active)
                     # This allows users to switch models while keeping history
                     session.query(LLMConfig).update({LLMConfig.active: False})
-                    
+
                     # Create new active config with user's chosen model/LLM
                     llm_config = LLMConfig(
                         type=config.get('type', 'gemini'),
@@ -370,14 +377,14 @@ class Config:
                     )
                     session.add(llm_config)
                     # Context manager will commit automatically
-                
+
                 print(f"✓ LLM config saved to database: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
                 return True
-            
+
             # If using provided session, update here (caller will commit)
             # Deactivate all existing configs (they are preserved, just not active)
             session.query(LLMConfig).update({LLMConfig.active: False})
-            
+
             # Create new active config with user's chosen model/LLM
             llm_config = LLMConfig(
                 type=config.get('type', 'gemini'),
@@ -389,7 +396,7 @@ class Config:
             )
             session.add(llm_config)
             # Don't commit - caller handles it
-            
+
             print(f"✓ LLM config saved to database: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
             return True
         except Exception as e:

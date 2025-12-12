@@ -1,5 +1,10 @@
 /**
  * Zustand store for application state
+ *
+ * Main state management for the app. Using Zustand because it's simple
+ * and works well with React. Could use Redux but this is lighter.
+ *
+ * TODO: Maybe split this into smaller stores if it gets too big?
  */
 
 import { create } from "zustand";
@@ -159,6 +164,7 @@ export const useStore = create<AppState>((set, get) => ({
   settingsOpen: false,
 
   // Impersonation (Superadmin)
+  // This is a bit complex but needed for admin user management
   impersonatedUserId: null,
   originalSuperadminId: null,
   originalSuperadminRole: null,
@@ -170,7 +176,7 @@ export const useStore = create<AppState>((set, get) => ({
       // Store the current user's ID and role as the original superadmin
       // This allows switching back to superadmin view and maintaining permissions
       if (currentState.user?.id) {
-        set({ 
+        set({
           originalSuperadminId: currentState.user.id.toString(),
           originalSuperadminRole: currentState.user.role || null
         });
@@ -200,6 +206,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     // Suppress console errors for permission errors during impersonation
     // This prevents "Superadmin access required" errors from cluttering the console
+    // HACK: Not ideal but works for now
     const originalConsoleError = console.error;
     const suppressPermissionErrors = (userId: string | null) => {
       if (userId) {
@@ -249,9 +256,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // Initialize: ensure default session exists and load it
+  // This runs once when the store is created
   ...(() => {
     if (typeof window !== "undefined") {
-      getOrCreateDefaultSession();
+      const defaultSession = getOrCreateDefaultSession();
+      return { currentSessionId: defaultSession.id };
     }
     return {};
   })(),
@@ -266,7 +275,7 @@ export const useStore = create<AppState>((set, get) => ({
       const user = await getCurrentUser();
       // Allow blocked users to login but mark them as blocked
       set({ user, isAuthenticated: true, authLoading: false });
-      
+
       // If user is blocked, don't load sessions/MCP servers
       if (user && !user.is_active) {
         // User is blocked - they can still login but cannot use features
@@ -278,7 +287,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
       // Reset inactive flag if user is active
       set({ accountInactive: false });
-      
+
       // Load user-specific data after authentication check (only for active users)
       // Use setTimeout to ensure state is updated before loading
       setTimeout(() => {
@@ -654,6 +663,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Load sessions - combines browser storage with backend (if authenticated)
   // When impersonating, only loads from backend (impersonated user's sessions)
+  // This logic is a bit complex but handles all the edge cases
   loadSessions: async () => {
     set({ sessionsLoading: true });
     try {
@@ -661,6 +671,7 @@ export const useStore = create<AppState>((set, get) => ({
       const impersonatedUserId = get().impersonatedUserId;
 
       // When impersonating, only load from backend (don't use browser storage)
+      // Otherwise we'd show the wrong user's sessions
       if (impersonatedUserId && isAuthenticated) {
         try {
           const backendData = await listSessions();
@@ -692,30 +703,56 @@ export const useStore = create<AppState>((set, get) => ({
       }
 
       // Normal flow: combine browser storage with backend
+      // Browser storage has titles, backend has message counts and summaries
       const storedSessions = getStoredSessions();
 
       if (isAuthenticated) {
         // If authenticated, try to sync with backend
         try {
           const backendData = await listSessions();
-          // Merge: prefer browser storage for titles, backend for message counts and summary
-          // IMPORTANT: Only include sessions that exist in browser storage to respect deletions
-          const mergedSessions: Session[] = storedSessions.map((stored) => {
-            const backend = backendData.sessions.find(
-              (s) => s.session_id === stored.id
-            );
+
+          // Create a map of backend sessions for quick lookup
+          const backendSessionMap = new Map(
+            backendData.sessions.map((s) => [s.session_id, s])
+          );
+
+          // Create a map of stored sessions for quick lookup
+          const storedSessionMap = new Map(
+            storedSessions.map((s) => [s.id, s])
+          );
+
+          // Start with backend sessions (source of truth for authenticated users)
+          const mergedSessions: Session[] = backendData.sessions.map((backend) => {
+            const stored = storedSessionMap.get(backend.session_id);
             return {
-              session_id: stored.id,
-              title: stored.title,
-              summary: backend?.summary,
-              message_count: backend?.message_count || stored.messageCount || 0,
-              updated_at: backend?.updated_at,
+              session_id: backend.session_id,
+              title: stored?.title || backend.title || `Session ${backend.session_id.slice(-8)}`,
+              summary: backend.summary,
+              message_count: backend.message_count || 0,
+              updated_at: backend.updated_at,
             };
           });
 
-          // DO NOT add backend sessions that aren't in browser storage
-          // This prevents deleted sessions from being re-added on page reload
-          // If a session was deleted from browser storage, it should stay deleted
+          // Add any browser-only sessions that don't exist in backend
+          // This handles the case where user created sessions before logging in
+          for (const stored of storedSessions) {
+            if (!backendSessionMap.has(stored.id)) {
+              mergedSessions.push({
+                session_id: stored.id,
+                title: stored.title,
+                summary: undefined,
+                message_count: stored.messageCount || 0,
+                updated_at: undefined,
+              });
+            }
+          }
+
+          // Sort by updated_at (most recent first) or by creation time
+          mergedSessions.sort((a, b) => {
+            const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+            const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+            return bTime - aTime;
+          });
 
           set({ sessions: mergedSessions, sessionsLoading: false });
         } catch (error: any) {
@@ -731,7 +768,8 @@ export const useStore = create<AppState>((set, get) => ({
           );
           const browserSessions: Session[] = storedSessions.map((s) => ({
             session_id: s.id,
-            message_count: s.messageCount,
+            title: s.title,
+            message_count: s.messageCount || 0,
           }));
           set({ sessions: browserSessions, sessionsLoading: false });
         }
@@ -784,66 +822,71 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
 
-      // Normal flow: try browser storage first
-      const storedMessages = getStoredMessages(sessionId);
-
-      if (storedMessages.length > 0) {
-        // Convert stored messages to Message format
-        const messages: Message[] = storedMessages.map((msg) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          timestamp: new Date(msg.timestamp),
-          tools_used: msg.tools_used,
-          sources: msg.sources,
-        }));
-        set({ messages, isLoading: false });
-      } else {
-        // If no browser storage, check if session exists in stored sessions list
-        // If it doesn't exist in the list, it was likely deleted - don't restore from backend
-        const storedSessions = getStoredSessions();
-        const sessionExists = storedSessions.some((s) => s.id === sessionId);
-
-        if (!sessionExists) {
-          // Session was deleted from browser storage - don't restore from backend
-          console.log(
-            `Session ${sessionId} not found in browser storage - not restoring from backend`
+      // Normal flow: if authenticated, try backend first (source of truth)
+      // Otherwise use browser storage
+      if (isAuthenticated) {
+        try {
+          // Try backend first for authenticated users
+          const sessionInfo = await getSession(sessionId);
+          const messages: Message[] = sessionInfo.messages.map(
+            (msg, idx) => ({
+              id: `${sessionId}-${idx}-${msg.created_at || Date.now()}`,
+              role: msg.role,
+              content: msg.content,
+              timestamp: msg.created_at ? new Date(msg.created_at) : new Date(),
+              tools_used: msg.tools_used || [],
+              sources: (msg.sources || []).map((s: any) => ({
+                title: s.title || "Source",
+                url: s.url,
+              })),
+            })
           );
-          set({ messages: [], isLoading: false });
-          return;
-        }
 
-        // Session exists in list but has no messages - try backend (if authenticated)
-        if (isAuthenticated) {
-          try {
-            const sessionInfo = await getSession(sessionId);
-            const messages: Message[] = sessionInfo.messages.map(
-              (msg, idx) => ({
-                id: `${sessionId}-${idx}-${Date.now()}`,
-                role: msg.role,
-                content: msg.content,
-                timestamp: new Date(),
-              })
-            );
+          // Save to browser storage for offline access
+          const storedMessages: StoredMessage[] = messages.map((msg) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp.getTime(),
+            tools_used: msg.tools_used,
+            sources: msg.sources,
+          }));
+          saveStoredMessages(sessionId, storedMessages);
 
-            // Save to browser storage
-            const storedMessages: StoredMessage[] = messages.map((msg) => ({
+          set({ messages, isLoading: false });
+        } catch (error) {
+          // If backend fails, fall back to browser storage
+          console.warn("Failed to load session from backend, trying browser storage:", error);
+          const storedMessages = getStoredMessages(sessionId);
+          if (storedMessages.length > 0) {
+            const messages: Message[] = storedMessages.map((msg) => ({
               id: msg.id,
               role: msg.role,
               content: msg.content,
-              timestamp: msg.timestamp.getTime(),
-              tools_used: msg.tools_used,
-              sources: msg.sources,
+              timestamp: new Date(msg.timestamp),
+              tools_used: msg.tools_used || [],
+              sources: msg.sources || [],
             }));
-            saveStoredMessages(sessionId, storedMessages);
-
             set({ messages, isLoading: false });
-          } catch (error) {
-            console.error("Failed to load session from backend:", error);
+          } else {
             set({ messages: [], isLoading: false });
           }
+        }
+      } else {
+        // Not authenticated - use browser storage only
+        const storedMessages = getStoredMessages(sessionId);
+        if (storedMessages.length > 0) {
+          const messages: Message[] = storedMessages.map((msg) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: new Date(msg.timestamp),
+            tools_used: msg.tools_used || [],
+            sources: msg.sources || [],
+          }));
+          set({ messages, isLoading: false });
         } else {
-          // No browser storage and not authenticated - empty session
+          // No messages in browser storage - empty session
           set({ messages: [], isLoading: false });
         }
       }
@@ -949,7 +992,7 @@ export const useStore = create<AppState>((set, get) => ({
     // Otherwise check the current user's role
     return user?.role === "superadmin" || user?.is_superadmin === true;
   },
-  
+
   // Get the actual logged-in user's role (not impersonated)
   getActualUserRole: () => {
     const { impersonatedUserId, originalSuperadminRole, user } = get();
