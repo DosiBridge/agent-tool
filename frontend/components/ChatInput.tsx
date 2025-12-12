@@ -25,6 +25,14 @@ import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import RAGEnablePopup from "@/components/RAGEnablePopup";
 import GuestEmailDialog from "./chat/GuestEmailDialog";
+import * as constants from "@/lib/constants";
+import {
+  canSendMessage,
+  exceedsCharLimit,
+  generateSuggestions,
+  processStreamChunk,
+  calculateTextareaHeight,
+} from "@/lib/chatHelpers";
 
 import { cn } from "@/lib/utils";
 
@@ -46,7 +54,7 @@ export default function ChatInput() {
   const { addToHistory, navigateHistory, saveCurrentInput } = useInputHistory();
 
   // Debounced input for suggestions
-  const debouncedInput = useDebounce(input, 300);
+  const debouncedInput = useDebounce(input, constants.DEBOUNCE_DELAY_MS);
 
   const currentSessionId = useStore((state) => state.currentSessionId);
   const mode = useStore((state) => state.mode);
@@ -74,7 +82,8 @@ export default function ChatInput() {
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+      const newHeight = calculateTextareaHeight(textarea.scrollHeight);
+      textarea.style.height = `${newHeight}px`;
     }
   };
 
@@ -102,10 +111,9 @@ export default function ChatInput() {
   }, [isAuthenticated, isStreaming, isLoading, setStreaming, setLoading]);
 
   const inputDisabled = isLoading || isStreaming;
-  const MAX_CHARS = 2000;
   const charCount = input.length;
-  const exceedMax = charCount > MAX_CHARS;
-  const sendDisabled = inputDisabled || !input.trim() || exceedMax;
+  const exceedMax = exceedsCharLimit(input);
+  const sendDisabled = !canSendMessage(input, isLoading, isStreaming);
 
   // Generate autocomplete suggestions based on input
   useEffect(() => {
@@ -114,29 +122,11 @@ export default function ChatInput() {
     const updateSuggestions = () => {
       if (!mounted) return;
 
-      if (
-        debouncedInput.trim().length > 0 &&
-        debouncedInput.trim().length < 20
-      ) {
-        const commonQueries = [
-          "What is", "How to", "Explain", "Tell me about", "Help me with",
-          "Show me", "Create", "Write", "Analyze", "Compare",
-          "Define", "Generate", "Fix", "Debug", "Summarize",
-          "Translate", "Improve", "Optimize", "List", "Suggest",
-        ];
+      const newSuggestions = generateSuggestions(debouncedInput);
 
-        const inputLower = debouncedInput.toLowerCase();
-        const matched = commonQueries
-          .filter((q) => q.toLowerCase().startsWith(inputLower))
-          .slice(0, 3);
-
-        if (matched.length > 0 && input.length > 0) {
-          setSuggestions(matched);
-          setShowSuggestions(true);
-        } else {
-          setSuggestions([]);
-          setShowSuggestions(false);
-        }
+      if (newSuggestions.length > 0 && input.length > 0) {
+        setSuggestions(newSuggestions);
+        setShowSuggestions(true);
       } else {
         setSuggestions([]);
         setShowSuggestions(false);
@@ -205,7 +195,7 @@ export default function ChatInput() {
     // Check for guest email if not authenticated
     let guestEmail = null;
     if (!isAuthenticated) {
-      const storedGuestEmail = localStorage.getItem("guest_email");
+      const storedGuestEmail = localStorage.getItem(constants.GUEST_EMAIL_STORAGE_KEY);
       if (!storedGuestEmail) {
         setShowGuestEmailDialog(true);
         return;
@@ -217,11 +207,11 @@ export default function ChatInput() {
       const todayUsage = await getTodayUsage();
       if (todayUsage.is_default_llm && todayUsage.limit !== -1) {
         if (!todayUsage.is_allowed) {
-          toast.error("Daily limit reached! Add your own API key for unlimited requests.", { duration: 6000 });
+          toast.error("Daily limit reached! Add your own API key for unlimited requests.", { duration: constants.TOAST_DURATION_LONG });
           return;
         }
-        if (todayUsage.remaining <= 10 && todayUsage.remaining > 0) {
-          toast(`Warning: Only ${todayUsage.remaining} requests remaining today.`, { duration: 4000, icon: "⚠️" });
+        if (todayUsage.remaining <= constants.RATE_LIMIT_WARNING_THRESHOLD && todayUsage.remaining > 0) {
+          toast(`Warning: Only ${todayUsage.remaining} requests remaining today.`, { duration: constants.TOAST_DURATION_MEDIUM, icon: "⚠️" });
         }
       }
     } catch (error) {
@@ -262,57 +252,50 @@ export default function ChatInput() {
           guest_email: guestEmail || undefined,
         },
         (chunk: StreamChunk) => {
-          if (chunk.error) {
-            toast.error(chunk.error);
-            const messages = useStore.getState().messages;
-            if (messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content) {
-              useStore.setState({ messages: messages.slice(0, -1) });
-            }
-            setStreaming(false);
-            setLoading(false);
-            setStreamingStatus(null);
-            clearActiveTools();
-            return;
-          }
-
-          if (chunk.status) {
-            if (chunk.status === "connected" || chunk.status === "creating_agent" || chunk.status === "agent_ready") {
-              setStreamingStatus("thinking");
-            } else {
-              setStreamingStatus(chunk.status as any);
-            }
-          }
-
-          if (chunk.tool) {
-            toolsUsed.push(chunk.tool);
-            addActiveTool(chunk.tool);
-          }
-
-          if (chunk.chunk !== undefined && chunk.chunk !== null) {
-            if (!hasReceivedContent) {
-              if (chunk.status !== "answering") setStreamingStatus("answering");
-            }
-            hasReceivedContent = true;
-            updateLastMessage(chunk.chunk);
-          }
-
-          if (chunk.done) {
-            setStreaming(false);
-            setLoading(false);
-            setStreamingStatus(null);
-            clearActiveTools();
-            if (!hasReceivedContent) {
+          processStreamChunk(chunk, {
+            onError: (error) => {
+              toast.error(error);
               const messages = useStore.getState().messages;
               if (messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content) {
                 useStore.setState({ messages: messages.slice(0, -1) });
               }
-            }
-            if (chunk.tools_used && chunk.tools_used.length > 0) {
-              updateLastMessageTools(chunk.tools_used);
-            } else if (toolsUsed.length > 0) {
-              updateLastMessageTools([...toolsUsed]);
-            }
-          }
+              setStreaming(false);
+              setLoading(false);
+              setStreamingStatus(null);
+              clearActiveTools();
+            },
+            onStatusChange: (status) => {
+              setStreamingStatus(status);
+            },
+            onToolUsed: (tool) => {
+              toolsUsed.push(tool);
+              addActiveTool(tool);
+            },
+            onContent: (content) => {
+              if (!hasReceivedContent) {
+                setStreamingStatus("answering");
+              }
+              hasReceivedContent = true;
+              updateLastMessage(content);
+            },
+            onComplete: (toolsUsedList) => {
+              setStreaming(false);
+              setLoading(false);
+              setStreamingStatus(null);
+              clearActiveTools();
+              if (!hasReceivedContent) {
+                const messages = useStore.getState().messages;
+                if (messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content) {
+                  useStore.setState({ messages: messages.slice(0, -1) });
+                }
+              }
+              if (toolsUsedList && toolsUsedList.length > 0) {
+                updateLastMessageTools(toolsUsedList);
+              } else if (toolsUsed.length > 0) {
+                updateLastMessageTools([...toolsUsed]);
+              }
+            },
+          });
         },
         (error: Error) => {
           logError(error, { session_id: currentSessionId, mode });
@@ -368,7 +351,7 @@ export default function ChatInput() {
   };
 
   const handleGuestEmailSubmit = (email: string) => {
-    localStorage.setItem("guest_email", email);
+    localStorage.setItem(constants.GUEST_EMAIL_STORAGE_KEY, email);
     handleSend();
   };
 
@@ -501,7 +484,7 @@ export default function ChatInput() {
             <div className="flex items-center gap-2">
               {/* Char Count */}
               <div className={cn("text-[10px]", exceedMax ? "text-red-500" : "text-zinc-600")}>
-                {charCount}/{MAX_CHARS}
+                {charCount}/{constants.MAX_INPUT_CHARS}
               </div>
 
               {isStreaming ? (
