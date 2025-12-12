@@ -1,5 +1,10 @@
 /**
  * Zustand store for application state
+ *
+ * Main state management for the app. Using Zustand because it's simple
+ * and works well with React. Could use Redux but this is lighter.
+ *
+ * TODO: Maybe split this into smaller stores if it gets too big?
  */
 
 import { create } from "zustand";
@@ -159,6 +164,7 @@ export const useStore = create<AppState>((set, get) => ({
   settingsOpen: false,
 
   // Impersonation (Superadmin)
+  // This is a bit complex but needed for admin user management
   impersonatedUserId: null,
   originalSuperadminId: null,
   originalSuperadminRole: null,
@@ -170,7 +176,7 @@ export const useStore = create<AppState>((set, get) => ({
       // Store the current user's ID and role as the original superadmin
       // This allows switching back to superadmin view and maintaining permissions
       if (currentState.user?.id) {
-        set({ 
+        set({
           originalSuperadminId: currentState.user.id.toString(),
           originalSuperadminRole: currentState.user.role || null
         });
@@ -200,6 +206,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     // Suppress console errors for permission errors during impersonation
     // This prevents "Superadmin access required" errors from cluttering the console
+    // HACK: Not ideal but works for now
     const originalConsoleError = console.error;
     const suppressPermissionErrors = (userId: string | null) => {
       if (userId) {
@@ -266,7 +273,7 @@ export const useStore = create<AppState>((set, get) => ({
       const user = await getCurrentUser();
       // Allow blocked users to login but mark them as blocked
       set({ user, isAuthenticated: true, authLoading: false });
-      
+
       // If user is blocked, don't load sessions/MCP servers
       if (user && !user.is_active) {
         // User is blocked - they can still login but cannot use features
@@ -278,7 +285,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
       // Reset inactive flag if user is active
       set({ accountInactive: false });
-      
+
       // Load user-specific data after authentication check (only for active users)
       // Use setTimeout to ensure state is updated before loading
       setTimeout(() => {
@@ -654,6 +661,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Load sessions - combines browser storage with backend (if authenticated)
   // When impersonating, only loads from backend (impersonated user's sessions)
+  // This logic is a bit complex but handles all the edge cases
   loadSessions: async () => {
     set({ sessionsLoading: true });
     try {
@@ -661,6 +669,7 @@ export const useStore = create<AppState>((set, get) => ({
       const impersonatedUserId = get().impersonatedUserId;
 
       // When impersonating, only load from backend (don't use browser storage)
+      // Otherwise we'd show the wrong user's sessions
       if (impersonatedUserId && isAuthenticated) {
         try {
           const backendData = await listSessions();
@@ -692,6 +701,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
 
       // Normal flow: combine browser storage with backend
+      // Browser storage has titles, backend has message counts and summaries
       const storedSessions = getStoredSessions();
 
       if (isAuthenticated) {
@@ -700,6 +710,7 @@ export const useStore = create<AppState>((set, get) => ({
           const backendData = await listSessions();
           // Merge: prefer browser storage for titles, backend for message counts and summary
           // IMPORTANT: Only include sessions that exist in browser storage to respect deletions
+          // This prevents deleted sessions from reappearing
           const mergedSessions: Session[] = storedSessions.map((stored) => {
             const backend = backendData.sessions.find(
               (s) => s.session_id === stored.id
@@ -949,7 +960,7 @@ export const useStore = create<AppState>((set, get) => ({
     // Otherwise check the current user's role
     return user?.role === "superadmin" || user?.is_superadmin === true;
   },
-  
+
   // Get the actual logged-in user's role (not impersonated)
   getActualUserRole: () => {
     const { impersonatedUserId, originalSuperadminRole, user } = get();

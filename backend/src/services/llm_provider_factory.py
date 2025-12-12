@@ -103,7 +103,12 @@ class DeepSeekProvider(LLMProvider):
 
 
 class LLMProviderFactory:
-    """Factory for creating LLM providers"""
+    """
+    Factory for creating LLM providers
+
+    Maps provider types to their classes. Easy to add new providers
+    by just registering them here.
+    """
 
     _providers = {
         "openai": OpenAIProvider,
@@ -118,12 +123,15 @@ class LLMProviderFactory:
         """
         Create LLM provider based on config
         Following Refactoring.Guru: Replace Conditional with Polymorphism, Factory Method
+
+        Falls back to OpenAI if unknown type - probably should raise error
+        but keeping it safe for now.
         """
         provider_type = config.get("type", "").lower()
         provider_class = cls._providers.get(provider_type)
 
         if not provider_class:
-            # Default to OpenAI if unknown type
+            # Default to OpenAI if unknown type - maybe log a warning?
             provider_class = OpenAIProvider
 
         return provider_class(config)

@@ -1,6 +1,9 @@
 """
 Tool management service
 Following Refactoring.Guru: Extract Class, Move Method
+
+This was getting messy in chat_service, so extracted it.
+Could probably cache tools per user but keeping it simple for now.
 """
 from typing import List, Optional, TYPE_CHECKING
 
@@ -19,7 +22,12 @@ from src.services.chat_conditionals import ConditionalHelpers
 
 
 class ToolManager:
-    """Manages tool loading and organization"""
+    """
+    Manages tool loading and organization
+
+    TODO: Add tool caching to avoid reloading on every request
+    TODO: Maybe add tool validation/health checks
+    """
 
     def __init__(self, user_id: Optional[int] = None, db: Optional["Session"] = None):
         self.user_id = user_id
@@ -60,13 +68,13 @@ class ToolManager:
         ] + self._custom_rag_tools + self._mcp_tools
 
     def get_tool_summary(self) -> dict:
-        """Get summary of loaded tools"""
+        """Get summary of loaded tools - useful for debugging"""
         return {
             "total": len(self._all_tools),
-            "local_rag": 1,  # retrieve_dosiblog_context
+            "local_rag": 1,  # retrieve_dosiblog_context - always included
             "custom_rag": len(self._custom_rag_tools),
             "mcp": len(self._mcp_tools),
-            "appointment": 1 if self._appointment_tool else 0
+            "appointment": 1 if self._appointment_tool else 0  # Should always be 1 if user_id exists
         }
 
     def get_all_tools(self) -> List:
