@@ -29,9 +29,11 @@ class LLMConfigRepository(BaseRepository[LLMConfig]):
 
         Priority:
         1. User-specific active config
-        2. Global default config (if no user-specific)
+        2. Global default config from environment (user_id=None)
+        3. Legacy global default config (user_id=1) for backward compatibility
 
         The user_id==1 check is for backward compatibility with old data.
+        New configs should use user_id=None (initialized from environment variables).
         """
         query = self.db.query(LLMConfig).filter(LLMConfig.active == True)
 
@@ -41,15 +43,34 @@ class LLMConfigRepository(BaseRepository[LLMConfig]):
             if user_config:
                 return user_config
 
-            # Fall back to global config (user_id=None or 1 for legacy)
+            # Fall back to global config - prioritize environment-based (user_id=None) over legacy (user_id=1)
+            # First try: environment-based global configs (user_id=None)
+            env_config = query.filter(
+                LLMConfig.user_id.is_(None),
+                LLMConfig.is_default == True
+            ).order_by(LLMConfig.created_at.desc()).first()
+            if env_config:
+                return env_config
+
+            # Fallback: legacy global configs (user_id=1) for backward compatibility
             return query.filter(
-                or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),
+                LLMConfig.user_id == 1,
                 LLMConfig.is_default == True
             ).order_by(LLMConfig.created_at.desc()).first()
         else:
             # No user - global config only
+            # Prioritize environment-based (user_id=None) over legacy (user_id=1)
+            # First try: environment-based global configs (user_id=None)
+            env_config = query.filter(
+                LLMConfig.user_id.is_(None),
+                LLMConfig.is_default == True
+            ).order_by(LLMConfig.created_at.desc()).first()
+            if env_config:
+                return env_config
+
+            # Fallback: legacy global configs (user_id=1) for backward compatibility
             return query.filter(
-                or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),
+                LLMConfig.user_id == 1,
                 LLMConfig.is_default == True
             ).order_by(LLMConfig.created_at.desc()).first()
 

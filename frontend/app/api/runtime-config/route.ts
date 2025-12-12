@@ -20,13 +20,6 @@ export async function GET() {
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     "http://localhost:8085";
 
-  // Log for debugging
-  console.log("[Runtime Config] Reading from environment:", {
-    API_BASE_URL: process.env.API_BASE_URL || "not set",
-    NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || "not set",
-    resolved: apiBaseUrl,
-  });
-
   // Read Auth0 config from environment variables (set at container startup)
   const auth0Domain =
     process.env.NEXT_PUBLIC_AUTH0_DOMAIN ||
@@ -37,13 +30,6 @@ export async function GET() {
   const auth0Audience =
     process.env.NEXT_PUBLIC_AUTH0_AUDIENCE ||
     process.env.AUTH0_AUDIENCE;
-
-  // Log for debugging
-  console.log("[Runtime Config] Auth0 config:", {
-    domain: auth0Domain ? "set" : "not set",
-    clientId: auth0ClientId ? "set" : "not set",
-    audience: auth0Audience ? "set" : "not set",
-  });
 
   const config = {
     API_BASE_URL: apiBaseUrl,

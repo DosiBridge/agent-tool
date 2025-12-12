@@ -44,7 +44,7 @@ export async function getApiBaseUrl(): Promise<string> {
       if (response.ok) {
         runtimeConfig = await response.json();
         if (runtimeConfig?.API_BASE_URL) {
-          console.log("✓ Runtime config loaded:", runtimeConfig.API_BASE_URL);
+          // Runtime config loaded successfully
           return runtimeConfig.API_BASE_URL;
         } else {
           console.warn("⚠️ Runtime config loaded but API_BASE_URL is missing");
@@ -67,7 +67,7 @@ export async function getApiBaseUrl(): Promise<string> {
         ? `https://${window.location.hostname.replace("agent.", "agentapi.")}`
         : "http://localhost:8085");
 
-    console.log("Using API base URL:", fallbackUrl);
+    // Using fallback API base URL
     return fallbackUrl;
   })();
 
@@ -101,7 +101,7 @@ export async function getRuntimeConfig(): Promise<RuntimeConfig | null> {
 
       if (response.ok) {
         runtimeConfig = await response.json();
-        console.log("✓ Full runtime config loaded:", runtimeConfig);
+        // Full runtime config loaded successfully
         return runtimeConfig;
       } else {
         console.warn(

@@ -172,7 +172,7 @@ class Config:
                 user_servers = [s for s in servers if not s.get('is_global')]
                 global_servers = [s for s in servers if s.get('is_global')]
                 if servers:
-                    print(f"📝 Loaded {len(user_servers)} user-specific + {len(global_servers)} global MCP server(s) for user {user_id}")
+                    print(f"📝 Loaded {len(user_servers)} user-specific + {len(global_servers)} global MCP server(s)")
             except Exception as e:
                 print(f"⚠️  Failed to load MCP servers from database: {e}")
                 servers = []
@@ -186,11 +186,11 @@ class Config:
         # Add any additional servers passed as argument (should also be user-specific)
         if additional_servers:
             servers.extend(additional_servers)
-            print(f"📝 Added {len(additional_servers)} additional server(s) for user {user_id}")
+            print(f"📝 Added {len(additional_servers)} additional server(s)")
 
         # No servers configured for this user
         if not servers:
-            print(f"📝 No MCP servers configured for user {user_id} - agent will use local tools only")
+            print(f"📝 No MCP servers configured - agent will use local tools only")
 
         return servers
 
@@ -218,38 +218,64 @@ class Config:
                             LLMConfig.user_id == user_id,
                             LLMConfig.active == True
                         ).first()
+                        config_source = f"user-specific (user_id={user_id})" if llm_config else None
 
                         # If no user-specific active config, fall back to global config
-                        # Regular users can only use global configs that are BOTH active AND default
-                        # Global configs use user_id=None (backward compatible with user_id=1)
-                        # Prioritize global configs marked as default, then by creation date
+                        # Prioritize environment-based configs (user_id=None) over legacy (user_id=1)
+                        # Global configs use user_id=None (initialized from environment variables)
                         if not llm_config:
-                            from sqlalchemy import or_
+                            # First try: environment-based global configs (user_id=None)
                             llm_config = db.query(LLMConfig).filter(
-                                or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
+                                LLMConfig.user_id.is_(None),
                                 LLMConfig.active == True,
-                                LLMConfig.is_default == True  # Must be default for regular users
+                                LLMConfig.is_default == True
                             ).order_by(
-                                LLMConfig.is_default.desc(),  # Default configs first
-                                LLMConfig.created_at.desc()    # Then newest first
+                                LLMConfig.created_at.desc()  # Newest first
                             ).first()
+
+                            if llm_config:
+                                config_source = "global (user_id=None, from environment)"
+                            else:
+                                # Fallback: legacy global configs (user_id=1) for backward compatibility
+                                llm_config = db.query(LLMConfig).filter(
+                                    LLMConfig.user_id == 1,
+                                    LLMConfig.active == True,
+                                    LLMConfig.is_default == True
+                                ).order_by(
+                                    LLMConfig.created_at.desc()
+                                ).first()
+                                if llm_config:
+                                    config_source = "global (user_id=1, legacy)"
                     else:
-                        # Load global default config (no user_id)
-                        # Only load global configs that are BOTH active AND default
-                        # Global configs use user_id=None (backward compatible with user_id=1)
-                        from sqlalchemy import or_
+                        # Load global default config (no user_id parameter)
+                        # Prioritize environment-based configs (user_id=None) over legacy (user_id=1)
+                        # First try: environment-based global configs (user_id=None)
                         llm_config = db.query(LLMConfig).filter(
-                            or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
+                            LLMConfig.user_id.is_(None),
                             LLMConfig.active == True,
-                            LLMConfig.is_default == True  # Must be default
+                            LLMConfig.is_default == True
                         ).order_by(
-                            LLMConfig.is_default.desc(),  # Default configs first
-                            LLMConfig.created_at.desc()    # Then newest first
+                            LLMConfig.created_at.desc()  # Newest first
                         ).first()
+
+                        if llm_config:
+                            config_source = "global (user_id=None, from environment)"
+                        else:
+                            # Fallback: legacy global configs (user_id=1) for backward compatibility
+                            llm_config = db.query(LLMConfig).filter(
+                                LLMConfig.user_id == 1,
+                                LLMConfig.active == True,
+                                LLMConfig.is_default == True
+                            ).order_by(
+                                LLMConfig.created_at.desc()
+                            ).first()
+                            if llm_config:
+                                config_source = "global (user_id=1, legacy)"
 
                     if llm_config:
                         config = llm_config.to_dict(include_api_key=True)
                         # Ensure API key is loaded from environment if not in database
+                        # This allows environment variables to override/supplement database configs
                         if not config.get('api_key'):
                             if config.get('type', '').lower() == 'gemini':
                                 config['api_key'] = os.getenv("GOOGLE_API_KEY")
@@ -266,7 +292,8 @@ class Config:
                                 # Ollama doesn't need API key
                                 pass
 
-                        print(f"📝 Loaded LLM config from database (user_id={user_id}): {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
+                        # Log config loaded (without sensitive info)
+                        print(f"📝 Loaded LLM config: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
                         return config
                 else:
                     # Create new session
@@ -277,37 +304,63 @@ class Config:
                                 LLMConfig.user_id == user_id,
                                 LLMConfig.active == True
                             ).first()
+                            config_source = f"user-specific (user_id={user_id})" if llm_config else None
 
                             # If no user-specific config, fall back to global config
-                            # Global configs use user_id=None (backward compatible with user_id=1)
-                            # Prioritize global configs marked as default, then by creation date
+                            # Prioritize environment-based configs (user_id=None) over legacy (user_id=1)
                             if not llm_config:
-                                from sqlalchemy import or_
+                                # First try: environment-based global configs (user_id=None)
                                 llm_config = session.query(LLMConfig).filter(
-                                    or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
-                                    LLMConfig.active == True
+                                    LLMConfig.user_id.is_(None),
+                                    LLMConfig.active == True,
+                                    LLMConfig.is_default == True
                                 ).order_by(
-                                    LLMConfig.is_default.desc(),  # Default configs first
-                                    LLMConfig.created_at.desc()    # Then newest first
-                            ).first()
+                                    LLMConfig.created_at.desc()
+                                ).first()
+
+                                if llm_config:
+                                    config_source = "global (user_id=None, from environment)"
+                                else:
+                                    # Fallback: legacy global configs (user_id=1) for backward compatibility
+                                    llm_config = session.query(LLMConfig).filter(
+                                        LLMConfig.user_id == 1,
+                                        LLMConfig.active == True,
+                                        LLMConfig.is_default == True
+                                    ).order_by(
+                                        LLMConfig.created_at.desc()
+                                    ).first()
+                                    if llm_config:
+                                        config_source = "global (user_id=1, legacy)"
                         else:
-                            # Load global default config (no user_id)
-                            # Global configs use user_id=None (backward compatible with user_id=1)
-                            # Prioritize global configs marked as default, then by creation date
-                            from sqlalchemy import or_
+                            # Load global default config (no user_id parameter)
+                            # Prioritize environment-based configs (user_id=None) over legacy (user_id=1)
+                            # First try: environment-based global configs (user_id=None)
                             llm_config = session.query(LLMConfig).filter(
-                                or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
-                                LLMConfig.active == True
+                                LLMConfig.user_id.is_(None),
+                                LLMConfig.active == True,
+                                LLMConfig.is_default == True
                             ).order_by(
-                                LLMConfig.is_default.desc(),  # Default configs first
-                                LLMConfig.created_at.desc()    # Then newest first
+                                LLMConfig.created_at.desc()
                             ).first()
+
+                            if llm_config:
+                                config_source = "global (user_id=None, from environment)"
+                            else:
+                                # Fallback: legacy global configs (user_id=1) for backward compatibility
+                                llm_config = session.query(LLMConfig).filter(
+                                    LLMConfig.user_id == 1,
+                                    LLMConfig.active == True,
+                                    LLMConfig.is_default == True
+                                ).order_by(
+                                    LLMConfig.created_at.desc()
+                                ).first()
+                                if llm_config:
+                                    config_source = "global (user_id=1, legacy)"
 
                         if llm_config:
                             config = llm_config.to_dict(include_api_key=True)
                             # Fallback: Load API key from environment if missing in database
-                            # This is only a fallback - superadmin should configure API keys via dashboard
-                            # Note: OPENAI_API_KEY is ONLY for embeddings, not for LLM
+                            # This allows environment variables to override/supplement database configs
                             if not config.get('api_key'):
                                 if config.get('type', '').lower() == 'gemini':
                                     config['api_key'] = os.getenv("GOOGLE_API_KEY")
@@ -324,9 +377,10 @@ class Config:
                                     pass
                                 # If still no API key, warn but don't fail (superadmin should configure via dashboard)
                                 if not config.get('api_key'):
-                                    print(f"⚠️  No API key found for {config.get('type')} config. Please configure via environment variables.")
+                                    print(f"⚠️  No API key found for {config.get('type', 'LLM')} config. Please configure via environment variables.")
 
-                            print(f"📝 Loaded LLM config from database (user_id={user_id}): {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
+                            # Log config loaded (without sensitive info)
+                            print(f"📝 Loaded LLM config: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
                             return config
             except Exception as e:
                 print(f"⚠️  Failed to load LLM config from database: {e}")
@@ -335,11 +389,9 @@ class Config:
         # LLM configs must be configured via environment variables or user settings
         # If no config found, return None - callers should handle this gracefully
         if DB_AVAILABLE and user_id is not None:
-            print(f"⚠️  No active LLM configuration found for user {user_id}. "
-                  "Please configure LLM providers via environment variables or create a personal LLM config.")
+            print("⚠️  No active LLM configuration found. Please configure LLM providers via environment variables or create a personal LLM config.")
         else:
-            print("⚠️  No active LLM configuration found. "
-                  "Please configure LLM providers via the superadmin dashboard.")
+            print("⚠️  No active LLM configuration found. Please configure LLM providers via the superadmin dashboard.")
         return None
 
     @classmethod
@@ -378,7 +430,7 @@ class Config:
                     session.add(llm_config)
                     # Context manager will commit automatically
 
-                print(f"✓ LLM config saved to database: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
+                print(f"✓ LLM config saved to database")
                 return True
 
             # If using provided session, update here (caller will commit)

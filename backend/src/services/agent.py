@@ -22,7 +22,7 @@ async def run_agent_query(agent_executor, question: str, session_id: str = "defa
         session_id: Session identifier for history
     """
     print(f"\n{'='*60}")
-    print(f"💬 User Query: {question}")
+    # User query logged at service layer
     print(f"📝 Session ID: {session_id}")
     print(f"{'='*60}\n")
 

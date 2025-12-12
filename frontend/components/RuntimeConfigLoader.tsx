@@ -15,8 +15,8 @@ export default function RuntimeConfigLoader() {
 
     // Preload the API base URL as soon as the component mounts
     getApiBaseUrl()
-      .then((url) => {
-        console.log("✓ Runtime config preloaded. API URL:", url);
+      .then(() => {
+        // Runtime config preloaded successfully
       })
       .catch((error) => {
         console.error("✗ Failed to preload runtime config:", error);

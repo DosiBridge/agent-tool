@@ -153,7 +153,7 @@ export default function ChatPage() {
     const handleKeyPress = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        console.log("Ctrl+K pressed"); // Debugging
+        // Ctrl+K pressed
         setCommandPaletteOpen((prev) => !prev);
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "n") {
@@ -186,13 +186,26 @@ export default function ChatPage() {
   // Load sessions and current session on mount and when dependencies change
   useEffect(() => {
     if (!authLoading) {
-      // Load sessions first, then load the current session
+      // Load sessions first, then load the current session messages
       loadSessions().then(() => {
-        // After sessions are loaded, load the current session messages
-        loadSession(currentSessionId);
+        // After sessions are loaded, ensure we have a valid session and load its messages
+        const state = useStore.getState();
+        if (state.currentSessionId && state.sessions.some(s => s.session_id === state.currentSessionId)) {
+          // Current session exists in loaded sessions, load its messages
+          loadSession(state.currentSessionId);
+        } else if (state.sessions.length > 0) {
+          // If current session doesn't exist or we have sessions but no current, use the first one
+          // setCurrentSession will automatically call loadSession
+          useStore.getState().setCurrentSession(state.sessions[0].session_id);
+        } else {
+          // No sessions, load current session anyway (might be browser storage session)
+          if (state.currentSessionId) {
+            loadSession(state.currentSessionId);
+          }
+        }
       });
     }
-  }, [authLoading, loadSessions, loadSession, currentSessionId]);
+  }, [authLoading, loadSessions, loadSession]);
 
   useEffect(() => {
     if (!authLoading) {
