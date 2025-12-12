@@ -102,43 +102,45 @@ export default function CommandPalette({
       size="lg"
       closeOnClickOutside={true}
       showCloseButton={false}
+      alignment="top"
+      className="bg-zinc-950/90 backdrop-blur-xl border-zinc-800 shadow-2xl overflow-hidden"
     >
-      <div className="p-2" onKeyDown={handleKeyDown}>
+      <div className="flex flex-col h-full" onKeyDown={handleKeyDown}>
         {/* Search Input */}
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-secondary)]" />
+        <div className="relative border-b border-zinc-800/50">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Type a command or search..."
-            className="w-full pl-10 pr-10 py-3 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--green)] focus:border-[var(--green)]"
+            className="w-full pl-12 pr-12 py-4 bg-transparent border-none text-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-0"
             autoFocus
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-[var(--surface-hover)] rounded"
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors"
             >
-              <X className="w-4 h-4 text-[var(--text-secondary)]" />
+              <X className="w-5 h-5" />
             </button>
           )}
         </div>
 
         {/* Results */}
-        <div className="max-h-96 overflow-y-auto">
+        <div className="max-h-[60vh] overflow-y-auto custom-scrollbar p-2">
           {filteredItems.length === 0 ? (
-            <div className="text-center py-8 text-[var(--text-tertiary)]">
+            <div className="text-center py-12 text-zinc-500">
               <p className="text-sm">No commands found</p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-1">
               {Object.entries(groupedItems).map(([category, categoryItems]) => (
-                <div key={category}>
-                  <div className="px-2 py-1 text-xs font-semibold text-[var(--text-tertiary)] uppercase">
+                <div key={category} className="mb-2">
+                  <div className="px-3 py-2 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
                     {category}
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-0.5">
                     {categoryItems.map((item, index) => {
                       const globalIndex = filteredItems.indexOf(item);
                       const isSelected = globalIndex === selectedIndex;
@@ -147,32 +149,42 @@ export default function CommandPalette({
                           key={item.id}
                           onClick={() => handleSelect(item)}
                           className={cn(
-                            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all",
+                            "w-full flex items-center gap-3 px-3 py-3 rounded-md text-left transition-all",
                             isSelected
-                              ? "bg-[var(--green)] text-white"
-                              : "hover:bg-[var(--surface-hover)] text-[var(--text-primary)]"
+                              ? "bg-indigo-600 text-white shadow-md"
+                              : "text-zinc-300 hover:bg-zinc-800/50"
                           )}
                         >
                           {item.icon && (
-                            <div className="shrink-0">{item.icon}</div>
+                            <div className={cn(
+                              "shrink-0 w-8 h-8 flex items-center justify-center rounded-md",
+                              isSelected ? "bg-indigo-500/30 text-white" : "bg-zinc-800 text-zinc-400"
+                            )}>
+                              {item.icon}
+                            </div>
                           )}
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-sm">
+                            <div className={cn("font-medium text-sm", isSelected ? "text-white" : "text-zinc-200")}>
                               {item.label}
                             </div>
                             {item.description && (
                               <div
                                 className={cn(
-                                  "text-xs mt-0.5",
+                                  "text-xs mt-0.5 truncate",
                                   isSelected
-                                    ? "text-white/80"
-                                    : "text-[var(--text-secondary)]"
+                                    ? "text-indigo-200"
+                                    : "text-zinc-500"
                                 )}
                               >
                                 {item.description}
                               </div>
                             )}
                           </div>
+                          {isSelected && (
+                            <div className="shrink-0 text-xs text-indigo-200 opacity-80">
+                              Enter
+                            </div>
+                          )}
                         </button>
                       );
                     })}
@@ -184,26 +196,21 @@ export default function CommandPalette({
         </div>
 
         {/* Footer */}
-        <div className="mt-4 pt-4 border-t border-[var(--border)] flex items-center justify-between text-xs text-[var(--text-secondary)]">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-[var(--surface-elevated)] rounded text-xs text-[var(--text-primary)]">
-                ↑↓
-              </kbd>
-              <span>Navigate</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-[var(--surface-elevated)] rounded text-xs text-[var(--text-primary)]">
-                Enter
-              </kbd>
-              <span>Select</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-[var(--surface-elevated)] rounded text-xs text-[var(--text-primary)]">
-                Esc
-              </kbd>
-              <span>Close</span>
-            </div>
+        <div className="p-3 bg-zinc-900/50 border-t border-zinc-800 flex items-center justify-end gap-4 text-[10px] text-zinc-500">
+          <div className="flex items-center gap-1.5">
+            <span className="flex gap-0.5">
+              <kbd className="min-w-[16px] h-4 flex items-center justify-center bg-zinc-800 rounded border border-zinc-700 font-sans">↑</kbd>
+              <kbd className="min-w-[16px] h-4 flex items-center justify-center bg-zinc-800 rounded border border-zinc-700 font-sans">↓</kbd>
+            </span>
+            <span>Navigate</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <kbd className="h-4 px-1.5 flex items-center justify-center bg-zinc-800 rounded border border-zinc-700 font-sans">Enter</kbd>
+            <span>Select</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <kbd className="h-4 px-1.5 flex items-center justify-center bg-zinc-800 rounded border border-zinc-700 font-sans">Esc</kbd>
+            <span>Close</span>
           </div>
         </div>
       </div>

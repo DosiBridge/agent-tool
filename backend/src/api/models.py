@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     collection_id: Optional[int] = Field(None, description="Optional collection ID for RAG mode")
     use_react: bool = Field(default=False, description="Whether to use ReAct agent for RAG mode")
     agent_prompt: Optional[str] = Field(None, max_length=5000, description="Optional custom system prompt for the agent. If not provided, a default prompt will be used.")
+    guest_email: Optional[str] = Field(None, max_length=255, description="Email for guest/unauthenticated users")
     
     @validator('message')
     def validate_message(cls, v):
@@ -65,11 +66,12 @@ class MCPServerRequest(BaseModel):
 
 
 class LLMConfigRequest(BaseModel):
-    type: Literal["openai", "groq", "ollama", "gemini"] = Field(..., description="LLM provider type")
+    type: Literal["openai", "deepseek", "groq", "ollama", "gemini", "openrouter"] = Field(..., description="LLM provider type")
     model: str = Field(..., min_length=1, max_length=100, description="Model name")
-    api_key: Optional[str] = Field(None, max_length=500, description="API key for the LLM provider")
+    api_key: Optional[str] = Field(None, max_length=500, description="API key for the LLM provider (optional for default LLM)")
     base_url: Optional[str] = Field(None, max_length=500, description="Base URL (for Ollama)")
-    api_base: Optional[str] = Field(None, max_length=500, description="Custom API base (for OpenAI/Groq)")
+    api_base: Optional[str] = Field(None, max_length=500, description="Custom API base (for OpenAI/Groq/DeepSeek/OpenRouter)")
+    use_default: Optional[bool] = Field(False, description="Use default DeepSeek LLM (100 requests/day limit)")
     
     @validator('model')
     def validate_model(cls, v):

@@ -2,7 +2,7 @@
 FastAPI application with streaming chat endpoints
 """
 import os
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .lifespan import mcp_lifespan
 from .routes import (
@@ -18,6 +18,10 @@ from .routes import (
 from .routes.documents import router as documents_router
 from .routes.websocket import router as websocket_router
 from .routes.custom_rag_tools import router as custom_rag_tools_router
+from .routes.monitoring import router as monitoring_router
+from src.core.auth import get_current_user, get_optional_current_user
+from src.core import User
+from typing import Optional
 
 # Try to import slowapi for rate limiting (optional)
 try:
@@ -55,7 +59,7 @@ if SLOWAPI_AVAILABLE:
     )
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-    
+
     # Apply rate limiting middleware (applies default limits to all routes)
     app.add_middleware(SlowAPIMiddleware)
     print("✓ Rate limiting enabled")
@@ -93,9 +97,24 @@ else:
         raise ValueError("CORS_ORIGINS environment variable is empty or invalid")
     print(f"✅ CORS configured with origins: {cors_origins}")
 
-# Add CORS middleware
-# Note: FastAPI CORS middleware allows requests without Origin header (server-to-server)
-# by default, which is needed for internal MCP connection tests
+# In production, also allow common production origins if not already included
+# This helps with deployment scenarios where CORS_ORIGINS might not be fully configured
+PRODUCTION_ORIGINS = [
+    "https://agent.dosibridge.com",
+    "https://www.agent.dosibridge.com",
+]
+# Add production origins if not already in the list (avoid duplicates)
+is_production = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod") or os.getenv("NODE_ENV", "").lower() == "production"
+if is_production:
+    for origin in PRODUCTION_ORIGINS:
+        if origin not in cors_origins:
+            cors_origins.append(origin)
+            print(f"✅ Added production origin to CORS: {origin}")
+
+# Add CORS middleware LAST (so it executes FIRST)
+# IMPORTANT: In FastAPI, middleware executes in REVERSE order (last added = first executed)
+# CORS middleware must execute first to handle preflight OPTIONS requests properly
+# Adding it last ensures it runs before other middleware can interfere
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -105,6 +124,7 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,
 )
+print(f"🌐 CORS middleware configured with {len(cors_origins)} allowed origins: {cors_origins}")
 
 # Include routers
 app.include_router(auth_router, prefix="/api/auth", tags=["authentication"])
@@ -117,6 +137,8 @@ app.include_router(mcp_routes_router, prefix="/api", tags=["mcp-routes"])
 app.include_router(documents_router, prefix="/api", tags=["documents"])
 app.include_router(websocket_router, prefix="/api", tags=["websocket"])
 app.include_router(custom_rag_tools_router, prefix="/api", tags=["custom-rag-tools"])
+app.include_router(monitoring_router, prefix="/api/monitoring", tags=["monitoring"])
+
 
 # Setup MCP routes
 setup_mcp_routes(app)
@@ -134,6 +156,8 @@ async def root():
 
 
 @app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy"}
+async def health_check(current_user: Optional[User] = Depends(get_optional_current_user)):
+    """Health check endpoint with MCP server count and RAG availability"""
+    from src.api.routes.websocket import get_health_status
+    user_id = current_user.id if current_user else None
+    return await get_health_status(None, user_id)

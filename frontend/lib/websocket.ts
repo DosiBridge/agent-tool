@@ -28,6 +28,10 @@ class HealthWebSocketClient {
   private connectionStateCallbacks: Set<ConnectionStateCallback> = new Set();
   private isConnecting = false;
   private isIntentionallyClosed = false;
+  private useHttpPolling = false; // Fallback to HTTP polling if WebSocket fails
+  private httpPollingInterval: NodeJS.Timeout | null = null;
+  private consecutiveWsFailures = 0;
+  private maxWsFailures = 3; // Switch to HTTP polling after 3 consecutive failures
 
   /**
    * Initialize WebSocket connection
@@ -64,6 +68,12 @@ class HealthWebSocketClient {
       }`;
 
       this.url = url;
+      
+      // Validate URL before creating WebSocket
+      if (!url || (!url.startsWith('ws://') && !url.startsWith('wss://'))) {
+        throw new Error(`Invalid WebSocket URL: ${url}`);
+      }
+      
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
@@ -71,6 +81,9 @@ class HealthWebSocketClient {
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         this.reconnectDelay = 1000;
+        this.consecutiveWsFailures = 0; // Reset failure count on successful connection
+        this.stopHttpPolling(); // Stop HTTP polling if WebSocket connects
+        this.useHttpPolling = false;
         this.notifyConnectionState(true);
       };
 
@@ -83,28 +96,91 @@ class HealthWebSocketClient {
         }
       };
 
-      this.ws.onerror = (error) => {
-        console.error("WebSocket error:", error);
+      this.ws.onerror = (event: Event) => {
+        // WebSocket error events don't provide detailed error information
+        // The actual error details are in the onclose event
+        const errorInfo: any = {
+          type: event.type,
+          target: event.target instanceof WebSocket ? {
+            url: this.url,
+            readyState: event.target.readyState,
+            readyStateText: ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][event.target.readyState] || 'UNKNOWN'
+          } : null
+        };
+        
+        // Only log if there's meaningful information or in development
+        if (process.env.NODE_ENV === 'development') {
+          console.warn("WebSocket error event:", errorInfo);
+        }
+        
         this.isConnecting = false;
         this.notifyConnectionState(false);
       };
 
       this.ws.onclose = (event) => {
-        console.log("WebSocket closed:", event.code, event.reason);
+        const closeInfo = {
+          code: event.code,
+          reason: event.reason || 'No reason provided',
+          wasClean: event.wasClean,
+          url: this.url
+        };
+        
+        // Log close event with details
+        if (event.code !== 1000 && event.code !== 1001) {
+          // Not a normal closure - log as warning
+          console.warn("WebSocket closed unexpectedly:", closeInfo);
+          
+          // Code 1006 means connection closed abnormally (before handshake completed)
+          // This often happens when WebSocket is blocked by proxy/firewall
+          if (event.code === 1006) {
+            console.warn("WebSocket connection failed (code 1006). This may indicate:");
+            console.warn("- WebSocket connections are blocked by a proxy/load balancer");
+            console.warn("- Network/firewall restrictions");
+            console.warn("- Server not properly configured for WebSocket upgrades");
+            console.warn("Falling back to HTTP polling...");
+          }
+        } else {
+          console.log("WebSocket closed:", closeInfo);
+        }
+        
         this.isConnecting = false;
         this.ws = null;
         this.notifyConnectionState(false);
 
-        // Attempt to reconnect if not intentionally closed
+        // Track consecutive WebSocket failures
+        if (event.code === 1006 || event.code !== 1000) {
+          this.consecutiveWsFailures++;
+          
+          // Switch to HTTP polling after multiple failures
+          if (this.consecutiveWsFailures >= this.maxWsFailures && !this.useHttpPolling) {
+            console.log(`WebSocket failed ${this.consecutiveWsFailures} times. Switching to HTTP polling.`);
+            this.stopHttpPolling(); // Ensure clean state
+            this.startHttpPolling();
+            return; // Don't try to reconnect WebSocket
+          }
+        }
+
+        // Attempt to reconnect if not intentionally closed and not a normal closure
         if (
           !this.isIntentionallyClosed &&
-          this.reconnectAttempts < this.maxReconnectAttempts
+          this.reconnectAttempts < this.maxReconnectAttempts &&
+          event.code !== 1000 && // Don't reconnect on normal closure
+          !this.useHttpPolling // Don't reconnect if using HTTP polling
         ) {
+          // For code 1006 (abnormal closure), wait longer before retry
+          if (event.code === 1006) {
+            this.reconnectDelay = 5000; // Wait 5 seconds before retry
+          }
           this.scheduleReconnect();
         }
       };
     } catch (error) {
-      console.error("Failed to create WebSocket connection:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Failed to create WebSocket connection:", {
+        error: errorMessage,
+        url: this.url,
+        stack: error instanceof Error ? error.stack : undefined
+      });
       this.isConnecting = false;
       this.notifyConnectionState(false);
       this.scheduleReconnect();
@@ -159,6 +235,8 @@ class HealthWebSocketClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+
+    this.stopHttpPolling();
 
     if (this.ws) {
       // Send close message if possible
@@ -226,7 +304,69 @@ class HealthWebSocketClient {
    * Get current connection state
    */
   isConnected(): boolean {
-    return this.ws?.readyState === WebSocket.OPEN;
+    return this.useHttpPolling ? true : (this.ws?.readyState === WebSocket.OPEN);
+  }
+
+  /**
+   * Start HTTP polling as fallback when WebSocket fails
+   */
+  private startHttpPolling(): void {
+    if (this.httpPollingInterval) {
+      return; // Already polling
+    }
+
+    console.log("Starting HTTP polling fallback for health status");
+    this.useHttpPolling = true;
+    this.notifyConnectionState(true);
+
+    // Poll every 5 seconds (same as WebSocket interval)
+    this.httpPollingInterval = setInterval(async () => {
+      try {
+        const { getApiBaseUrl } = await import("./api/client");
+        const { getAuthHeaders } = await import("./api/client");
+        const apiBaseUrl = await getApiBaseUrl();
+        const response = await fetch(`${apiBaseUrl}/health`, {
+          headers: getAuthHeaders(),
+        });
+        
+        if (response.ok) {
+          const data: HealthStatus = await response.json();
+          this.notifyHealthStatus(data);
+        }
+      } catch (error) {
+        console.error("HTTP polling error:", error);
+      }
+    }, 5000);
+
+    // Initial fetch
+    (async () => {
+      try {
+        const { getApiBaseUrl } = await import("./api/client");
+        const { getAuthHeaders } = await import("./api/client");
+        const apiBaseUrl = await getApiBaseUrl();
+        const response = await fetch(`${apiBaseUrl}/health`, {
+          headers: getAuthHeaders(),
+        });
+        
+        if (response.ok) {
+          const data: HealthStatus = await response.json();
+          this.notifyHealthStatus(data);
+        }
+      } catch (error) {
+        console.error("Initial HTTP health fetch error:", error);
+      }
+    })();
+  }
+
+  /**
+   * Stop HTTP polling
+   */
+  private stopHttpPolling(): void {
+    if (this.httpPollingInterval) {
+      clearInterval(this.httpPollingInterval);
+      this.httpPollingInterval = null;
+    }
+    this.useHttpPolling = false;
   }
 }
 

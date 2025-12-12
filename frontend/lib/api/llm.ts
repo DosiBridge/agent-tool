@@ -35,6 +35,18 @@ export async function setLLMConfig(
   return handleResponse(response);
 }
 
+export async function testLLMConfig(
+  config: LLMConfig
+): Promise<{ status: string; message: string; valid: boolean }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/llm-config/test`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(config),
+  });
+  return handleResponse(response);
+}
+
 export async function resetLLMConfig(): Promise<{
   message: string;
   config: LLMConfigResponse;
@@ -42,6 +54,86 @@ export async function resetLLMConfig(): Promise<{
   const apiBaseUrl = await getApiBaseUrl();
   const response = await fetch(`${apiBaseUrl}/api/llm-config/reset`, {
     method: "POST",
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+}
+
+export interface LLMConfigListItem extends LLMConfigResponse {
+  id: number;
+  user_id?: number;
+  active: boolean;
+  is_default: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function listLLMConfigs(): Promise<{
+  configs: LLMConfigListItem[];
+}> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/llm-config/list`, {
+    headers: getAuthHeaders(),
+  });
+  const data = await handleResponse<{
+    status: string;
+    configs: LLMConfigListItem[];
+  }>(response);
+  return { configs: data.configs };
+}
+
+export async function updateLLMConfig(
+  configId: number,
+  config: LLMConfig
+): Promise<{ message: string; config: LLMConfigResponse }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/llm-config/${configId}`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(config),
+  });
+  return handleResponse(response);
+}
+
+export async function deleteLLMConfig(
+  configId: number
+): Promise<{ message: string }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/llm-config/${configId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+}
+
+export async function switchLLMConfig(
+  configId: number
+): Promise<{ message: string; config: LLMConfigResponse }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/llm-config/${configId}/switch`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+}
+
+export async function toggleLLMConfig(
+  configId: number
+): Promise<{ message: string; config: LLMConfigResponse }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/llm-config/${configId}/toggle`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+}
+
+export async function toggleGlobalLLMConfigPreference(
+  configId: number
+): Promise<{ message: string; preference: any }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/llm-config/global/${configId}/toggle-preference`, {
+    method: "PATCH",
     headers: getAuthHeaders(),
   });
   return handleResponse(response);

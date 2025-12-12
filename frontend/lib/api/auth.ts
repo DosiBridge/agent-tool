@@ -16,28 +16,46 @@ import {
   setAuthToken,
 } from "./client";
 
-export async function register(data: RegisterRequest): Promise<AuthResponse> {
+export async function requestOtp(email: string): Promise<{ message: string }> {
   const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/auth/register`, {
+  const response = await fetch(`${apiBaseUrl}/api/auth/request-otp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ email }),
+  });
+  return handleResponse<{ message: string }>(response);
+}
+
+export async function verifyOtp(email: string, otp: string): Promise<AuthResponse> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/auth/verify-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, otp }),
   });
   const result = await handleResponse<AuthResponse>(response);
+
+  // Store token in session storage
   setAuthToken(result.access_token);
   return result;
 }
 
-export async function login(data: LoginRequest): Promise<AuthResponse> {
-  const apiBaseUrl = await getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  const result = await handleResponse<AuthResponse>(response);
-  setAuthToken(result.access_token);
-  return result;
+// Deprecated: Legacy login
+export async function login(
+  data: LoginRequest,
+  persistentAccess: boolean = false
+): Promise<AuthResponse> {
+  // Redirect to new flow or keep for backward compat if needed during transition
+  // For now, throwing error to force new flow usage
+  throw new Error("Password login is deprecated. Please use OTP login.");
+}
+
+// Deprecated: Legacy register
+export async function register(
+  data: RegisterRequest,
+  persistentAccess: boolean = false
+): Promise<AuthResponse> {
+  throw new Error("Password registration is deprecated. Please use OTP login.");
 }
 
 export async function logout(): Promise<void> {
@@ -99,4 +117,34 @@ export async function getCurrentUser(): Promise<User> {
     }
     throw error;
   }
+}
+
+export interface UpdateProfileRequest {
+  name?: string;
+  email?: string;
+}
+
+export interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
+}
+
+export async function updateProfile(data: UpdateProfileRequest): Promise<User> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/auth/profile`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleResponse<User>(response);
+}
+
+export async function changePassword(data: ChangePasswordRequest): Promise<{ status: string; message: string }> {
+  const apiBaseUrl = await getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}/api/auth/change-password`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleResponse<{ status: string; message: string }>(response);
 }

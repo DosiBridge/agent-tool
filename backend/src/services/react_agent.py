@@ -65,7 +65,12 @@ class ReActAgent:
         ])
     
     def create_react_tools(self, user_id: int, collection_id: Optional[int] = None) -> List[BaseTool]:
-        """Create tools for ReAct agent"""
+        """Create tools for ReAct agent
+        
+        NOTE: ReAct agent in RAG mode only uses document retrieval and calculation tools.
+        It does NOT include MCP (Model Context Protocol) tools.
+        MCP tools are only available in Agent mode, not RAG mode.
+        """
         from langchain_core.tools import tool
         
         @tool
@@ -186,10 +191,13 @@ class ReActAgent:
             system_prompt=system_prompt
         )
         
-        # Prepare messages
+        # Prepare messages - normalize content to ensure strings (not lists)
         messages = []
         if chat_history:
-            messages.extend(chat_history)
+            # Normalize message contents to ensure they're strings
+            from src.services.chat_service import ChatService
+            normalized_history = ChatService._normalize_messages(chat_history)
+            messages.extend(normalized_history)
         messages.append(HumanMessage(content=query))
         
         # Run agent
@@ -198,7 +206,9 @@ class ReActAgent:
         # Extract final answer
         final_message = result.get("messages", [])[-1] if isinstance(result, dict) else result
         if isinstance(final_message, AIMessage):
-            answer = final_message.content
+            # Normalize content in case it's a list
+            from src.services.chat_service import ChatService
+            answer = ChatService._extract_content(final_message.content)
         else:
             answer = str(final_message)
         

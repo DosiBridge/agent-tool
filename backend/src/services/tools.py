@@ -205,7 +205,14 @@ def create_custom_rag_tool(tool_config: dict, user_id: int) -> BaseTool:
             
             context = "\n".join(context_parts)
             return f"Retrieved context from {tool_name}:\n{context}"
+        except ValueError as e:
+            # Handle missing OPENAI_API_KEY or other configuration errors
+            error_msg = str(e)
+            if "OPENAI_API_KEY" in error_msg:
+                return f"Error: RAG system requires OPENAI_API_KEY to be set. Please configure it in your environment variables."
+            return f"Error retrieving context: {error_msg}"
         except Exception as e:
+            print(f"⚠️  Error in custom RAG tool '{tool_name}': {e}")
             return f"Error retrieving context: {str(e)}"
     
     # Update the tool's description

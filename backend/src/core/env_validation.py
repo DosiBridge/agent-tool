@@ -53,7 +53,8 @@ def validate_environment() -> Tuple[bool, List[str]]:
     
     # Optional but recommended variables
     recommended_vars = {
-        "OPENAI_API_KEY": "OpenAI API key for embeddings and OpenAI models",
+        "OPENAI_API_KEY": "OpenAI API key for embeddings ONLY (not used for LLM responses)",
+        "DEEPSEEK_KEY": "DeepSeek API key for agent and RAG responses (default LLM provider)",
         "MCP_APIKEY_ENCRYPTION_KEY": "Encryption key for MCP server API keys (recommended for security)",
     }
     

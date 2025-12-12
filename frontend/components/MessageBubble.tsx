@@ -13,12 +13,14 @@ import {
   RefreshCw,
   ThumbsDown,
   ThumbsUp,
+  Wrench,
+  ChevronDown,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import CodeBlock from "./CodeBlock";
+import Sources from "./Sources";
 
 interface MessageBubbleProps {
   message: Message;
@@ -34,7 +36,28 @@ export default function MessageBubble({
   const [copiedCodeBlock, setCopiedCodeBlock] = useState<string | null>(null);
   const [showActions, setShowActions] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isToolsExpanded, setIsToolsExpanded] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
+
+  // Detect current theme for code block styling
+  useEffect(() => {
+    const checkTheme = () => {
+      setIsDarkMode(document.documentElement.classList.contains("dark"));
+    };
+
+    // Check on mount
+    checkTheme();
+
+    // Watch for theme changes
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   const isStreaming = useStore((state) => state.isStreaming);
   const isLastMessage = useStore((state) => {
@@ -171,7 +194,7 @@ export default function MessageBubble({
             if (
               currentMessages.length > 0 &&
               currentMessages[currentMessages.length - 1].role ===
-                "assistant" &&
+              "assistant" &&
               !currentMessages[currentMessages.length - 1].content
             ) {
               useStore.setState({ messages: currentMessages.slice(0, -1) });
@@ -234,7 +257,7 @@ export default function MessageBubble({
               if (
                 currentMessages.length > 0 &&
                 currentMessages[currentMessages.length - 1].role ===
-                  "assistant" &&
+                "assistant" &&
                 !currentMessages[currentMessages.length - 1].content
               ) {
                 useStore.setState({ messages: currentMessages.slice(0, -1) });
@@ -316,25 +339,22 @@ export default function MessageBubble({
 
   return (
     <div
-      className={`group flex mb-3 sm:mb-4 md:mb-6 px-1 sm:px-2 transition-all duration-200 hover:bg-transparent ${
-        isUser ? "justify-end" : "justify-start"
-      }`}
+      className={`group flex mb-3 sm:mb-4 md:mb-6 px-1 sm:px-2 transition-all duration-200 hover:bg-transparent ${isUser ? "justify-end" : "justify-start"
+        }`}
     >
       <div
-        className={`flex flex-col ${
-          isUser
-            ? "max-w-[85%] xs:max-w-[90%] sm:max-w-[85%] md:max-w-[75%] lg:max-w-[70%] items-end"
-            : "w-full max-w-full items-start"
-        }`}
+        className={`flex flex-col ${isUser
+          ? "max-w-[85%] xs:max-w-[90%] sm:max-w-[85%] md:max-w-[75%] lg:max-w-[70%] items-end"
+          : "w-full max-w-full items-start"
+          }`}
       >
 
         <div className="relative w-full">
           <div
-            className={`rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 md:px-4 md:py-3 transition-all duration-200 ${
-              isUser
-                ? "bg-[var(--message-user-bg)]/90 backdrop-blur-sm text-white hover:bg-[var(--message-user-hover)]/90 hover:shadow-md shadow-sm"
-                : "bg-transparent text-[var(--message-ai-text)]"
-            }`}
+            className={`rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 md:px-4 md:py-3 transition-all duration-200 ${isUser
+              ? "bg-[var(--message-user-bg)]/90 backdrop-blur-sm text-white hover:bg-[var(--message-user-hover)]/90 hover:shadow-md shadow-sm"
+              : "bg-transparent text-[var(--message-ai-text)]"
+              }`}
           >
             {isUser ? (
               <p className="whitespace-pre-wrap break-words leading-relaxed text-sm sm:text-base">
@@ -348,6 +368,24 @@ export default function MessageBubble({
                       <p className="whitespace-pre-wrap break-words leading-relaxed mb-2 last:mb-0">
                         {children}
                       </p>
+                    ),
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    ul: ({ children, ...props }: any) => (
+                      <ul className="list-disc list-outside ml-6 mb-2 mt-2 space-y-1 text-[var(--message-ai-text)]" {...props}>
+                        {children}
+                      </ul>
+                    ),
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    ol: ({ children, ...props }: any) => (
+                      <ol className="list-decimal list-outside ml-6 mb-2 mt-2 space-y-1 text-[var(--message-ai-text)]" {...props}>
+                        {children}
+                      </ol>
+                    ),
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    li: ({ children, ...props }: any) => (
+                      <li className="pl-1 mb-1 leading-relaxed text-[var(--message-ai-text)]" {...props}>
+                        {children}
+                      </li>
                     ),
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     a: ({ href, children, ...props }: any) => (
@@ -368,47 +406,34 @@ export default function MessageBubble({
                       const codeString = String(children).replace(/\n$/, "");
                       const inline = !match; // If no language match, it's inline code
 
+                      // Check if it's a citation like [1], [2], etc.
+                      const citationMatch = /^\[(\d+)\]$/.exec(String(children));
+                      if (inline && citationMatch) {
+                        return (
+                          <span className="inline-flex items-center justify-center w-5 h-5 ml-0.5 text-[10px] font-medium text-[var(--primary)] bg-[var(--surface-elevated)] border border-[var(--border)] rounded-full -translate-y-0.5 select-none hover:bg-[var(--surface-hover)] cursor-default">
+                            {citationMatch[1]}
+                          </span>
+                        );
+                      }
+
                       return !inline && match ? (
-                        <div className="relative my-3 group/codeblock">
-                          {/* Code block header with language and copy button */}
-                          <div className="flex items-center justify-between px-4 py-2 bg-[var(--code-header-bg)] border-b border-[var(--code-border)] rounded-t-lg">
-                            <span className="text-xs font-medium text-[var(--text-secondary)] uppercase">
-                              {language}
-                            </span>
-                            <button
-                              onClick={() => handleCopyCode(codeString)}
-                              className="flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] rounded transition-colors"
-                              title="Copy code"
-                            >
-                              {copiedCodeBlock === codeString ? (
-                                <>
-                                  <Check className="w-3 h-3" />
-                                  <span>Copied</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3" />
-                                  <span>Copy code</span>
-                                </>
-                              )}
-                            </button>
-                          </div>
-                          <SyntaxHighlighter
-                            style={vscDarkPlus}
-                            language={language}
-                            PreTag="div"
-                            className="rounded-b-lg text-xs sm:text-sm mt-0"
-                            customStyle={{
-                              margin: 0,
-                              borderRadius: "0 0 0.5rem 0.5rem",
-                            }}
-                            {...props}
-                          >
-                            {codeString}
-                          </SyntaxHighlighter>
-                        </div>
+                        <CodeBlock
+                          code={codeString}
+                          language={language}
+                          isDarkMode={isDarkMode}
+                        />
                       ) : (
-                        <code className={className} {...props}>
+                        <code
+                          className={className}
+                          style={{
+                            backgroundColor: isDarkMode ? "#1e1e1e" : "#f6f8fa",
+                            color: isDarkMode ? "#d4d4d4" : "#24292e",
+                            border: `1px solid ${isDarkMode ? "#3e3e3e" : "#e1e4e8"}`,
+                            padding: "0.125em 0.25em",
+                            borderRadius: "0.25rem",
+                          }}
+                          {...props}
+                        >
                           {children}
                         </code>
                       );
@@ -420,96 +445,88 @@ export default function MessageBubble({
               </div>
             )}
           </div>
-          {!isUser && (
-            <div
-              className="absolute -bottom-1 -left-1 sm:-bottom-1.5 sm:-left-1.5 md:-bottom-2 md:-left-2 flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all z-20"
-              onMouseEnter={() => setShowActions(true)}
-              onMouseLeave={() => setShowActions(false)}
-            >
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleCopy();
-                }}
-                className="p-1.5 sm:p-1.5 md:p-2 rounded-lg bg-[var(--surface-hover)] hover:bg-[var(--surface-elevated)] text-[var(--text-primary)] hover:text-[var(--text-primary)] transition-all shadow-md touch-manipulation"
-                aria-label="Copy message"
-                type="button"
-                title="Copy"
-              >
-                {copied ? (
-                  <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
-                ) : (
-                  <Copy className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
-                )}
-              </button>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleRegenerate();
-                }}
-                disabled={isRegenerating || isStreaming}
-                className={`p-1.5 sm:p-1.5 md:p-2 rounded-lg bg-[var(--surface-elevated)] hover:bg-[var(--surface-hover)] text-[var(--text-primary)] hover:text-[var(--text-inverse)] transition-all shadow-md touch-manipulation ${
-                  isRegenerating || isStreaming
-                    ? "opacity-50 cursor-not-allowed"
-                    : ""
-                }`}
-                aria-label="Regenerate response"
-                type="button"
-                title="Regenerate"
-              >
-                <RefreshCw
-                  className={`w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 ${
-                    isRegenerating || isStreaming ? "animate-spin" : ""
-                  }`}
-                />
-              </button>
-              <div className="flex gap-0.5">
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleFeedback("thumbs-up");
-                  }}
-                  className="p-1.5 sm:p-1.5 md:p-2 rounded-lg bg-[var(--surface-elevated)] hover:bg-[var(--surface-hover)] text-[var(--text-primary)] hover:text-[var(--green)] transition-all shadow-md touch-manipulation"
-                  aria-label="Thumbs up"
-                  type="button"
-                  title="Good response"
-                >
-                  <ThumbsUp className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleFeedback("thumbs-down");
-                  }}
-                  className="p-1.5 sm:p-1.5 md:p-2 rounded-lg bg-[var(--surface-elevated)] hover:bg-[var(--surface-hover)] text-[var(--text-primary)] hover:text-[var(--error)] transition-all shadow-md touch-manipulation"
-                  aria-label="Thumbs down"
-                  type="button"
-                  title="Poor response"
-                >
-                  <ThumbsDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
-                </button>
-              </div>
-            </div>
-          )}
+          {/* Old Action Buttons Removed */}
         </div>
 
+        {/* Sources - Rendered below the message for AI */}
+        {!isUser && message.sources && message.sources.length > 0 && (
+          <Sources sources={message.sources} />
+        )}
+
         {message.tools_used && message.tools_used.length > 0 && (
-          <div className="mt-1 sm:mt-1.5 md:mt-2 flex items-center gap-1 sm:gap-1.5 md:gap-2 flex-wrap">
-            <span className="text-xs font-medium text-[var(--text-secondary)]">
-              Tools:
-            </span>
-            {message.tools_used.map((tool, idx) => (
-              <span
-                key={idx}
-                className="text-xs px-1.5 sm:px-2 py-0.5 bg-[var(--surface-elevated)] text-[var(--text-primary)] rounded-full font-medium"
+          <div className="w-full max-w-4xl mt-2">
+            <button
+              onClick={() => setIsToolsExpanded(!isToolsExpanded)}
+              className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)] hover:text-[var(--text-primary)]/80 transition-colors mb-2 select-none"
+            >
+              <span>Used {message.tools_used.length} tool{message.tools_used.length !== 1 ? 's' : ''}</span>
+              <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isToolsExpanded ? "rotate-180" : ""}`} />
+            </button>
+
+            {isToolsExpanded && (
+              <div className="grid grid-cols-1 gap-1 animate-in slide-in-from-top-2 duration-200 fade-in-0">
+                {message.tools_used.map((tool, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-[var(--surface-hover)] transition-all duration-200 select-none"
+                  >
+                    <div className="shrink-0 flex items-center justify-center w-6 h-6 rounded bg-[var(--surface-elevated)] border border-[var(--border)]">
+                      <Wrench className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-[var(--text-primary)] truncate capitalize">
+                        {tool}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Action Buttons - Rendered below the message for AI */}
+        {!isUser && (
+          <div className="flex justify-end gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <button
+              onClick={handleCopy}
+              className="p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              title="Copy message"
+            >
+              {copied ? (
+                <Check className="w-4 h-4" />
+              ) : (
+                <Copy className="w-4 h-4" />
+              )}
+            </button>
+            <button
+              onClick={handleRegenerate}
+              disabled={isRegenerating || isStreaming}
+              className={`p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors ${isRegenerating || isStreaming ? "opacity-50 cursor-not-allowed" : ""
+                }`}
+              title="Regenerate response"
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${isRegenerating || isStreaming ? "animate-spin" : ""
+                  }`}
+              />
+            </button>
+            <div className="flex gap-0.5 border-l border-[var(--border)] pl-1 ml-1">
+              <button
+                onClick={() => handleFeedback("thumbs-up")}
+                className="p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--green)] transition-colors"
+                title="Good response"
               >
-                {tool}
-              </span>
-            ))}
+                <ThumbsUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleFeedback("thumbs-down")}
+                className="p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--error)] transition-colors"
+                title="Poor response"
+              >
+                <ThumbsDown className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>

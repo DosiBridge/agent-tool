@@ -5,8 +5,16 @@
 
 // Runtime config loader - reads from public/runtime-config.json if available
 // This allows the API URL to be configured at container startup time
-let runtimeConfig: { API_BASE_URL?: string } | null = null;
+type RuntimeConfig = {
+  API_BASE_URL?: string;
+  AUTH0_DOMAIN?: string;
+  AUTH0_CLIENT_ID?: string;
+  AUTH0_AUDIENCE?: string;
+};
+
+let runtimeConfig: RuntimeConfig | null = null;
 let configLoadPromise: Promise<string> | null = null;
+let fullConfigPromise: Promise<RuntimeConfig | null> | null = null;
 
 /**
  * Get API base URL - loads runtime config on first call, then caches it
@@ -66,22 +74,73 @@ export async function getApiBaseUrl(): Promise<string> {
   return configLoadPromise;
 }
 
-// Token management
-const TOKEN_KEY = "auth_token";
+/**
+ * Get full runtime config including Auth0 settings
+ */
+export async function getRuntimeConfig(): Promise<RuntimeConfig | null> {
+  // Return cached value if already loaded
+  if (runtimeConfig) {
+    return runtimeConfig;
+  }
+
+  // If already loading, return the same promise
+  if (fullConfigPromise) {
+    return fullConfigPromise;
+  }
+
+  // Start loading config
+  fullConfigPromise = (async () => {
+    try {
+      // Try to fetch runtime config from API route (more reliable than static file)
+      const response = await fetch("/api/runtime-config", {
+        cache: "no-store", // Always fetch fresh config
+        headers: {
+          "Cache-Control": "no-cache",
+        },
+      });
+
+      if (response.ok) {
+        runtimeConfig = await response.json();
+        console.log("✓ Full runtime config loaded:", runtimeConfig);
+        return runtimeConfig;
+      } else {
+        console.warn(
+          `⚠️ Failed to load runtime config: ${response.status} ${response.statusText}`
+        );
+      }
+    } catch (error) {
+      console.error("⚠️ Error loading runtime config:", error);
+    }
+
+    // Fall back to build-time env vars
+    return {
+      API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8085",
+      AUTH0_DOMAIN: process.env.NEXT_PUBLIC_AUTH0_DOMAIN,
+      AUTH0_CLIENT_ID: process.env.NEXT_PUBLIC_AUTH0_CLIENT_ID,
+      AUTH0_AUDIENCE: process.env.NEXT_PUBLIC_AUTH0_AUDIENCE,
+    };
+  })();
+
+  return fullConfigPromise;
+}
+
+// Token management - use secure storage utility
+import {
+  getAuthToken as getStoredToken,
+  setAuthToken as setStoredToken,
+  removeAuthToken as removeStoredToken,
+} from "../storage/authStorage";
 
 export function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return getStoredToken();
 }
 
 export function setAuthToken(token: string): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(TOKEN_KEY, token);
+  setStoredToken(token);
 }
 
 export function removeAuthToken(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(TOKEN_KEY);
+  removeStoredToken();
 }
 
 /**
@@ -92,6 +151,18 @@ export function getAuthHeaders(): HeadersInit {
   const headers: HeadersInit = { "Content-Type": "application/json" };
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
+
+    // Check for active impersonation
+    // We import dynamically or use global hook to avoid circular dependency
+    try {
+      const { useStore } = require('../store');
+      const impersonatedId = useStore.getState().impersonatedUserId;
+      if (impersonatedId) {
+        headers['X-Impersonate-User'] = impersonatedId;
+      }
+    } catch (e) {
+      // Store might not be initialized or accessible
+    }
   }
   return headers;
 }
@@ -142,12 +213,43 @@ export async function handleResponse<T>(response: Response): Promise<T> {
     };
 
     const message = errorMessages[response.status] || errorDetail;
+
+    // Create error object with detail
     const error = new Error(message) as Error & {
       statusCode: number;
       detail?: string;
+      isPermissionError?: boolean;
+      isInactiveAccount?: boolean;
     };
     error.statusCode = response.status;
     error.detail = errorDetail;
+
+    // Check if this is an inactive account error
+    const isInactiveAccount = response.status === 403 &&
+      (errorDetail.includes("User account is inactive") ||
+       errorDetail.includes("account is inactive") ||
+       errorDetail.toLowerCase().includes("inactive"));
+
+    if (isInactiveAccount) {
+      error.isInactiveAccount = true;
+      // Update store to mark account as inactive
+      try {
+        const { useStore } = require('../store');
+        const store = useStore.getState();
+        if (store.user) {
+          store.user.is_active = false;
+          useStore.setState({ user: store.user });
+        }
+      } catch (e) {
+        // Store might not be initialized
+      }
+    }
+
+    // Mark permission errors (403 Forbidden or Superadmin access required)
+    if (response.status === 403 || errorDetail.includes("Superadmin") || errorDetail.includes("access")) {
+      error.isPermissionError = true;
+    }
+
     throw error;
   }
   return response.json();

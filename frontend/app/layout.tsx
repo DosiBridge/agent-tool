@@ -1,11 +1,14 @@
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import RuntimeConfigLoader from "@/components/RuntimeConfigLoader";
 import ThemeProvider from "@/components/ThemeProvider";
+import StarBackground from "@/components/StarBackground";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
-import { Toaster } from "react-hot-toast";
 import "./globals.css";
+import MiniAgentChatbot from "@/components/MiniAgentChatbot";
+import AuthProvider from "@/components/auth/AuthProvider";
+import ScrollToTop from "@/components/ui/ScrollToTop";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,9 +41,11 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#030014] text-white min-h-screen relative`}
         suppressHydrationWarning
       >
+        <StarBackground />
+
         {/* Initialize theme before React hydration to prevent flash */}
         <Script
           id="theme-init"
@@ -50,23 +55,10 @@ export default function RootLayout({
               (function() {
                 try {
                   const stored = localStorage.getItem('theme');
-                  let themePreference = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
-                  let actualTheme = 'dark';
-                  
-                  if (themePreference === 'system') {
-                    actualTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                  } else {
-                    actualTheme = themePreference;
-                  }
-                  
-                  const root = document.documentElement;
-                  if (actualTheme === 'dark') {
-                    root.classList.add('dark');
-                  } else {
-                    root.classList.remove('dark');
-                  }
+                  // Force dark mode for space theme if needed, or stick to system
+                  // For this UI overhaul, we prefer dark/space theme.
+                  document.documentElement.classList.add('dark');
                 } catch (e) {
-                  // Fallback to dark if there's an error
                   document.documentElement.classList.add('dark');
                 }
               })();
@@ -84,11 +76,11 @@ export default function RootLayout({
                 const originalError = console.error;
                 const originalWarn = console.warn;
                 const originalLog = console.log;
-                
+
                 // Override console methods to filter blocked resource errors
                 console.error = function(...args) {
                   const message = args.join(' ');
-                  if (message.includes('beacon.min.js') || 
+                  if (message.includes('beacon.min.js') ||
                       message.includes('ERR_BLOCKED_BY_CLIENT') ||
                       message.includes('cloudflareinsights.com') ||
                       message.includes('static.cloudflareinsights.com') ||
@@ -97,10 +89,10 @@ export default function RootLayout({
                   }
                   originalError.apply(console, args);
                 };
-                
+
                 console.warn = function(...args) {
                   const message = args.join(' ');
-                  if (message.includes('beacon.min.js') || 
+                  if (message.includes('beacon.min.js') ||
                       message.includes('ERR_BLOCKED_BY_CLIENT') ||
                       message.includes('cloudflareinsights.com') ||
                       message.includes('static.cloudflareinsights.com') ||
@@ -109,10 +101,10 @@ export default function RootLayout({
                   }
                   originalWarn.apply(console, args);
                 };
-                
+
                 console.log = function(...args) {
                   const message = args.join(' ');
-                  if (message.includes('beacon.min.js') || 
+                  if (message.includes('beacon.min.js') ||
                       message.includes('ERR_BLOCKED_BY_CLIENT') ||
                       message.includes('cloudflareinsights.com') ||
                       message.includes('static.cloudflareinsights.com') ||
@@ -121,7 +113,7 @@ export default function RootLayout({
                   }
                   originalLog.apply(console, args);
                 };
-                
+
                 // Suppress unhandled errors for blocked resources
                 window.addEventListener('error', function(e) {
                   const errorMessage = e.message || e.filename || e.target?.src || '';
@@ -136,11 +128,11 @@ export default function RootLayout({
                     return false;
                   }
                 }, true);
-                
+
                 // Suppress network errors for blocked resources
                 window.addEventListener('unhandledrejection', function(e) {
                   const reason = e.reason?.message || e.reason?.toString() || '';
-                  if (reason.includes('beacon.min.js') || 
+                  if (reason.includes('beacon.min.js') ||
                       reason.includes('ERR_BLOCKED_BY_CLIENT') ||
                       reason.includes('cloudflareinsights.com') ||
                       reason.includes('static.cloudflareinsights.com') ||
@@ -149,12 +141,12 @@ export default function RootLayout({
                     return false;
                   }
                 });
-                
+
                 // Intercept fetch requests to suppress errors for blocked resources
                 const originalFetch = window.fetch;
                 window.fetch = function(...args) {
                   const url = args[0]?.toString() || '';
-                  if (url.includes('cloudflareinsights.com') || 
+                  if (url.includes('cloudflareinsights.com') ||
                       url.includes('beacon.min.js')) {
                     // Return a rejected promise that we'll catch
                     return Promise.reject(new Error('Blocked by ad blocker'));
@@ -176,30 +168,11 @@ export default function RootLayout({
         />
         <ThemeProvider />
         <RuntimeConfigLoader />
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: "#1a1a1a",
-              color: "#fff",
-              border: "1px solid #333",
-            },
-            success: {
-              iconTheme: {
-                primary: "#10a37f",
-                secondary: "#fff",
-              },
-            },
-            error: {
-              iconTheme: {
-                primary: "#ef4444",
-                secondary: "#fff",
-              },
-            },
-          }}
-        />
-        <ErrorBoundary>{children}</ErrorBoundary>
+        <AuthProvider>
+          <MiniAgentChatbot />
+          <ScrollToTop />
+          <ErrorBoundary>{children}</ErrorBoundary>
+        </AuthProvider>
       </body>
     </html>
   );

@@ -50,12 +50,31 @@ else
 fi
 
 echo "🚀 Starting AI MCP Agent Server..."
-echo "📡 Server will be available at: http://localhost:8000"
-echo "🌐 API docs available at: http://localhost:8000/docs"
+
+# Check if port 8000 is already in use
+PORT=8000
+if lsof -Pi :$PORT -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+    echo "⚠️  Port $PORT is already in use"
+    read -p "Kill the process using port $PORT? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        PID=$(lsof -ti :$PORT)
+        echo "🔪 Killing process $PID on port $PORT..."
+        kill -9 $PID 2>/dev/null || true
+        sleep 1
+        echo "✓ Port $PORT is now free"
+    else
+        echo "❌ Cannot start server. Port $PORT is in use."
+        exit 1
+    fi
+fi
+
+echo "📡 Server will be available at: http://localhost:$PORT"
+echo "🌐 API docs available at: http://localhost:$PORT/docs"
 echo ""
 
 # Run the server
 # --reload enables auto-reload on file changes (development mode)
 # --log-level warning reduces verbosity of reload messages
-python -m uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload --log-level warning
+python -m uvicorn src.api:app --host 0.0.0.0 --port $PORT --reload --log-level warning
 

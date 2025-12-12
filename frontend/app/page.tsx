@@ -3,368 +3,458 @@
  */
 "use client";
 
-import { useStore } from "@/lib/store";
-import { ArrowRight, Bot, FileText, Lock, Sparkles, Zap } from "lucide-react";
+import React from "react";
+import { Vortex } from "@/components/ui/vortex";
+import { FlipWords } from "@/components/ui/flip-words";
+import { FloatingNav } from "@/components/ui/floating-navbar";
+import { InfiniteMovingCards } from "@/components/ui/infinite-moving-cards";
+import { EvervaultCard, Icon } from "@/components/ui/evervault-card";
+import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
+import { IconHome, IconInfoCircle, IconMail, IconFileText, IconBrandGithub } from "@tabler/icons-react";
+import { Github, Star } from "lucide-react";
 import Link from "next/link";
-import { useEffect } from "react";
+
+import { useStore } from "@/lib/store";
+import { useEffect, useState } from "react";
 
 export default function Home() {
-  const isAuthenticated = useStore((state) => state.isAuthenticated);
-  const authLoading = useStore((state) => state.authLoading);
-  const checkAuth = useStore((state) => state.checkAuth);
+  const { user, isAuthenticated } = useStore();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // Check authentication status (silently - no error messages on home page)
-    checkAuth();
-  }, [checkAuth]);
-
-  useEffect(() => {
-    // Smooth scroll behavior
-    document.documentElement.style.scrollBehavior = "smooth";
-    return () => {
-      document.documentElement.style.scrollBehavior = "auto";
-    };
+    setMounted(true);
   }, []);
 
+  const navItems = [
+    {
+      name: "About",
+      link: "#about",
+      icon: <IconInfoCircle className="h-4 w-4 text-neutral-500 dark:text-white" />,
+      dropdown: [
+        {
+          title: "About DosiBridge",
+          description: "Learn about our mission and vision",
+          link: "#about",
+        },
+        {
+          title: "Open Source",
+          description: "Fully open source under MIT License",
+          link: "#about",
+        },
+        {
+          title: "Security",
+          description: "Enterprise-grade security and privacy",
+          link: "#about",
+        },
+      ],
+    },
+    {
+      name: "Features",
+      link: "#features",
+      icon: <IconFileText className="h-4 w-4 text-neutral-500 dark:text-white" />,
+      dropdown: [
+        {
+          title: "RAG Technology",
+          description: "Retrieval-Augmented Generation",
+          link: "#features",
+        },
+        {
+          title: "AI Agents",
+          description: "Intelligent autonomous agents",
+          link: "#features",
+        },
+        {
+          title: "Document Upload",
+          description: "Upload and query your documents",
+          link: "#features",
+        },
+        {
+          title: "Tool Integration",
+          description: "Extensible tool ecosystem",
+          link: "#features",
+        },
+      ],
+    },
+    {
+      name: "Docs",
+      link: "/docs",
+      icon: <IconFileText className="h-4 w-4 text-neutral-500 dark:text-white" />,
+      dropdown: [
+        {
+          title: "Getting Started",
+          description: "Quick start guide",
+          link: "/docs",
+        },
+        {
+          title: "API Reference",
+          description: "Complete API documentation",
+          link: "/docs",
+        },
+        {
+          title: "Examples",
+          description: "Code examples and tutorials",
+          link: "/docs",
+        },
+      ],
+    },
+    {
+      name: "Contact",
+      link: "#contact",
+      icon: <IconMail className="h-4 w-4 text-neutral-500 dark:text-white" />,
+      dropdown: [
+        {
+          title: "Get Support",
+          description: "Get help from our team",
+          link: "#contact",
+        },
+        {
+          title: "Report Issue",
+          description: "Report bugs or issues",
+          link: "https://github.com/DosiBridge/agent-tool/issues",
+          external: true,
+        },
+        {
+          title: "Feature Request",
+          description: "Suggest new features",
+          link: "https://github.com/DosiBridge/agent-tool/issues",
+          external: true,
+        },
+      ],
+    },
+  ];
+
+  const words = ["Intelligent", "Autonomous", "Creative", "Secure"];
+
+  const features = [
+    {
+      quote: "Interact with intelligent AI agents that can use tools, access external APIs, and perform complex tasks.",
+      name: "AI Agent Mode",
+      title: "Tool Integration",
+    },
+    {
+      quote: "Upload your documents and ask questions. Get accurate answers based on your document content using RAG technology.",
+      name: "RAG Analysis",
+      title: "Document Intelligence",
+    },
+    {
+      quote: "Real-time streaming responses, WebSocket health monitoring, and optimized performance for the best experience.",
+      name: "Lightning Fast",
+      title: "Performance",
+    },
+    {
+      quote: "Your data is encrypted and private. Each user's documents and sessions are completely isolated.",
+      name: "Secure & Private",
+      title: "Enterprise Grade",
+    },
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0a0a0a] via-[#1a1a1a] to-[#0a0a0a] text-white">
-      {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <Link href="/" className="flex items-center gap-2 group">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#10a37f] to-[#0d8f6e] flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">
-                <Bot className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-lg font-bold bg-gradient-to-r from-[#10a37f] to-[#0d8f6e] bg-clip-text text-transparent">
-                  DosiBridge Agent
-                </span>
-                <span className="text-xs text-gray-400">by dosibridge.com</span>
-              </div>
-            </Link>
+    <div className="min-h-screen bg-black overflow-x-hidden">
+      <FloatingNav navItems={navItems} />
 
-            {/* Navigation Links */}
-            <div className="hidden md:flex items-center gap-8">
-              <a
-                href="#features"
-                className="text-gray-300 hover:text-white transition-colors"
-              >
-                Features
-              </a>
-              <a
-                href="#how-it-works"
-                className="text-gray-300 hover:text-white transition-colors"
-              >
-                How It Works
-              </a>
-              <a
-                href="#about"
-                className="text-gray-300 hover:text-white transition-colors"
-              >
-                About
-              </a>
-            </div>
-
-            {/* Auth Buttons - Only show when not authenticated */}
-            {!authLoading && !isAuthenticated && (
-              <div className="flex items-center gap-3">
-                <Link
-                  href="/login"
-                  className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
-                >
-                  Log in
-                </Link>
-                <Link
-                  href="/register"
-                  className="px-4 py-2 text-sm font-medium bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg transition-all hover:scale-105 active:scale-95"
-                >
-                  Create Account
-                </Link>
-              </div>
-            )}
-            {/* Show chat link when authenticated */}
-            {!authLoading && isAuthenticated && (
-              <div className="flex items-center gap-3">
-                <Link
-                  href="/chat"
-                  className="px-4 py-2 text-sm font-medium bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg transition-all hover:scale-105 active:scale-95"
-                >
-                  Go to Chat
-                </Link>
-              </div>
-            )}
-          </div>
-        </div>
-      </nav>
-
-      {/* Hero Section */}
-      <section className="pt-32 pb-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto text-center">
-          <div className="mb-8 inline-flex items-center gap-2 px-4 py-2 bg-[#10a37f]/10 border border-[#10a37f]/30 rounded-full text-[#10a37f] text-sm font-medium">
-            <Sparkles className="w-4 h-4" />
-            <span>AI-Powered Agentic Assistant</span>
-          </div>
-
-          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold mb-6 bg-gradient-to-r from-white via-gray-100 to-gray-300 bg-clip-text text-transparent leading-tight">
-            Your Intelligent
-            <br />
-            <span className="bg-gradient-to-r from-[#10a37f] to-[#0d8f6e] bg-clip-text text-transparent">
-              AI Assistant
+      {/* Hero Section with Vortex */}
+      <div className="w-[calc(100%-2rem)] sm:w-[calc(100%-4rem)] mx-auto rounded-md h-[30rem] sm:h-[35rem] md:h-[40rem] overflow-hidden mt-20 sm:mt-0">
+        <Vortex
+          backgroundColor="black"
+          className="flex items-center flex-col justify-center px-4 sm:px-6 md:px-10 py-6 sm:py-4 w-full h-full"
+        >
+          <h2 className="text-white text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-center px-2">
+            Your <FlipWords words={words} /> <br /> AI Assistant
+          </h2>
+          <div className="flex items-center justify-center gap-2 mt-3 sm:mt-4">
+            <span className="px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 text-xs sm:text-sm font-medium">
+              🟢 Fully Open Source
             </span>
-          </h1>
-
-          <p className="text-xl sm:text-2xl text-gray-400 mb-12 max-w-3xl mx-auto leading-relaxed">
+            <span className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs sm:text-sm font-medium">
+              MIT License
+            </span>
+          </div>
+          <p className="text-white text-sm sm:text-base md:text-xl lg:text-2xl max-w-xl mt-4 sm:mt-6 text-center px-4">
             Powered by advanced AI agents and RAG technology. Upload documents,
             ask questions, and get intelligent responses with tool integration.
           </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              href="/chat"
-              className="group px-8 py-4 bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg font-semibold text-lg transition-all hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl flex items-center gap-2"
-            >
-              Get Started
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+          <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 mt-4 sm:mt-6 px-4">
+            <Link href="/chat" className="w-full sm:w-auto">
+              <HoverBorderGradient
+                containerClassName="rounded-full w-full sm:w-auto"
+                as="button"
+                className="dark:bg-black bg-white text-black dark:text-white flex items-center justify-center space-x-2 w-full sm:w-auto px-6 py-2.5 sm:py-2"
+              >
+                <span className="text-sm sm:text-base">Get Started</span>
+              </HoverBorderGradient>
             </Link>
-            <a
-              href="https://dosibridge.com"
+            <Link 
+              href="https://github.com/DosiBridge/agent-tool"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-8 py-4 border border-gray-700 hover:border-gray-600 text-gray-300 hover:text-white rounded-lg font-semibold text-lg transition-all"
+              className="w-full sm:w-auto"
             >
-              Learn More
-            </a>
+              <button className="w-full sm:w-auto px-6 sm:px-8 py-2.5 sm:py-2 rounded-full bg-transparent border border-white/20 text-white text-sm sm:text-base hover:bg-white/10 transition duration-200 flex items-center justify-center gap-2">
+                <Github className="w-4 h-4" />
+                <span>Star on GitHub</span>
+                <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+              </button>
+            </Link>
           </div>
-        </div>
+        </Vortex>
+      </div>
+
+      {/* Features: Infinite Moving Cards */}
+      <section id="features" className="h-[20rem] sm:h-[25rem] rounded-md flex flex-col antialiased bg-black dark:bg-black dark:bg-grid-white/[0.05] items-center justify-center relative overflow-hidden px-4 py-8 sm:py-0">
+        <h2 className="text-2xl sm:text-3xl font-bold text-white mb-6 sm:mb-10 z-10 text-center px-4">Powerful Features</h2>
+        <InfiniteMovingCards
+          items={features}
+          direction="right"
+          speed="slow"
+        />
       </section>
 
-      {/* Features Section */}
-      <section
-        id="features"
-        className="py-20 px-4 sm:px-6 lg:px-8 bg-[#0f0f0f]"
-      >
+      {/* Evervault Cards Section */}
+      <div className="py-12 sm:py-16 md:py-20 px-4 sm:px-6 lg:px-8 bg-black">
         <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl sm:text-5xl font-bold mb-4">
-              Powerful Features
-            </h2>
-            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-              Everything you need for intelligent conversations and document
-              analysis
+          <h2 className="text-2xl sm:text-3xl font-bold text-white text-center mb-8 sm:mb-12 md:mb-16">Security First</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
+            <div className="border border-white/[0.2] flex flex-col items-start max-w-sm mx-auto p-4 relative h-[30rem]">
+              <Icon className="absolute h-6 w-6 -top-3 -left-3 dark:text-white text-black" />
+              <Icon className="absolute h-6 w-6 -bottom-3 -left-3 dark:text-white text-black" />
+              <Icon className="absolute h-6 w-6 -top-3 -right-3 dark:text-white text-black" />
+              <Icon className="absolute h-6 w-6 -bottom-3 -right-3 dark:text-white text-black" />
+
+              <EvervaultCard text="Encrypted" />
+
+              <h2 className="dark:text-white text-black mt-4 text-sm font-light">
+                End-to-end encryption for all your data.
+              </h2>
+            </div>
+            <div className="border border-white/[0.2] flex flex-col items-start max-w-sm mx-auto p-4 relative h-[30rem]">
+              <Icon className="absolute h-6 w-6 -top-3 -left-3 dark:text-white text-black" />
+              <Icon className="absolute h-6 w-6 -bottom-3 -left-3 dark:text-white text-black" />
+              <Icon className="absolute h-6 w-6 -top-3 -right-3 dark:text-white text-black" />
+              <Icon className="absolute h-6 w-6 -bottom-3 -right-3 dark:text-white text-black" />
+
+              <EvervaultCard text="Private" />
+
+              <h2 className="dark:text-white text-black mt-4 text-sm font-light">
+                Isolated sessions and secure storage.
+              </h2>
+            </div>
+            <div className="border border-white/[0.2] flex flex-col items-start max-w-sm mx-auto p-4 relative h-[30rem]">
+              <Icon className="absolute h-6 w-6 -top-3 -left-3 dark:text-white text-black" />
+              <Icon className="absolute h-6 w-6 -bottom-3 -left-3 dark:text-white text-black" />
+              <Icon className="absolute h-6 w-6 -top-3 -right-3 dark:text-white text-black" />
+              <Icon className="absolute h-6 w-6 -bottom-3 -right-3 dark:text-white text-black" />
+
+              <EvervaultCard text="Secure" />
+
+              <h2 className="dark:text-white text-black mt-4 text-sm font-light">
+                Enterprise-grade security standards.
+              </h2>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tech Stack Marquee */}
+      <div className="py-8 sm:py-10 bg-black flex flex-col items-center justify-center overflow-hidden px-4">
+        <h3 className="text-gray-500 text-xs sm:text-sm uppercase tracking-widest mb-4 sm:mb-6 text-center">Powered by modern technology stack</h3>
+        <InfiniteMovingCards
+          items={[
+            { quote: "State-of-the-art LLMs", name: "OpenAI GPT-4", title: "Core Intelligence" },
+            { quote: "Vector Embeddings", name: "Pinecone", title: "Knowledge Base" },
+            { quote: "Agent Orchestration", name: "LangChain", title: "Workflow Engine" },
+            { quote: "Frontend Framework", name: "Next.js 14", title: "React Framework" },
+            { quote: "Backend API", name: "FastAPI", title: "Python Server" },
+            { quote: "Real-time Events", name: "WebSockets", title: "Live Streaming" },
+          ]}
+          direction="left"
+          speed="slow"
+          className="bg-transparent"
+        />
+      </div>
+
+      {/* Use Cases Section */}
+      <section className="py-12 sm:py-16 md:py-24 px-4 sm:px-6 lg:px-8 bg-black relative z-10">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-8 sm:mb-12 md:mb-16">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-3 sm:mb-4 text-white px-4">Versatile Use Cases</h2>
+            <p className="text-gray-400 max-w-2xl mx-auto text-sm sm:text-base px-4">
+              From coding assistance to legal research, DosiBridge Agent adapts to your specific professional needs.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Feature 1 */}
-            <div className="p-6 bg-[#1a1a1a] border border-gray-800 rounded-xl hover:border-[#10a37f]/50 transition-all group">
-              <div className="w-12 h-12 rounded-lg bg-[#10a37f]/10 flex items-center justify-center mb-4 group-hover:bg-[#10a37f]/20 transition-colors">
-                <Bot className="w-6 h-6 text-[#10a37f]" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+            {[
+              { title: "Technical Support", desc: "Automate responses to complex technical queries using documentation." },
+              { title: "Legal Research", desc: "Analyze contracts and legal documents to extract key clauses instantly." },
+              { title: "Market Analysis", desc: "Synthesize reports from multiple market research PDFs and articles." },
+              { title: "Code Assistant", desc: "Explain complex codebases and generate documentation automatically." }
+            ].map((useCase, i) => (
+              <div key={i} className="p-6 rounded-2xl border border-white/10 bg-white/5 hover:border-indigo-500/50 transition-colors group">
+                <div className="h-2 w-2 rounded-full bg-indigo-500 mb-4 group-hover:scale-150 transition-transform"></div>
+                <h3 className="text-lg font-bold text-white mb-2">{useCase.title}</h3>
+                <p className="text-sm text-gray-400">{useCase.desc}</p>
               </div>
-              <h3 className="text-xl font-semibold mb-2">AI Agent Mode</h3>
-              <p className="text-gray-400">
-                Interact with intelligent AI agents that can use tools, access
-                external APIs, and perform complex tasks.
-              </p>
-            </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
-            {/* Feature 2 */}
-            <div className="p-6 bg-[#1a1a1a] border border-gray-800 rounded-xl hover:border-[#10a37f]/50 transition-all group">
-              <div className="w-12 h-12 rounded-lg bg-[#10a37f]/10 flex items-center justify-center mb-4 group-hover:bg-[#10a37f]/20 transition-colors">
-                <FileText className="w-6 h-6 text-[#10a37f]" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">
-                RAG Document Analysis
-              </h3>
-              <p className="text-gray-400">
-                Upload your documents and ask questions. Get accurate answers
-                based on your document content using RAG technology.
-              </p>
+      {/* About Section */}
+      <section id="about" className="py-12 sm:py-16 md:py-24 px-4 sm:px-6 lg:px-8 bg-black border-t border-white/10">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-6 sm:mb-8">
+            <div className="flex items-center justify-center gap-2 mb-4 flex-wrap">
+              <span className="px-4 py-2 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 text-sm font-semibold">
+                🟢 Fully Open Source
+              </span>
+              <span className="px-4 py-2 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-sm font-semibold">
+                MIT License
+              </span>
             </div>
-
-            {/* Feature 3 */}
-            <div className="p-6 bg-[#1a1a1a] border border-gray-800 rounded-xl hover:border-[#10a37f]/50 transition-all group">
-              <div className="w-12 h-12 rounded-lg bg-[#10a37f]/10 flex items-center justify-center mb-4 group-hover:bg-[#10a37f]/20 transition-colors">
-                <Zap className="w-6 h-6 text-[#10a37f]" />
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-4 sm:mb-6 px-4">About DosiBridge Agent</h2>
+          </div>
+          <div className="space-y-4 sm:space-y-6 text-gray-300 leading-relaxed px-4">
+            <p className="text-base sm:text-lg">
+              DosiBridge Agent is a <strong className="text-white">fully open-source</strong> AI-powered assistant built by <a href="https://dosibridge.com" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 underline">DosiBridge</a>, designed to help businesses and individuals leverage the power of artificial intelligence for enhanced productivity and intelligent automation.
+            </p>
+            <p className="text-base sm:text-lg font-semibold text-white">
+              🎉 This project is completely open source and released under the MIT License. You are free to use, modify, and distribute it as you wish.
+            </p>
+            <p>
+              Our platform combines cutting-edge RAG (Retrieval-Augmented Generation) technology with powerful agent capabilities, allowing you to upload documents, ask complex questions, and get intelligent responses backed by your own knowledge base.
+            </p>
+            <p>
+              Built with enterprise-grade security and privacy in mind, DosiBridge Agent ensures your data remains encrypted and isolated, giving you complete control over your information.
+            </p>
+            <div className="mt-8 p-6 bg-white/5 rounded-2xl border border-white/10">
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <span className="px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-medium">
+                  🟢 Fully Open Source
+                </span>
+                <span className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-medium">
+                  MIT License
+                </span>
               </div>
-              <h3 className="text-xl font-semibold mb-2">Fast & Responsive</h3>
-              <p className="text-gray-400">
-                Real-time streaming responses, WebSocket health monitoring, and
-                optimized performance for the best experience.
-              </p>
-            </div>
-
-            {/* Feature 4 */}
-            <div className="p-6 bg-[#1a1a1a] border border-gray-800 rounded-xl hover:border-[#10a37f]/50 transition-all group">
-              <div className="w-12 h-12 rounded-lg bg-[#10a37f]/10 flex items-center justify-center mb-4 group-hover:bg-[#10a37f]/20 transition-colors">
-                <Lock className="w-6 h-6 text-[#10a37f]" />
+              <p className="text-sm text-gray-400 mb-3 text-center">Powered by</p>
+              <a href="https://dosibridge.com" target="_blank" rel="noopener noreferrer" className="text-xl font-bold text-white hover:text-indigo-400 transition-colors inline-flex items-center gap-2 mb-4 block mx-auto justify-center">
+                dosibridge.com
+                <IconBrandGithub className="w-5 h-5 opacity-70" />
+              </a>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-3 border-t border-white/10">
+                <a
+                  href="https://github.com/DosiBridge/agent-tool"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm text-white group"
+                >
+                  <IconBrandGithub className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                  <span className="font-medium">Star on GitHub</span>
+                  <svg className="w-4 h-4 text-yellow-400 fill-yellow-400" viewBox="0 0 24 24">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                </a>
+                <p className="text-xs text-gray-400 sm:ml-auto">Fully open source • MIT License</p>
               </div>
-              <h3 className="text-xl font-semibold mb-2">Secure & Private</h3>
-              <p className="text-gray-400">
-                Your data is encrypted and private. Each user&apos;s documents
-                and sessions are completely isolated.
-              </p>
-            </div>
-
-            {/* Feature 5 */}
-            <div className="p-6 bg-[#1a1a1a] border border-gray-800 rounded-xl hover:border-[#10a37f]/50 transition-all group">
-              <div className="w-12 h-12 rounded-lg bg-[#10a37f]/10 flex items-center justify-center mb-4 group-hover:bg-[#10a37f]/20 transition-colors">
-                <Sparkles className="w-6 h-6 text-[#10a37f]" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Smart Suggestions</h3>
-              <p className="text-gray-400">
-                Get intelligent query suggestions, input history navigation, and
-                context-aware assistance.
-              </p>
-            </div>
-
-            {/* Feature 6 */}
-            <div className="p-6 bg-[#1a1a1a] border border-gray-800 rounded-xl hover:border-[#10a37f]/50 transition-all group">
-              <div className="w-12 h-12 rounded-lg bg-[#10a37f]/10 flex items-center justify-center mb-4 group-hover:bg-[#10a37f]/20 transition-colors">
-                <Bot className="w-6 h-6 text-[#10a37f]" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">MCP Integration</h3>
-              <p className="text-gray-400">
-                Connect to Model Context Protocol servers for extended
-                functionality and custom tool integration.
-              </p>
+              <p className="text-sm text-gray-400 mt-3 text-center">This project is completely open source. Visit our main website to learn more about our services and solutions.</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* How It Works */}
-      <section id="how-it-works" className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl sm:text-5xl font-bold mb-4">
-              How It Works
-            </h2>
-            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-              Simple steps to get started with DosiBridge Agent
+      {/* FAQ Section */}
+      <div className="py-12 sm:py-16 md:py-20 px-4 sm:px-6 lg:px-8 bg-black border-t border-white/10">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-2xl sm:text-3xl font-bold text-white text-center mb-8 sm:mb-12 px-4">Frequently Asked Questions</h2>
+          <div className="space-y-4 sm:space-y-6">
+            {[
+              {
+                q: "How does the RAG technology work?",
+                a: "Our RAG (Retrieval-Augmented Generation) system indexes your uploaded documents and retrieves relevant context to answer your questions accurately."
+              },
+              {
+                q: "Is my data secure?",
+                a: "Yes. We use industry-standard encryption and ensure that your data is isolated from other users."
+              },
+              {
+                q: "Can I use custom tools?",
+                a: "Absolutely. Our agent supports MCP (Model Context Protocol), allowing you to integrate custom tools and APIs easily."
+              }
+            ].map((faq, i) => (
+              <div key={i} className="bg-white/5 rounded-2xl p-6 border border-white/10">
+                <h3 className="text-lg font-semibold text-white mb-2">{faq.q}</h3>
+                <p className="text-gray-400">{faq.a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Contact Section */}
+      <section id="contact" className="py-12 sm:py-16 md:py-24 px-4 sm:px-6 lg:px-8 bg-black border-t border-white/10">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white text-center mb-8 sm:mb-12 px-4">Get in Touch</h2>
+          <div className="space-y-4 sm:space-y-6 text-center px-4">
+            <p className="text-base sm:text-lg text-gray-300">
+              Have questions or need support? We're here to help.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mt-6 sm:mt-8">
+              <a
+                href="https://dosibridge.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full sm:w-auto px-6 sm:px-8 py-2.5 sm:py-3 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm sm:text-base font-medium hover:from-indigo-700 hover:to-violet-700 transition-all duration-200 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40"
+              >
+                Visit dosibridge.com
+              </a>
+              <a
+                href="mailto:contact@dosibridge.com"
+                className="w-full sm:w-auto px-6 sm:px-8 py-2.5 sm:py-3 rounded-full bg-transparent border border-white/20 text-white text-sm sm:text-base font-medium hover:bg-white/10 transition-all duration-200"
+              >
+                Contact Us
+              </a>
+            </div>
+            <p className="text-sm text-gray-400 mt-8">
+              DosiBridge Agent is powered by <a href="https://dosibridge.com" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 underline">DosiBridge</a> - Your trusted partner for AI-powered solutions.
             </p>
           </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-[#10a37f] flex items-center justify-center text-2xl font-bold mx-auto mb-4">
-                1
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Create Account</h3>
-              <p className="text-gray-400">
-                Sign up for free to access RAG mode and document upload
-                features.
-              </p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-[#10a37f] flex items-center justify-center text-2xl font-bold mx-auto mb-4">
-                2
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Upload Documents</h3>
-              <p className="text-gray-400">
-                Upload your PDFs, text files, or documents to create your
-                knowledge base.
-              </p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-[#10a37f] flex items-center justify-center text-2xl font-bold mx-auto mb-4">
-                3
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Ask Questions</h3>
-              <p className="text-gray-400">
-                Switch to RAG mode and ask questions about your documents. Get
-                instant, accurate answers.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-[#10a37f]/10 to-[#0d8f6e]/10">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-4xl sm:text-5xl font-bold mb-6">
-            Ready to Get Started?
-          </h2>
-          <p className="text-xl text-gray-400 mb-8">
-            Join DosiBridge Agent today and experience the future of AI-powered
-            assistance.
-          </p>
-          <Link
-            href="/chat"
-            className="inline-flex items-center gap-2 px-8 py-4 bg-[#10a37f] hover:bg-[#0d8f6e] text-white rounded-lg font-semibold text-lg transition-all hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl"
-          >
-            Get Started Free
-            <ArrowRight className="w-5 h-5" />
-          </Link>
         </div>
       </section>
 
       {/* Footer */}
-      <footer
-        id="about"
-        className="py-12 px-4 sm:px-6 lg:px-8 border-t border-gray-800"
-      >
+      <footer className="py-12 px-4 sm:px-6 lg:px-8 border-t border-white/10 bg-black">
         <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#10a37f] to-[#0d8f6e] flex items-center justify-center">
-                <Bot className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-gray-400">
-                DosiBridge Agent by{" "}
-                <a
-                  href="https://dosibridge.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#10a37f] hover:text-[#0d8f6e] transition-colors"
-                >
-                  dosibridge.com
-                </a>
-              </span>
-            </div>
-            <div className="flex items-center gap-6 text-sm text-gray-400">
-              <a
-                href="#features"
-                className="hover:text-white transition-colors"
-              >
-                Features
-              </a>
-              <a
-                href="#how-it-works"
-                className="hover:text-white transition-colors"
-              >
-                How It Works
-              </a>
-              {!authLoading && !isAuthenticated && (
-                <>
-                  <Link
-                    href="/login"
-                    className="hover:text-white transition-colors"
-                  >
-                    Log in
-                  </Link>
-                  <Link
-                    href="/register"
-                    className="hover:text-white transition-colors"
-                  >
-                    Sign Up
-                  </Link>
-                </>
-              )}
-              {!authLoading && isAuthenticated && (
-                <Link
-                  href="/chat"
-                  className="hover:text-white transition-colors"
-                >
-                  Chat
-                </Link>
-              )}
-            </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mb-4">
+            <a
+              href="https://github.com/DosiBridge/agent-tool"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm text-white group"
+            >
+              <IconBrandGithub className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              <span className="font-medium">Star on GitHub</span>
+              <svg className="w-4 h-4 text-yellow-400 fill-yellow-400" viewBox="0 0 24 24">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+              </svg>
+            </a>
+            <a
+              href="https://dosibridge.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-400 hover:text-white transition-colors text-sm"
+            >
+              dosibridge.com
+            </a>
           </div>
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <span className="px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-medium">
+              🟢 Fully Open Source
+            </span>
+            <span className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-medium">
+              MIT License
+            </span>
+          </div>
+          <p className="text-center text-gray-500 text-sm">© {new Date().getFullYear()} DosiBridge. All rights reserved.</p>
+          <p className="text-center text-gray-600 text-xs mt-2">This is a fully open source project released under the MIT License. Free to use, modify, and distribute.</p>
         </div>
       </footer>
     </div>

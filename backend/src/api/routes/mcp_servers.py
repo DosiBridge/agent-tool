@@ -17,35 +17,75 @@ router = APIRouter()
 @router.get("/mcp-servers")
 async def list_mcp_servers(
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_active_user)
 ):
     """List all configured MCP servers for the authenticated user (including disabled ones)"""
     if not current_user:
         app_logger.warning("Unauthorized MCP server list access attempt")
         raise UnauthorizedError("Authentication required")
-    
+
     try:
         app_logger.info("Listing MCP servers", {"user_id": current_user.id})
-        
-        # Load ALL servers for the current user (including disabled ones) for management UI
-        # This is different from Config.load_mcp_servers which filters by enabled=True
-        db_servers = db.query(MCPServer).filter(MCPServer.user_id == current_user.id).all()
-        
+
+        # Load servers for the current user AND enabled global servers
+        # Users see ONLY ENABLED global servers
+        from sqlalchemy import or_, and_
+
+        # Users see ONLY ENABLED global servers
+        # Global servers use user_id=None (backward compatible with user_id=1)
+        db_servers = db.query(MCPServer).filter(
+                or_(
+                    MCPServer.user_id == current_user.id,  # User's own servers (all, including disabled)
+                    and_(
+                        or_(MCPServer.user_id.is_(None), MCPServer.user_id == 1),  # Global servers: None or legacy ID=1
+                        MCPServer.enabled == True      # But only enabled ones
+                    )
+                )
+            ).order_by(
+                MCPServer.user_id.asc(),  # User servers first, then global (None and 1 come after)
+                MCPServer.created_at.desc()
+            ).all()
+
+        # Load user preferences for global MCP servers
+        user_preferences = {}
+        if current_user:
+            from src.core.models import UserGlobalConfigPreference
+            preferences = db.query(UserGlobalConfigPreference).filter(
+                UserGlobalConfigPreference.user_id == current_user.id,
+                UserGlobalConfigPreference.config_type == "mcp"
+            ).all()
+            for pref in preferences:
+                user_preferences[pref.config_id] = pref.enabled
+
         # Don't send api_key in response for security
         safe_servers = []
         for server in db_servers:
             safe_server = server.to_dict(include_api_key=False)
             safe_server["has_api_key"] = bool(server.api_key)
+            safe_server["user_id"] = server.user_id  # Include user_id to identify global servers
+            is_global = (server.user_id is None or server.user_id == 1)
+            safe_server["is_global"] = is_global  # Mark global servers (user_id=None, or legacy ID=1)
             # Ensure enabled field exists (default to True if not present)
             if "enabled" not in safe_server:
                 safe_server["enabled"] = True
+
+            # Add user preference for global servers
+            if is_global and current_user:
+                # Check if user has a preference, default to True (enabled) if no preference exists
+                safe_server["user_enabled"] = user_preferences.get(server.id, True)
+            else:
+                safe_server["user_enabled"] = safe_server.get("enabled", True)  # For user's own servers, use enabled status
+
             safe_servers.append(safe_server)
-        
+
+        user_servers = [s for s in safe_servers if not s.get('is_global')]
+        global_servers = [s for s in safe_servers if s.get('is_global')]
+
         app_logger.info(
             "MCP servers listed successfully",
-            {"user_id": current_user.id, "count": len(safe_servers)}
+            {"user_id": current_user.id, "user_count": len(user_servers), "global_count": len(global_servers), "total": len(safe_servers)}
         )
-        
+
         return {
             "status": "success",
             "count": len(safe_servers),
@@ -77,7 +117,7 @@ async def add_mcp_server(
                 status_code=400,
                 detail=f"Invalid connection_type: {connection_type}. Must be 'stdio', 'http', or 'sse'"
             )
-        
+
         # Normalize URL based on connection type
         if connection_type == "stdio":
             # For stdio, url is the command (don't normalize)
@@ -95,19 +135,19 @@ async def add_mcp_server(
                     normalized_url = normalized_url[:-4]
                 if not normalized_url.endswith('/mcp'):
                     normalized_url = normalized_url.rstrip('/') + '/mcp'
-        
+
         # Check if server already exists for this user
         existing = db.query(MCPServer).filter(
             MCPServer.user_id == current_user.id,
             (MCPServer.name == server.name) | (MCPServer.url == normalized_url)
         ).first()
-        
+
         if existing:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"MCP server with name '{server.name}' or URL '{normalized_url}' already exists"
             )
-        
+
         # Test connection before saving
         app_logger.info(
             "Testing MCP server connection",
@@ -125,7 +165,7 @@ async def add_mcp_server(
             headers=server.headers if server.headers else None,
             timeout=5.0
         )
-        
+
         if not connection_ok:
             app_logger.warning(
                 "MCP server connection test failed",
@@ -136,12 +176,12 @@ async def add_mcp_server(
                 }
             )
             raise ValidationError(f"Connection test failed: {connection_message}. Server not saved.")
-        
+
         app_logger.info(
             "MCP server connection test successful",
             {"user_id": current_user.id, "server_name": server.name}
         )
-        
+
         # Create new server with user_id (only if connection test passed)
         mcp_server = MCPServer(
             user_id=current_user.id,
@@ -157,10 +197,10 @@ async def add_mcp_server(
         db.add(mcp_server)
         db.commit()
         db.refresh(mcp_server)
-        
+
         # Get total count for this user
         total_servers = db.query(MCPServer).filter(MCPServer.user_id == current_user.id).count()
-        
+
         app_logger.info(
             "MCP server added successfully",
             {
@@ -169,7 +209,7 @@ async def add_mcp_server(
                 "total_servers": total_servers
             }
         )
-        
+
         return {
             "status": "success",
             "message": f"MCP server '{server.name}' added successfully (connection verified)",
@@ -201,30 +241,30 @@ async def delete_mcp_server(
     """Delete an MCP server from the configuration. Requires authentication - users can only delete their own servers."""
     if not server_name or not server_name.strip():
         raise HTTPException(status_code=400, detail="Server name is required")
-    
+
     try:
         # Find server owned by this user
         mcp_server = db.query(MCPServer).filter(
             MCPServer.user_id == current_user.id,
             MCPServer.name == server_name
         ).first()
-        
+
         if not mcp_server:
             raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
-        
+
         # Delete server
         db.delete(mcp_server)
         db.commit()
-        
+
         # Get remaining count for this user
         remaining_count = db.query(MCPServer).filter(MCPServer.user_id == current_user.id).count()
-        
+
         return {
             "status": "success",
             "message": f"MCP server '{server_name}' deleted successfully",
             "remaining_servers": remaining_count
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -244,17 +284,17 @@ async def update_mcp_server(
         raise HTTPException(status_code=400, detail="Server name is required")
     if not server.name or not server.name.strip():
         raise HTTPException(status_code=400, detail="Server name in request body is required")
-    
+
     try:
         # Find server owned by this user
         mcp_server = db.query(MCPServer).filter(
             MCPServer.user_id == current_user.id,
             MCPServer.name == server_name
         ).first()
-        
+
         if not mcp_server:
             raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
-        
+
         # Get connection type (default to existing or http)
         connection_type = (server.connection_type or mcp_server.connection_type or "http").lower()
         if connection_type not in ("stdio", "http", "sse"):
@@ -262,7 +302,7 @@ async def update_mcp_server(
                 status_code=400,
                 detail=f"Invalid connection_type: {connection_type}. Must be 'stdio', 'http', or 'sse'"
             )
-        
+
         # Normalize URL based on connection type
         if connection_type == "stdio":
             # For stdio, url is the command (don't normalize)
@@ -280,13 +320,13 @@ async def update_mcp_server(
                     normalized_url = normalized_url[:-4]
                 if not normalized_url.endswith('/mcp'):
                     normalized_url = normalized_url.rstrip('/') + '/mcp'
-        
+
         # Test connection before updating (only if URL, connection_type, API key, or headers changed)
         url_changed = mcp_server.url != normalized_url
         connection_type_changed = mcp_server.connection_type != connection_type
         api_key_changed = server.api_key and server.api_key != mcp_server.api_key
         headers_changed = server.headers is not None and server.headers != mcp_server.get_headers()
-        
+
         if url_changed or connection_type_changed or api_key_changed or headers_changed:
             print(f"🔍 Testing {connection_type} connection to updated MCP server: {normalized_url}")
             # Use new headers if provided, otherwise use existing
@@ -298,15 +338,15 @@ async def update_mcp_server(
                 headers=test_headers if test_headers else None,
                 timeout=5.0
             )
-            
+
             if not connection_ok:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Connection test failed: {connection_message}. Server not updated."
                 )
-            
+
             print(f"✓ Connection test successful for {server.name} ({connection_type})")
-        
+
         # Update server (only if connection test passed)
         mcp_server.name = server.name
         mcp_server.url = normalized_url
@@ -318,16 +358,16 @@ async def update_mcp_server(
         # Set headers if provided
         if server.headers is not None:
             mcp_server.set_headers(server.headers)
-        
+
         db.commit()
         db.refresh(mcp_server)
-        
+
         return {
             "status": "success",
             "message": f"MCP server '{server_name}' updated successfully (connection verified)" if (url_changed or api_key_changed) else f"MCP server '{server_name}' updated successfully",
             "server": mcp_server.to_dict()
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -338,12 +378,12 @@ async def update_mcp_server(
 @router.post("/mcp-servers/test-connection")
 async def test_mcp_server_connection(
     server: MCPServerRequest,
-    current_user: Optional[User] = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_active_user)
 ):
     """Test MCP server connection without saving. Requires authentication."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     try:
         # Get connection type (default to http)
         connection_type = (server.connection_type or "http").lower()
@@ -352,7 +392,7 @@ async def test_mcp_server_connection(
                 status_code=400,
                 detail=f"Invalid connection_type: {connection_type}. Must be 'stdio', 'http', or 'sse'"
             )
-        
+
         # Normalize URL based on connection type
         if connection_type == "stdio":
             normalized_url = server.url.strip()
@@ -368,7 +408,7 @@ async def test_mcp_server_connection(
                     normalized_url = normalized_url[:-4]
                 if not normalized_url.endswith('/mcp'):
                     normalized_url = normalized_url.rstrip('/') + '/mcp'
-        
+
         # Test connection
         connection_ok, connection_message = await test_mcp_connection(
             normalized_url,
@@ -377,7 +417,7 @@ async def test_mcp_server_connection(
             headers=server.headers if server.headers else None,
             timeout=5.0
         )
-        
+
         return {
             "status": "success" if connection_ok else "failed",
             "connected": connection_ok,
@@ -391,26 +431,104 @@ async def test_mcp_server_connection(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.patch("/mcp-servers/global/{server_id}/toggle-preference")
+async def toggle_global_mcp_server_preference(
+    server_id: int,
+    current_user: Optional[User] = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Toggle user's personal preference for a global MCP server (enable/disable for personal use).
+    This does not affect the global server's status, only the user's personal preference.
+    """
+    try:
+        user_id = current_user.id if current_user else None
+
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        from src.core.models import UserGlobalConfigPreference
+        from sqlalchemy import or_
+
+        # Verify the server is a global server
+        mcp_server = db.query(MCPServer).filter(
+            MCPServer.id == server_id,
+            or_(MCPServer.user_id == 1, MCPServer.user_id.is_(None))
+        ).first()
+
+        if not mcp_server:
+            raise HTTPException(
+                status_code=404,
+                detail="Global MCP server not found"
+            )
+
+        # Get or create user preference
+        preference = db.query(UserGlobalConfigPreference).filter(
+            UserGlobalConfigPreference.user_id == user_id,
+            UserGlobalConfigPreference.config_type == "mcp",
+            UserGlobalConfigPreference.config_id == server_id
+        ).first()
+
+        if preference:
+            # Toggle existing preference
+            preference.enabled = not preference.enabled
+        else:
+            # Create new preference (default to enabled)
+            preference = UserGlobalConfigPreference(
+                user_id=user_id,
+                config_type="mcp",
+                config_id=server_id,
+                enabled=True
+            )
+            db.add(preference)
+
+        db.commit()
+        db.refresh(preference)
+
+        status = "enabled" if preference.enabled else "disabled"
+        return {
+            "status": "success",
+            "message": f"Global MCP server {status} for your profile",
+            "preference": preference.to_dict()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to toggle global MCP server preference: {str(e)}")
+
+
 @router.patch("/mcp-servers/{server_name}/toggle")
 async def toggle_mcp_server(
     server_name: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Toggle enabled/disabled status of an MCP server. Requires authentication - users can only toggle their own servers."""
+    """Toggle enabled/disabled status of an MCP server. Requires authentication - users can only toggle their own servers, NOT global servers."""
     if not server_name or not server_name.strip():
         raise HTTPException(status_code=400, detail="Server name is required")
-    
+
     try:
-        # Find server owned by this user
+        # Find server owned by this user (NOT global servers)
         mcp_server = db.query(MCPServer).filter(
-            MCPServer.user_id == current_user.id,
+            MCPServer.user_id == current_user.id,  # Only user's own servers
             MCPServer.name == server_name
         ).first()
-        
+
         if not mcp_server:
+            # Check if it's a global server (user_id=None or legacy ID=1)
+            from sqlalchemy import or_
+            global_server = db.query(MCPServer).filter(
+                or_(MCPServer.user_id == 1, MCPServer.user_id.is_(None)),
+                MCPServer.name == server_name
+            ).first()
+            if global_server:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Cannot toggle global MCP servers. Global servers are managed by the system."
+                )
             raise HTTPException(status_code=404, detail=f"MCP server '{server_name}' not found")
-        
+
         # If enabling, test connection first
         if not mcp_server.enabled:
             connection_type = mcp_server.connection_type or "http"
@@ -421,25 +539,25 @@ async def toggle_mcp_server(
                 api_key=mcp_server.get_api_key(),
                 timeout=5.0
             )
-            
+
             if not connection_ok:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot enable server: {connection_message}"
                 )
             print(f"✓ Connection test successful for {server_name}")
-        
+
         # Toggle enabled status
         mcp_server.enabled = not mcp_server.enabled
         db.commit()
         db.refresh(mcp_server)
-        
+
         return {
             "status": "success",
             "message": f"MCP server '{server_name}' {'enabled' if mcp_server.enabled else 'disabled'}",
             "server": mcp_server.to_dict()
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:

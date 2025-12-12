@@ -1,9 +1,15 @@
 /**
  * Zustand store for application state
+ *
+ * Main state management for the app. Using Zustand because it's simple
+ * and works well with React. Could use Redux but this is lighter.
+ *
+ * TODO: Maybe split this into smaller stores if it gets too big?
  */
 
 import { create } from "zustand";
 import {
+  deleteSession as deleteSessionApi,
   getCurrentUser,
   getHealth,
   getLLMConfig,
@@ -23,12 +29,14 @@ import {
 } from "./api";
 import {
   createStoredSession,
+  deleteStoredSession,
   getOrCreateDefaultSession,
   getStoredMessages,
   getStoredSessions,
   saveStoredMessages,
   StoredMessage,
   updateStoredSessionTitle,
+  clearAllStoredSessions,
 } from "./sessionStorage";
 
 export interface Message {
@@ -37,6 +45,7 @@ export interface Message {
   content: string;
   timestamp: Date;
   tools_used?: string[];
+  sources?: { title: string; url?: string }[];
 }
 
 interface AppState {
@@ -44,6 +53,7 @@ interface AppState {
   user: User | null;
   isAuthenticated: boolean;
   authLoading: boolean;
+  accountInactive: boolean; // Track if account is inactive to prevent repeated API calls
 
   // Current session
   currentSessionId: string;
@@ -74,9 +84,10 @@ interface AppState {
   theme: "light" | "dark" | "system";
   setTheme: (theme: "light" | "dark" | "system") => void;
 
+
   // Auth actions
   checkAuth: () => Promise<void>;
-  handleLogin: (data: LoginRequest) => Promise<void>;
+  handleLogin: (data: LoginRequest, persistentAccess?: boolean) => Promise<void>;
   handleRegister: (data: RegisterRequest) => Promise<void>;
   handleLogout: () => Promise<void>;
 
@@ -102,16 +113,18 @@ interface AppState {
   // Session actions
   loadSessions: () => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   createNewSession: () => void;
-  updateSessionTitle: (sessionId: string, title: string) => void;
+  updateSessionTitle: (sessionId: string, title: string) => Promise<void>;
   saveCurrentSessionMessages: () => void;
 
   // Settings actions
   loadMCPServers: () => Promise<void>;
   loadLLMConfig: () => Promise<void>;
   loadHealth: () => Promise<void>;
-  setHealth: (health: HealthStatus) => void;
+  setHealth: (health: HealthStatus | null) => void;
   setSettingsOpen: (open: boolean) => void;
+
 }
 
 const generateId = () =>
@@ -122,6 +135,7 @@ export const useStore = create<AppState>((set, get) => ({
   user: null,
   isAuthenticated: false,
   authLoading: true,
+  accountInactive: false,
   currentSessionId: "default",
   messages: [],
   isLoading: false,
@@ -141,9 +155,11 @@ export const useStore = create<AppState>((set, get) => ({
   settingsOpen: false,
 
   // Initialize: ensure default session exists and load it
+  // This runs once when the store is created
   ...(() => {
     if (typeof window !== "undefined") {
-      getOrCreateDefaultSession();
+      const defaultSession = getOrCreateDefaultSession();
+      return { currentSessionId: defaultSession.id };
     }
     return {};
   })(),
@@ -156,14 +172,57 @@ export const useStore = create<AppState>((set, get) => ({
     set({ authLoading: true });
     try {
       const user = await getCurrentUser();
+      // Allow blocked users to login but mark them as blocked
       set({ user, isAuthenticated: true, authLoading: false });
-      // Load user-specific data after authentication check
+
+      // If user is blocked, don't load sessions/MCP servers
+      if (user && !user.is_active) {
+        // User is blocked - they can still login but cannot use features
+        set({ accountInactive: true });
+        import("react-hot-toast").then(({ toast }) => {
+          toast.error("Your account is blocked. Please contact support.");
+        });
+        return;
+      }
+      // Reset inactive flag if user is active
+      set({ accountInactive: false });
+
+      // Load user-specific data after authentication check (only for active users)
       // Use setTimeout to ensure state is updated before loading
       setTimeout(() => {
         get().loadSessions();
         get().loadMCPServers();
       }, 0);
     } catch (error: any) {
+      // Handle blocked user scenario (403 Forbidden with specific message)
+      // Try to get user info even if blocked
+      if (
+        error?.statusCode === 403 ||
+        (error?.message && error.message.includes("User account is inactive")) ||
+        (error?.detail && error.detail.includes("User account is inactive"))
+      ) {
+        // Try to fetch user info using get_current_user (not get_current_active_user)
+        // This should work now that we changed /api/auth/me to use get_current_user
+        try {
+          const user = await getCurrentUser();
+          if (user && !user.is_active) {
+            set({ user, isAuthenticated: true, authLoading: false, accountInactive: true });
+            import("react-hot-toast").then(({ toast }) => {
+              toast.error("Your account is blocked. Please contact support.");
+            });
+            return;
+          }
+        } catch (retryError) {
+          // If still fails, log them out
+          console.error("User account is blocked:", error);
+          import("react-hot-toast").then(({ toast }) => {
+            toast.error("This account is blocked");
+          });
+          set({ user: null, isAuthenticated: false, authLoading: false });
+          return;
+        }
+      }
+
       // Not authenticated - this is fine for agent mode
       // Silently handle expected 401 errors (user not logged in)
       // Only log unexpected errors
@@ -185,8 +244,8 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  handleLogin: async (data: LoginRequest) => {
-    const result = await login(data);
+  handleLogin: async (data: LoginRequest, persistentAccess: boolean = false) => {
+    const result = await login(data, persistentAccess);
     set({ user: result.user, isAuthenticated: true });
     // Load user-specific data after login
     // Use setTimeout to ensure state is updated before loading
@@ -196,8 +255,8 @@ export const useStore = create<AppState>((set, get) => ({
     }, 0);
   },
 
-  handleRegister: async (data: RegisterRequest) => {
-    const result = await register(data);
+  handleRegister: async (data: RegisterRequest, persistentAccess: boolean = false) => {
+    const result = await register(data, persistentAccess);
     set({ user: result.user, isAuthenticated: true });
     // Load user-specific data after registration
     // Use setTimeout to ensure state is updated before loading
@@ -209,36 +268,37 @@ export const useStore = create<AppState>((set, get) => ({
 
   handleLogout: async () => {
     try {
-      // Save current session before logout
-      get().saveCurrentSessionMessages();
       await logout();
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
-      // Don't clear browser storage on logout - keep sessions for when user logs back in
-      // But clear MCP servers and reset mode (Agent mode works without login)
-      const currentMode = get().mode;
-      const currentMessages = get().messages; // Keep messages for agent mode
+      // Clear all messages and session history from local storage
+      clearAllStoredSessions();
 
-      // Clear all MCP-related data
+      // Clear all MCP-related data and health status
       set({
         user: null,
         isAuthenticated: false,
-        messages: currentMode === "rag" ? [] : currentMessages, // Keep messages for agent mode, clear for RAG
-        sessions: [],
+        messages: [], // Clear all messages on logout
+        sessions: [], // Clear all sessions on logout
+        currentSessionId: "default", // Reset to default session
         mcpServers: [], // Clear MCP servers list on logout
-        mode: currentMode === "rag" ? "agent" : currentMode, // Switch to agent mode if in RAG (agent works without login)
+        health: null, // Clear health status on logout
+        mode: "agent", // Reset to agent mode
         isStreaming: false, // Stop any ongoing streaming
         isLoading: false, // Stop any ongoing loading
+        useReact: false, // Reset RAG settings
+        selectedCollectionId: null, // Reset RAG collection
       });
 
-      // Reload sessions from browser storage
-      get().loadSessions();
+      // Create a fresh default session for agent mode
+      getOrCreateDefaultSession();
 
       // Note: WebSocket will automatically disconnect and reconnect via useEffect in page.tsx
       // when isAuthenticated changes to false
     }
   },
+
 
   // Session management
   setCurrentSession: (sessionId: string) => {
@@ -264,8 +324,54 @@ export const useStore = create<AppState>((set, get) => ({
     get().loadSessions();
   },
 
-  updateSessionTitle: (sessionId: string, title: string) => {
+  deleteSession: async (sessionId: string) => {
+    // 1. Delete from local storage (always works)
+    deleteStoredSession(sessionId);
+
+    // 2. Update state to remove session
+    set((state) => ({
+      sessions: state.sessions.filter((s) => s.session_id !== sessionId),
+    }));
+
+    // 3. If current session was deleted, switch to another
+    if (get().currentSessionId === sessionId) {
+      const sessions = get().sessions;
+      if (sessions.length > 0) {
+        get().setCurrentSession(sessions[0].session_id);
+      } else {
+        get().createNewSession();
+      }
+    }
+
+    // 4. Delete from backend if authenticated
+    const isAuthenticated = get().isAuthenticated;
+    if (isAuthenticated) {
+      try {
+        await deleteSessionApi(sessionId);
+      } catch (error) {
+        console.error("Failed to delete session from backend:", error);
+        // Continue anyway since we deleted locally
+      }
+    }
+  },
+
+  updateSessionTitle: async (sessionId: string, title: string) => {
+    // Update in local storage
     updateStoredSessionTitle(sessionId, title);
+
+    // Update in backend if authenticated
+    const isAuthenticated = get().isAuthenticated;
+    if (isAuthenticated) {
+      try {
+        const { updateSession } = await import("./api/sessions");
+        await updateSession(sessionId, title);
+      } catch (error) {
+        console.error("Failed to update session title in backend:", error);
+        // Continue anyway since we updated locally
+      }
+    }
+
+    // Reload sessions to reflect changes
     get().loadSessions();
   },
 
@@ -278,6 +384,7 @@ export const useStore = create<AppState>((set, get) => ({
         content: msg.content,
         timestamp: msg.timestamp.getTime(),
         tools_used: msg.tools_used,
+        sources: msg.sources,
       }));
       saveStoredMessages(state.currentSessionId, storedMessages);
     }
@@ -300,6 +407,7 @@ export const useStore = create<AppState>((set, get) => ({
         content: msg.content,
         timestamp: msg.timestamp.getTime(),
         tools_used: msg.tools_used,
+        sources: msg.sources,
       }));
       saveStoredMessages(state.currentSessionId, storedMessages);
 
@@ -336,6 +444,7 @@ export const useStore = create<AppState>((set, get) => ({
         content: msg.content,
         timestamp: msg.timestamp.getTime(),
         tools_used: msg.tools_used,
+        sources: msg.sources,
       }));
       saveStoredMessages(state.currentSessionId, storedMessages);
 
@@ -430,34 +539,65 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const isAuthenticated = get().isAuthenticated;
 
-      // Always load from browser storage first
+      // Normal flow: combine browser storage with backend
+      // Browser storage has titles, backend has message counts and summaries
       const storedSessions = getStoredSessions();
 
       if (isAuthenticated) {
         // If authenticated, try to sync with backend
         try {
           const backendData = await listSessions();
-          // Merge: prefer browser storage for titles, backend for message counts and summary
-          // IMPORTANT: Only include sessions that exist in browser storage to respect deletions
-          const mergedSessions: Session[] = storedSessions.map((stored) => {
-            const backend = backendData.sessions.find(
-              (s) => s.session_id === stored.id
-            );
+
+          // Create a map of backend sessions for quick lookup
+          const backendSessionMap = new Map(
+            backendData.sessions.map((s) => [s.session_id, s])
+          );
+
+          // Create a map of stored sessions for quick lookup
+          const storedSessionMap = new Map(
+            storedSessions.map((s) => [s.id, s])
+          );
+
+          // Start with backend sessions (source of truth for authenticated users)
+          const mergedSessions: Session[] = backendData.sessions.map((backend) => {
+            const stored = storedSessionMap.get(backend.session_id);
             return {
-              session_id: stored.id,
-              title: stored.title,
-              summary: backend?.summary,
-              message_count: backend?.message_count || stored.messageCount || 0,
-              updated_at: backend?.updated_at,
+              session_id: backend.session_id,
+              title: stored?.title || backend.title || `Session ${backend.session_id.slice(-8)}`,
+              summary: backend.summary,
+              message_count: backend.message_count || 0,
+              updated_at: backend.updated_at,
             };
           });
 
-          // DO NOT add backend sessions that aren't in browser storage
-          // This prevents deleted sessions from being re-added on page reload
-          // If a session was deleted from browser storage, it should stay deleted
+          // Add any browser-only sessions that don't exist in backend
+          // This handles the case where user created sessions before logging in
+          for (const stored of storedSessions) {
+            if (!backendSessionMap.has(stored.id)) {
+              mergedSessions.push({
+                session_id: stored.id,
+                title: stored.title,
+                summary: undefined,
+                message_count: stored.messageCount || 0,
+                updated_at: undefined,
+              });
+            }
+          }
+
+          // Sort by updated_at (most recent first) or by creation time
+          mergedSessions.sort((a, b) => {
+            const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+            const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+            return bTime - aTime;
+          });
 
           set({ sessions: mergedSessions, sessionsLoading: false });
-        } catch (error) {
+        } catch (error: any) {
+          // Check if error is due to inactive account
+          if (error?.isInactiveAccount || (error?.message && error.message.includes("User account is inactive"))) {
+            set({ accountInactive: true, sessions: [], sessionsLoading: false });
+            return;
+          }
           // If backend fails, use browser storage
           console.warn(
             "Failed to load sessions from backend, using browser storage:",
@@ -465,7 +605,8 @@ export const useStore = create<AppState>((set, get) => ({
           );
           const browserSessions: Session[] = storedSessions.map((s) => ({
             session_id: s.id,
-            message_count: s.messageCount,
+            title: s.title,
+            message_count: s.messageCount || 0,
           }));
           set({ sessions: browserSessions, sessionsLoading: false });
         }
@@ -488,65 +629,73 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       set({ isLoading: true });
 
-      // Always try browser storage first
-      const storedMessages = getStoredMessages(sessionId);
+      const isAuthenticated = get().isAuthenticated;
 
-      if (storedMessages.length > 0) {
-        // Convert stored messages to Message format
-        const messages: Message[] = storedMessages.map((msg) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          timestamp: new Date(msg.timestamp),
-          tools_used: msg.tools_used,
-        }));
-        set({ messages, isLoading: false });
-      } else {
-        // If no browser storage, check if session exists in stored sessions list
-        // If it doesn't exist in the list, it was likely deleted - don't restore from backend
-        const storedSessions = getStoredSessions();
-        const sessionExists = storedSessions.some((s) => s.id === sessionId);
-
-        if (!sessionExists) {
-          // Session was deleted from browser storage - don't restore from backend
-          console.log(
-            `Session ${sessionId} not found in browser storage - not restoring from backend`
+      // If authenticated, try backend first (source of truth)
+      // Otherwise use browser storage
+      if (isAuthenticated) {
+        try {
+          // Try backend first for authenticated users
+          const sessionInfo = await getSession(sessionId);
+          const messages: Message[] = sessionInfo.messages.map(
+            (msg, idx) => ({
+              id: `${sessionId}-${idx}-${msg.created_at || Date.now()}`,
+              role: msg.role,
+              content: msg.content,
+              timestamp: msg.created_at ? new Date(msg.created_at) : new Date(),
+              tools_used: msg.tools_used || [],
+              sources: (msg.sources || []).map((s: any) => ({
+                title: s.title || "Source",
+                url: s.url,
+              })),
+            })
           );
-          set({ messages: [], isLoading: false });
-          return;
-        }
 
-        // Session exists in list but has no messages - try backend (if authenticated)
-        const isAuthenticated = get().isAuthenticated;
-        if (isAuthenticated) {
-          try {
-            const sessionInfo = await getSession(sessionId);
-            const messages: Message[] = sessionInfo.messages.map(
-              (msg, idx) => ({
-                id: `${sessionId}-${idx}-${Date.now()}`,
-                role: msg.role,
-                content: msg.content,
-                timestamp: new Date(),
-              })
-            );
+          // Save to browser storage for offline access
+          const storedMessages: StoredMessage[] = messages.map((msg) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp.getTime(),
+            tools_used: msg.tools_used,
+            sources: msg.sources,
+          }));
+          saveStoredMessages(sessionId, storedMessages);
 
-            // Save to browser storage
-            const storedMessages: StoredMessage[] = messages.map((msg) => ({
+          set({ messages, isLoading: false });
+        } catch (error) {
+          // If backend fails, fall back to browser storage
+          console.warn("Failed to load session from backend, trying browser storage:", error);
+          const storedMessages = getStoredMessages(sessionId);
+          if (storedMessages.length > 0) {
+            const messages: Message[] = storedMessages.map((msg) => ({
               id: msg.id,
               role: msg.role,
               content: msg.content,
-              timestamp: msg.timestamp.getTime(),
-              tools_used: msg.tools_used,
+              timestamp: new Date(msg.timestamp),
+              tools_used: msg.tools_used || [],
+              sources: msg.sources || [],
             }));
-            saveStoredMessages(sessionId, storedMessages);
-
             set({ messages, isLoading: false });
-          } catch (error) {
-            console.error("Failed to load session from backend:", error);
+          } else {
             set({ messages: [], isLoading: false });
           }
+        }
+      } else {
+        // Not authenticated - use browser storage only
+        const storedMessages = getStoredMessages(sessionId);
+        if (storedMessages.length > 0) {
+          const messages: Message[] = storedMessages.map((msg) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: new Date(msg.timestamp),
+            tools_used: msg.tools_used || [],
+            sources: msg.sources || [],
+          }));
+          set({ messages, isLoading: false });
         } else {
-          // No browser storage and not authenticated - empty session
+          // No messages in browser storage - empty session
           set({ messages: [], isLoading: false });
         }
       }
@@ -558,9 +707,15 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Settings
   loadMCPServers: async () => {
-    const isAuthenticated = get().isAuthenticated;
+    const { isAuthenticated, accountInactive, user } = get();
     if (!isAuthenticated) {
       // Not authenticated - clear MCP servers (no access without login)
+      set({ mcpServers: [] });
+      return;
+    }
+
+    // Don't load MCP servers if account is inactive
+    if (accountInactive || (user && !user.is_active)) {
       set({ mcpServers: [] });
       return;
     }
@@ -568,7 +723,12 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const data = await listMCPServers();
       set({ mcpServers: data.servers });
-    } catch (error) {
+    } catch (error: any) {
+      // Check if error is due to inactive account
+      if (error?.isInactiveAccount || (error?.message && error.message.includes("User account is inactive"))) {
+        set({ accountInactive: true, mcpServers: [] });
+        return;
+      }
       console.error("Failed to load MCP servers:", error);
       // On error, clear MCP servers list
       set({ mcpServers: [] });
@@ -593,7 +753,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  setHealth: (health: HealthStatus) => {
+  setHealth: (health: HealthStatus | null) => {
     set({ health });
   },
 
@@ -630,6 +790,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
   },
+
 }));
 
 // Initialize theme on client side - this runs when the module loads

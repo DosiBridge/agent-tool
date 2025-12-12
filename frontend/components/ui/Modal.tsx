@@ -18,6 +18,7 @@ export interface ModalProps {
   closeOnClickOutside?: boolean;
   closeOnEscape?: boolean;
   className?: string;
+  alignment?: "center" | "top";
 }
 
 export default function Modal({
@@ -30,6 +31,7 @@ export default function Modal({
   closeOnClickOutside = true,
   closeOnEscape = true,
   className,
+  alignment = "center",
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -71,7 +73,10 @@ export default function Modal({
   };
 
   return (
-    <div className="fixed inset-0 bg-[var(--modal-overlay)] z-50 flex items-center justify-center p-2 sm:p-3 md:p-4">
+    <div className={cn(
+      "fixed inset-0 bg-[var(--modal-overlay)] z-50 flex justify-center p-2 sm:p-3 md:p-4 transition-all duration-200",
+      alignment === "center" ? "items-center" : "items-start pt-[15vh]"
+    )}>
       <div
         ref={modalRef}
         className={cn(

@@ -35,35 +35,42 @@ except ImportError as e:
 
 
 class Config:
-    """Application configuration"""
-    
-    # OpenAI settings (deprecated - use LLM config file)
+    """
+    Application configuration
+
+    NOTE: Most config is now in database (LLMConfig, MCPServer models).
+    This class still has some legacy methods and env var fallbacks.
+    TODO: Migrate remaining config to database or env vars only.
+    """
+
+    # OpenAI settings (deprecated - use LLM config in database)
+    # Keeping for backward compatibility
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
-    
-    # MCP settings
-    MCP_SERVERS_FILE = "config/mcp_servers.json"
-    MCP_SERVERS_ENV = os.getenv("MCP_SERVERS")
-    
-    # LLM settings
-    LLM_CONFIG_FILE = "config/llm_config.json"
-    
+
+    # MCP settings - these are legacy, MCP servers are in database now
+    MCP_SERVERS_FILE = "config/mcp_servers.json"  # Not used anymore
+    MCP_SERVERS_ENV = os.getenv("MCP_SERVERS")  # Not used anymore
+
+    # LLM settings - legacy, use database instead
+    LLM_CONFIG_FILE = "config/llm_config.json"  # Not used anymore
+
     # Project root
     ROOT_DIR = Path(__file__).parent.parent
-    
+
     @classmethod
     def load_mcp_servers(cls, additional_servers: list = None, db: Optional[Session] = None, user_id: Optional[int] = None) -> list[dict]:
         """
         Load MCP servers from database - USER-SPECIFIC AND PRIVATE ONLY.
-        
+
         Args:
             additional_servers: Optional list of additional servers to add (must also be user-specific)
             db: Optional database session (if None, creates a new one)
             user_id: User ID to filter servers (REQUIRED - no MCP access without authentication)
-        
+
         Returns:
             List of MCP server configurations for the specified user only
-            
+
         Note:
             - Without user_id, returns empty list (no MCP access for unauthenticated users)
             - No environment variable fallback (all MCPs must be user-specific and private)
@@ -71,70 +78,175 @@ class Config:
             - Users can only access their own MCP servers, not others
         """
         servers = []
-        
+
         # REQUIRE user_id - no MCP access without authentication
         if user_id is None:
             print("⚠️  MCP servers require authentication - user_id is required. No MCP access for unauthenticated users.")
             return []
-        
-        # Load from database - ONLY for the specified user (user-specific/private)
+
+        # Load from database - user-specific servers AND global servers (user_id=None)
+        # Global servers use user_id=None (backward compatible with user_id=1)
         if DB_AVAILABLE:
             try:
+                # Load user preferences for global MCP servers
+                user_preferences = {}
+                if user_id:
+                    if db:
+                        from src.core.models import UserGlobalConfigPreference
+                        preferences = db.query(UserGlobalConfigPreference).filter(
+                            UserGlobalConfigPreference.user_id == user_id,
+                            UserGlobalConfigPreference.config_type == "mcp"
+                        ).all()
+                        for pref in preferences:
+                            user_preferences[pref.config_id] = pref.enabled
+                    else:
+                        with get_db_context() as session:
+                            from src.core.models import UserGlobalConfigPreference
+                            preferences = session.query(UserGlobalConfigPreference).filter(
+                                UserGlobalConfigPreference.user_id == user_id,
+                                UserGlobalConfigPreference.config_type == "mcp"
+                            ).all()
+                            for pref in preferences:
+                                user_preferences[pref.config_id] = pref.enabled
+
                 if db:
-                    # Use provided session - filter by user_id and enabled
+                    # Use provided session - get user-specific AND global servers
+                    from sqlalchemy import or_
                     query = db.query(MCPServer).filter(
                         MCPServer.enabled == True,
-                        MCPServer.user_id == user_id
+                        or_(
+                            MCPServer.user_id == user_id,  # User's own servers
+                            MCPServer.user_id.is_(None),   # Global servers (user_id=None)
+                            MCPServer.user_id == 1         # Legacy global servers (backward compatibility)
+                        )
                     )
                     db_servers = query.all()
-                    servers = [s.to_dict(include_api_key=True) for s in db_servers]
+                    servers = []
+                    # Filter global servers based on user preferences
+                    for server in db_servers:
+                        server_dict = server.to_dict(include_api_key=True)
+                        server_user_id = server.user_id
+                        is_global = (server_user_id is None or server_user_id == 1)
+                        server_dict['is_global'] = is_global
+
+                        # For global servers, check user preference
+                        if is_global and user_id:
+                            # Check if user has disabled this global server
+                            user_enabled = user_preferences.get(server.id, True)  # Default to enabled if no preference
+                            if not user_enabled:
+                                # User has disabled this global server, skip it
+                                continue
+
+                        servers.append(server_dict)
                 else:
-                    # Create new session - filter by user_id and enabled
+                    # Create new session - get user-specific AND global servers
                     with get_db_context() as session:
+                        from sqlalchemy import or_
                         query = session.query(MCPServer).filter(
                             MCPServer.enabled == True,
-                            MCPServer.user_id == user_id
+                            or_(
+                                MCPServer.user_id == user_id,  # User's own servers
+                                MCPServer.user_id == 1,        # Global servers owned by superadmin
+                                MCPServer.user_id.is_(None)    # Global servers (backward compatibility)
+                            )
                         )
                         db_servers = query.all()
-                        servers = [s.to_dict(include_api_key=True) for s in db_servers]
-                
+                        servers = []
+                        # Filter global servers based on user preferences
+                        for server in db_servers:
+                            server_dict = server.to_dict(include_api_key=True)
+                            server_user_id = server.user_id
+                            is_global = (server_user_id is None or server_user_id == 1)
+                            server_dict['is_global'] = is_global
+
+                            # For global servers, check user preference
+                            if is_global and user_id:
+                                # Check if user has disabled this global server
+                                user_enabled = user_preferences.get(server.id, True)  # Default to enabled if no preference
+                                if not user_enabled:
+                                    # User has disabled this global server, skip it
+                                    continue
+
+                            servers.append(server_dict)
+
+                user_servers = [s for s in servers if not s.get('is_global')]
+                global_servers = [s for s in servers if s.get('is_global')]
                 if servers:
-                    print(f"📝 Loaded {len(servers)} MCP server(s) for user {user_id} (private/user-specific only)")
+                    print(f"📝 Loaded {len(user_servers)} user-specific + {len(global_servers)} global MCP server(s) for user {user_id}")
             except Exception as e:
                 print(f"⚠️  Failed to load MCP servers from database: {e}")
                 servers = []
         else:
             print("⚠️  Database not available - cannot load user-specific MCP servers")
             return []
-        
+
         # NO environment variable fallback - all MCPs must be user-specific and private
         # Removed: MCP_SERVERS_ENV fallback for security and privacy (no global MCPs)
-        
+
         # Add any additional servers passed as argument (should also be user-specific)
         if additional_servers:
             servers.extend(additional_servers)
             print(f"📝 Added {len(additional_servers)} additional server(s) for user {user_id}")
-        
+
         # No servers configured for this user
         if not servers:
             print(f"📝 No MCP servers configured for user {user_id} - agent will use local tools only")
-        
+
         return servers
-    
+
     @classmethod
-    def load_llm_config(cls, db: Optional[Session] = None) -> dict:
+    def load_llm_config(cls, db: Optional[Session] = None, user_id: Optional[int] = None) -> Optional[dict]:
         """
-        Load LLM configuration from database, with fallback to environment variables.
-        Checks database for active config first, then falls back to OpenAI GPT (gpt-4o) from env.
+        Load LLM configuration from database for a specific user, with fallback to default DeepSeek.
+        Checks database for user's active config first, then falls back to default DeepSeek.
+
         Args:
             db: Optional database session (if None, creates a new one)
+            user_id: Optional user ID to load user-specific config. If None, loads default config.
+
+        Returns:
+            Dictionary with LLM configuration including type, model, api_key, etc.
         """
-        # Load from database first
+        # Load from database: prioritize user-specific, then global, then default
         if DB_AVAILABLE:
             try:
                 if db:
                     # Use provided session
-                    llm_config = db.query(LLMConfig).filter(LLMConfig.active == True).first()
+                    if user_id:
+                        # First try user-specific active config
+                        llm_config = db.query(LLMConfig).filter(
+                            LLMConfig.user_id == user_id,
+                            LLMConfig.active == True
+                        ).first()
+
+                        # If no user-specific active config, fall back to global config
+                        # Regular users can only use global configs that are BOTH active AND default
+                        # Global configs use user_id=None (backward compatible with user_id=1)
+                        # Prioritize global configs marked as default, then by creation date
+                        if not llm_config:
+                            from sqlalchemy import or_
+                            llm_config = db.query(LLMConfig).filter(
+                                or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
+                                LLMConfig.active == True,
+                                LLMConfig.is_default == True  # Must be default for regular users
+                            ).order_by(
+                                LLMConfig.is_default.desc(),  # Default configs first
+                                LLMConfig.created_at.desc()    # Then newest first
+                            ).first()
+                    else:
+                        # Load global default config (no user_id)
+                        # Only load global configs that are BOTH active AND default
+                        # Global configs use user_id=None (backward compatible with user_id=1)
+                        from sqlalchemy import or_
+                        llm_config = db.query(LLMConfig).filter(
+                            or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
+                            LLMConfig.active == True,
+                            LLMConfig.is_default == True  # Must be default
+                        ).order_by(
+                            LLMConfig.is_default.desc(),  # Default configs first
+                            LLMConfig.created_at.desc()    # Then newest first
+                        ).first()
+
                     if llm_config:
                         config = llm_config.to_dict(include_api_key=True)
                         # Ensure API key is loaded from environment if not in database
@@ -142,56 +254,94 @@ class Config:
                             if config.get('type', '').lower() == 'gemini':
                                 config['api_key'] = os.getenv("GOOGLE_API_KEY")
                             elif config.get('type', '').lower() == 'openai':
-                                config['api_key'] = os.getenv("OPENAI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+                                # OPENAI_API_KEY is ONLY for embeddings, use OPENAI_LLM_API_KEY for LLM
+                                config['api_key'] = os.getenv("OPENAI_LLM_API_KEY")
+                            elif config.get('type', '').lower() == 'deepseek':
+                                config['api_key'] = os.getenv("DEEPSEEK_KEY")
                             elif config.get('type', '').lower() == 'groq':
                                 config['api_key'] = os.getenv("GROQ_API_KEY")
+                            elif config.get('type', '').lower() == 'openrouter':
+                                config['api_key'] = os.getenv("OPENROUTER_API_KEY")
                             elif config.get('type', '').lower() == 'ollama':
                                 # Ollama doesn't need API key
                                 pass
-                        
-                        print(f"📝 Loaded LLM config from database: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
+
+                        print(f"📝 Loaded LLM config from database (user_id={user_id}): {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
                         return config
                 else:
                     # Create new session
                     with get_db_context() as session:
-                        llm_config = session.query(LLMConfig).filter(LLMConfig.active == True).first()
+                        if user_id:
+                            # First try user-specific active config
+                            llm_config = session.query(LLMConfig).filter(
+                                LLMConfig.user_id == user_id,
+                                LLMConfig.active == True
+                            ).first()
+
+                            # If no user-specific config, fall back to global config
+                            # Global configs use user_id=None (backward compatible with user_id=1)
+                            # Prioritize global configs marked as default, then by creation date
+                            if not llm_config:
+                                from sqlalchemy import or_
+                                llm_config = session.query(LLMConfig).filter(
+                                    or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
+                                    LLMConfig.active == True
+                                ).order_by(
+                                    LLMConfig.is_default.desc(),  # Default configs first
+                                    LLMConfig.created_at.desc()    # Then newest first
+                            ).first()
+                        else:
+                            # Load global default config (no user_id)
+                            # Global configs use user_id=None (backward compatible with user_id=1)
+                            # Prioritize global configs marked as default, then by creation date
+                            from sqlalchemy import or_
+                            llm_config = session.query(LLMConfig).filter(
+                                or_(LLMConfig.user_id.is_(None), LLMConfig.user_id == 1),  # Prioritize None, support legacy ID=1
+                                LLMConfig.active == True
+                            ).order_by(
+                                LLMConfig.is_default.desc(),  # Default configs first
+                                LLMConfig.created_at.desc()    # Then newest first
+                            ).first()
+
                         if llm_config:
                             config = llm_config.to_dict(include_api_key=True)
-                            # Ensure API key is loaded from environment if not in database
+                            # Fallback: Load API key from environment if missing in database
+                            # This is only a fallback - superadmin should configure API keys via dashboard
+                            # Note: OPENAI_API_KEY is ONLY for embeddings, not for LLM
                             if not config.get('api_key'):
                                 if config.get('type', '').lower() == 'gemini':
                                     config['api_key'] = os.getenv("GOOGLE_API_KEY")
                                 elif config.get('type', '').lower() == 'openai':
-                                    config['api_key'] = os.getenv("OPENAI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+                                    # OPENAI_API_KEY is ONLY for embeddings, use OPENAI_LLM_API_KEY for LLM
+                                    config['api_key'] = os.getenv("OPENAI_LLM_API_KEY")
+                                elif config.get('type', '').lower() == 'deepseek':
+                                    config['api_key'] = os.getenv("DEEPSEEK_KEY")
                                 elif config.get('type', '').lower() == 'groq':
                                     config['api_key'] = os.getenv("GROQ_API_KEY")
+                                elif config.get('type', '').lower() == 'openrouter':
+                                    config['api_key'] = os.getenv("OPENROUTER_API_KEY")
                                 elif config.get('type', '').lower() == 'ollama':
                                     pass
-                            
-                            print(f"📝 Loaded LLM config from database: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
+                                # If still no API key, warn but don't fail (superadmin should configure via dashboard)
+                                if not config.get('api_key'):
+                                    print(f"⚠️  No API key found for {config.get('type')} config. Please configure via environment variables.")
+
+                            print(f"📝 Loaded LLM config from database (user_id={user_id}): {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
                             return config
             except Exception as e:
                 print(f"⚠️  Failed to load LLM config from database: {e}")
-        
-        # Fallback to OpenAI GPT from environment
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        default_config = {
-            "type": "openai",
-            "model": "gpt-4o",
-            "api_key": openai_api_key,  # Get from environment (may be None)
-            "active": True
-        }
-        
-        # Warn if API key is missing
-        if not default_config["api_key"]:
-            print("⚠️  Warning: OPENAI_API_KEY not set. Please set it as an environment variable or configure in database")
-            print("   Set it with: export OPENAI_API_KEY='your-api-key'")
-            print("   Or configure it in the frontend Settings panel")
+
+        # No automatic fallback to environment variables after first initialization
+        # LLM configs must be configured via environment variables or user settings
+        # If no config found, return None - callers should handle this gracefully
+        if DB_AVAILABLE and user_id is not None:
+            print(f"⚠️  No active LLM configuration found for user {user_id}. "
+                  "Please configure LLM providers via environment variables or create a personal LLM config.")
         else:
-            print(f"📝 Using fallback LLM config: OpenAI GPT (gpt-4o) from environment")
-        
-        return default_config
-    
+            print("⚠️  No active LLM configuration found. "
+                  "Please configure LLM providers via the superadmin dashboard.")
+        return None
+
     @classmethod
     def save_llm_config(cls, config: dict, db: Optional[Session] = None) -> bool:
         """
@@ -204,7 +354,7 @@ class Config:
         """
         if not DB_AVAILABLE:
             raise Exception("Database not available. Cannot save LLM config.")
-        
+
         try:
             if db:
                 # Use provided session (caller will commit)
@@ -215,7 +365,7 @@ class Config:
                     # Deactivate all existing configs (they are preserved, just not active)
                     # This allows users to switch models while keeping history
                     session.query(LLMConfig).update({LLMConfig.active: False})
-                    
+
                     # Create new active config with user's chosen model/LLM
                     llm_config = LLMConfig(
                         type=config.get('type', 'gemini'),
@@ -227,14 +377,14 @@ class Config:
                     )
                     session.add(llm_config)
                     # Context manager will commit automatically
-                
+
                 print(f"✓ LLM config saved to database: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
                 return True
-            
+
             # If using provided session, update here (caller will commit)
             # Deactivate all existing configs (they are preserved, just not active)
             session.query(LLMConfig).update({LLMConfig.active: False})
-            
+
             # Create new active config with user's chosen model/LLM
             llm_config = LLMConfig(
                 type=config.get('type', 'gemini'),
@@ -246,7 +396,7 @@ class Config:
             )
             session.add(llm_config)
             # Don't commit - caller handles it
-            
+
             print(f"✓ LLM config saved to database: {config.get('type', 'unknown')} - {config.get('model', 'unknown')}")
             return True
         except Exception as e:

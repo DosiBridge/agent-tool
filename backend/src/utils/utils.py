@@ -3,6 +3,8 @@ Utility functions for API
 """
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import create_model
+from typing import Dict, Optional, Tuple
+from langchain_core.messages import BaseMessage
 
 
 def sanitize_tools_for_gemini(tools: list, llm_type: str) -> list:
@@ -161,6 +163,90 @@ def sanitize_tools_for_gemini(tools: list, llm_type: str) -> list:
             sanitized_tools.append(tool)
     
     return sanitized_tools
+
+
+def extract_token_usage(response) -> Tuple[int, int, int]:
+    """
+    Extract token usage from LLM response.
+    
+    Different LLM providers store token usage in different places:
+    - OpenAI/DeepSeek/Groq: response.response_metadata.get('token_usage')
+    - Google Gemini: response.response_metadata.get('usage_metadata')
+    - Ollama: Usually not available, returns (0, 0, 0)
+    
+    Args:
+        response: LLM response object (AIMessage or raw response)
+        
+    Returns:
+        Tuple of (input_tokens, output_tokens, embedding_tokens)
+    """
+    input_tokens = 0
+    output_tokens = 0
+    embedding_tokens = 0
+    
+    try:
+        # Try to get response_metadata from AIMessage
+        if hasattr(response, 'response_metadata'):
+            metadata = response.response_metadata
+            if metadata:
+                # OpenAI/DeepSeek/Groq format
+                if 'token_usage' in metadata:
+                    token_usage = metadata['token_usage']
+                    input_tokens = token_usage.get('prompt_tokens', 0)
+                    output_tokens = token_usage.get('completion_tokens', 0)
+                    embedding_tokens = token_usage.get('total_tokens', 0) - input_tokens - output_tokens
+                
+                # Google Gemini format
+                elif 'usage_metadata' in metadata:
+                    usage = metadata['usage_metadata']
+                    input_tokens = usage.get('prompt_token_count', 0)
+                    output_tokens = usage.get('candidates_token_count', 0)
+                    embedding_tokens = 0  # Gemini doesn't report embedding tokens separately
+                
+                # Alternative OpenAI format
+                elif 'input_tokens' in metadata:
+                    input_tokens = metadata.get('input_tokens', 0)
+                    output_tokens = metadata.get('output_tokens', 0)
+                    embedding_tokens = metadata.get('embedding_tokens', 0)
+        
+        # Try to get usage from raw response if available
+        if input_tokens == 0 and output_tokens == 0:
+            if hasattr(response, 'usage_metadata'):
+                usage = response.usage_metadata
+                input_tokens = getattr(usage, 'prompt_token_count', 0)
+                output_tokens = getattr(usage, 'candidates_token_count', 0)
+            
+            elif hasattr(response, 'token_usage'):
+                usage = response.token_usage
+                input_tokens = getattr(usage, 'prompt_tokens', 0) or getattr(usage, 'input_tokens', 0)
+                output_tokens = getattr(usage, 'completion_tokens', 0) or getattr(usage, 'output_tokens', 0)
+                embedding_tokens = getattr(usage, 'embedding_tokens', 0)
+    
+    except Exception as e:
+        # If extraction fails, return zeros (will use fallback estimation)
+        pass
+    
+    return input_tokens, output_tokens, embedding_tokens
+
+
+def estimate_tokens(text: str) -> int:
+    """
+    Estimate token count from text (fallback when actual usage unavailable).
+    Uses a simple approximation: ~1 token per 4 characters or ~0.75 tokens per word.
+    
+    Args:
+        text: Text to estimate tokens for
+        
+    Returns:
+        Estimated token count
+    """
+    if not text:
+        return 0
+    
+    # Use word-based estimation (more accurate for English text)
+    word_count = len(text.split())
+    # Average: ~1.33 tokens per word for English
+    return int(word_count * 1.33)
 
 
 def suppress_mcp_cleanup_errors(loop, context):

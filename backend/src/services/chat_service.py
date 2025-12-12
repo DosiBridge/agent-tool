@@ -1,5 +1,9 @@
 """
 Chat service - business logic for chat operations
+
+This handles the main chat processing logic. It's gotten a bit complex
+over time with RAG and Agent modes, but it works. Could probably split
+this further but keeping it together for now.
 """
 from typing import Optional, AsyncGenerator
 from langchain.agents import create_agent
@@ -17,12 +21,18 @@ from src.services.tools import retrieve_dosiblog_context, load_custom_rag_tools,
 from src.services.advanced_rag import advanced_rag_system
 from src.services.react_agent import create_react_agent
 from src.utils import sanitize_tools_for_gemini
+from src.utils.utils import extract_token_usage, estimate_tokens
 from src.core.constants import CHAT_MODE_AGENT, CHAT_MODE_RAG
 
 
 class ChatService:
-    """Service for handling chat operations"""
-    
+    """
+    Service for handling chat operations
+
+    Main entry point for chat processing. Routes call this, and it
+    delegates to the appropriate mode handler (RAG or Agent).
+    """
+
     @staticmethod
     async def process_chat(
         message: str,
@@ -36,7 +46,7 @@ class ChatService:
     ) -> dict:
         """
         Process a chat message and return response
-        
+
         Args:
             message: User's message
             session_id: Session identifier
@@ -45,32 +55,41 @@ class ChatService:
             db: Database session
             collection_id: Optional collection ID for RAG
             use_react: Whether to use ReAct agent for RAG mode
-            
+
         Returns:
             Dictionary with response, session_id, mode, and tools_used
         """
         user_id = user.id if user else None
-        
+
         if mode == CHAT_MODE_RAG:
             return await ChatService._process_rag(message, session_id, user_id, db, collection_id, use_react, agent_prompt)
         else:
             return await ChatService._process_agent(message, session_id, user_id, db, agent_prompt)
-    
+
     @staticmethod
     async def _process_rag(message: str, session_id: str, user_id: Optional[int], db: Optional["Session"] = None, collection_id: Optional[int] = None, use_react: bool = False, agent_prompt: Optional[str] = None) -> dict:
-        """Process RAG mode with advanced RAG system"""
-        llm_config = Config.load_llm_config()
-        
-        # Use ReAct agent if requested
+        """
+        Process RAG mode with advanced RAG system
+
+        NOTE: RAG mode does NOT use MCP servers. It only uses:
+        - Document retrieval from RAG system
+        - ReAct agent with document retrieval tools (if use_react=True)
+        - No MCP tools are loaded or used in RAG mode
+
+        This was a design decision - RAG is for document Q&A, Agent mode is for tool use.
+        """
+        llm_config = Config.load_llm_config(db=db, user_id=user_id)
+
+        # Use ReAct agent if requested (experimental feature)
         if use_react and user_id:
             react_agent = create_react_agent(llm_config)
-            
+
             # Get chat history
             if DB_AVAILABLE and user_id and db:
                 history = db_history_manager.get_session_messages(session_id, user_id, db)
             else:
                 history = history_manager.get_session_messages(session_id, user_id)
-            
+
             result = await react_agent.run(
                 query=message,
                 user_id=user_id,
@@ -79,37 +98,49 @@ class ChatService:
                 chat_history=history,
                 agent_prompt=agent_prompt
             )
-            
+
             answer = result["answer"]
             tools_used = [call["name"] for call in result.get("tool_calls", [])]
+
+            # Extract token usage from result if available
+            input_tokens = result.get("token_usage", {}).get("input_tokens", 0)
+            output_tokens = result.get("token_usage", {}).get("output_tokens", 0)
+            embedding_tokens = result.get("token_usage", {}).get("embedding_tokens", 0)
+
+            # Fallback to estimation if not available
+            if input_tokens == 0 and output_tokens == 0:
+                input_text = message
+                input_tokens = estimate_tokens(input_text)
+                output_tokens = estimate_tokens(answer)
         else:
-            # Use advanced RAG with retrieval
+            # Use advanced RAG with retrieval (standard RAG mode)
             if user_id:
-                # Retrieve relevant documents
+                # Retrieve relevant documents - using k=5, could make this configurable
                 retrieved_docs = advanced_rag_system.retrieve(
                     query=message,
                     user_id=user_id,
-                    k=5,
+                    k=5,  # Top 5 results - seems to work well
                     use_reranking=True,
                     use_hybrid=True,
                     collection_id=collection_id
                 )
-                
+
                 # Build context from retrieved documents
                 context_parts = []
                 for doc in retrieved_docs:
                     content = doc["content"]
                     metadata = doc.get("metadata", {})
-                    source = metadata.get("original_filename", "Document")
+                    source = metadata.get("original_filename", "Document")  # Fallback if no filename
                     context_parts.append(f"[{source}]\n{content}\n")
-                
+
                 context = "\n".join(context_parts) if context_parts else "No relevant documents found."
             else:
-                # Fallback to basic RAG
+                # Fallback to basic RAG for unauthenticated users
+                # Not ideal but better than nothing
                 context = rag_system.retrieve_context(message)
-            
+
             llm = create_llm_from_config(llm_config, streaming=False, temperature=0)
-            
+
             # Get history
             if DB_AVAILABLE and user_id and db:
                 history = db_history_manager.get_session_messages(session_id, user_id, db)
@@ -117,7 +148,7 @@ class ChatService:
             else:
                 history = history_manager.get_session_messages(session_id, user_id)
                 session_history = history_manager.get_session_history(session_id, user_id)
-            
+
             # Build prompt
             prompt = ChatPromptTemplate.from_messages([
                 ("system", (
@@ -147,53 +178,95 @@ class ChatService:
                 MessagesPlaceholder("chat_history"),
                 ("human", "{input}"),
             ])
-            
-            answer = llm.invoke(prompt.format(
+
+            response = llm.invoke(prompt.format(
                 context=context,
                 chat_history=history,
                 input=message
-            )).content
-            
+            ))
+
+            answer = response.content if hasattr(response, 'content') else str(response)
+
+            # Extract token usage from response
+            input_tokens, output_tokens, embedding_tokens = extract_token_usage(response)
+
+            # Fallback to estimation if no token usage available
+            if input_tokens == 0 and output_tokens == 0:
+                # Estimate based on input message and context
+                input_text = f"{message} {context}"
+                input_tokens = estimate_tokens(input_text)
+                output_tokens = estimate_tokens(answer)
+
             # Save to history
             session_history.add_user_message(HumanMessage(content=message))
             session_history.add_ai_message(AIMessage(content=answer))
-            
+
             tools_used = ["advanced_rag_retrieval"]
-        
+
         return {
             "response": answer,
             "session_id": session_id,
             "mode": CHAT_MODE_RAG,
-            "tools_used": tools_used
+            "tools_used": tools_used,
+            "token_usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "embedding_tokens": embedding_tokens
+            }
         }
-    
+
     @staticmethod
     async def _process_agent(message: str, session_id: str, user_id: Optional[int], db: Optional["Session"] = None, agent_prompt: Optional[str] = None) -> dict:
-        """Process agent mode with tools - user-specific MCP servers only"""
+        """
+        Process agent mode with tools - user-specific MCP servers only
+
+        Agent mode can use MCP tools, custom RAG tools, and appointment tool.
+        This is where the magic happens - agent decides which tools to use.
+        """
         mcp_servers = Config.load_mcp_servers(user_id=user_id, db=db)
         tools_used = []
-        
+
+        # Connect to MCP servers - context manager handles cleanup
         async with MCPClientManager(mcp_servers) as mcp_tools:
             # Load custom RAG tools
             custom_rag_tools = load_custom_rag_tools(user_id, db) if user_id and db else []
             # Create appointment tool with user context
             appointment_tool = create_appointment_tool(user_id=user_id, db=db)
             all_tools = [retrieve_dosiblog_context, appointment_tool] + custom_rag_tools + mcp_tools
-            
-            llm_config = Config.load_llm_config()
-            llm = create_llm_from_config(llm_config, streaming=False, temperature=0)
-            
+
+            llm_config = Config.load_llm_config(db=db, user_id=user_id)
+            if not llm_config:
+                return {
+                    "answer": "No LLM configuration found. Please configure an LLM provider via environment variables or create a personal LLM config.",
+                    "tools_used": [],
+                    "token_usage": {}
+                }
+
+            try:
+                llm = create_llm_from_config(llm_config, streaming=False, temperature=0)
+            except Exception as e:
+                error_msg = f"Failed to initialize LLM: {str(e)}"
+                if "api_key" in str(e).lower():
+                    error_msg = "LLM API key is invalid or missing. Please configure a valid API key via environment variables or create a personal LLM config."
+                return {
+                    "answer": error_msg,
+                    "tools_used": [],
+                    "token_usage": {}
+                }
+
             # Check if LLM is Ollama (doesn't support bind_tools)
+            # Ollama is great but has limitations - need special handling
             is_ollama = llm_config.get("type", "").lower() == "ollama"
-            
+
             if is_ollama:
+                # Ollama doesn't support tool calling, so fall back to RAG-like mode
                 return await ChatService._process_ollama_fallback(
                     message, session_id, user_id, all_tools, llm, agent_prompt
                 )
-            
+
             # Create agent with tools
             agent = ChatService._create_agent(llm, all_tools, llm_config, agent_prompt)
-            
+
             # Get history and run agent
             if DB_AVAILABLE and user_id and db:
                 history = db_history_manager.get_session_messages(session_id, user_id, db)
@@ -201,55 +274,78 @@ class ChatService:
             else:
                 history = history_manager.get_session_messages(session_id, user_id)
                 session_history = history_manager.get_session_history(session_id, user_id)
-            
-            messages = list(history) + [HumanMessage(content=message)]
-            
+
+            # Normalize message contents to ensure they're strings (not lists)
+            normalized_history = ChatService._normalize_messages(history)
+            messages = normalized_history + [HumanMessage(content=message)]
+
             # Run agent
             final_answer = ""
+            last_ai_message = None
             async for event in agent.astream({"messages": messages}, stream_mode="values"):
-                last_msg = event["messages"][-1]
-                
+                # Normalize all messages in the event to ensure no list content
+                event_messages = event.get("messages", [])
+                normalized_event_messages = ChatService._normalize_messages(event_messages)
+                event["messages"] = normalized_event_messages
+
+                last_msg = normalized_event_messages[-1] if normalized_event_messages else None
+
                 if isinstance(last_msg, AIMessage):
+                    last_ai_message = last_msg
                     if getattr(last_msg, "tool_calls", None):
                         for call in last_msg.tool_calls:
                             tools_used.append(call['name'])
                     else:
                         final_answer = ChatService._extract_content(last_msg.content)
-            
+
+            # Extract token usage from last AI message
+            input_tokens, output_tokens, embedding_tokens = 0, 0, 0
+            if last_ai_message:
+                input_tokens, output_tokens, embedding_tokens = extract_token_usage(last_ai_message)
+
+            # Fallback to estimation if no token usage available
+            if input_tokens == 0 and output_tokens == 0:
+                input_text = message
+                input_tokens = estimate_tokens(input_text)
+                output_tokens = estimate_tokens(final_answer)
+
             # Save to history
             session_history.add_user_message(HumanMessage(content=message))
             session_history.add_ai_message(AIMessage(content=final_answer))
-            
+
             return {
                 "response": final_answer,
                 "session_id": session_id,
                 "mode": CHAT_MODE_AGENT,
-                "tools_used": tools_used
+                "tools_used": tools_used,
+                "token_usage": {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "embedding_tokens": embedding_tokens
+                }
             }
-    
+
     @staticmethod
     async def _process_ollama_fallback(message: str, session_id: str, user_id: Optional[int],
                                       all_tools: list, llm, agent_prompt: Optional[str] = None, db: Optional["Session"] = None) -> dict:
-        """Fallback for Ollama which doesn't support bind_tools"""
+        """
+        Fallback for Ollama which doesn't support bind_tools
+
+        Ollama is awesome for local LLMs but doesn't have tool calling support yet.
+        So we fall back to a simpler RAG-like approach. Not ideal but works.
+        TODO: Maybe add some basic tool descriptions in the prompt?
+        """
         from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-        
-        tool_descriptions = []
-        for tool in all_tools:
-            if hasattr(tool, 'name'):
-                tool_desc = getattr(tool, 'description', 'No description')
-                tool_descriptions.append(f"- {tool.name}: {tool_desc}")
-        
-        tools_context = "\n".join(tool_descriptions) if tool_descriptions else "No tools available"
-        
+
         if DB_AVAILABLE and user_id and db:
             history = db_history_manager.get_session_messages(session_id, user_id, db)
             session_history = db_history_manager.get_session_history(session_id, user_id, db)
         else:
             history = history_manager.get_session_messages(session_id, user_id)
             session_history = history_manager.get_session_history(session_id, user_id)
-        
+
         context = rag_system.retrieve_context(message)
-        
+
         # Use custom prompt if provided, otherwise use default
         if agent_prompt:
             system_message = agent_prompt
@@ -266,57 +362,65 @@ class ChatService:
                 "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
                 "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
                 "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
-                "Available tools:\n{tools_context}\n\n"
                 "Context:\n{context}\n\n"
-                "Use the context to answer questions accurately.\n"
+                "Use the context to answer questions accurately.\n\n"
+                "IMPORTANT: Do NOT mention or reveal the names of internal tools, MCP tools, or any technical implementation details in your responses. Focus on providing helpful answers without exposing internal system architecture.\n"
                 "If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate.\n"
                 "Do not claim affiliation with any external AI vendor unless explicitly instructed."
             )
-        
+
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_message),
             MessagesPlaceholder("chat_history"),
             ("human", "{input}"),
         ])
-        
-        answer = llm.invoke(prompt.format(
-            tools_context=tools_context,
+
+        response = llm.invoke(prompt.format(
             context=context,
             chat_history=history,
             input=message
-        )).content
-        
+        ))
+
+        answer = response.content if hasattr(response, 'content') else str(response)
+
+        # Extract token usage from response
+        input_tokens, output_tokens, embedding_tokens = extract_token_usage(response)
+
+        # Fallback to estimation if no token usage available
+        if input_tokens == 0 and output_tokens == 0:
+            input_text = f"{message} {context}"
+            input_tokens = estimate_tokens(input_text)
+            output_tokens = estimate_tokens(answer)
+
         # Save to history
         session_history.add_user_message(HumanMessage(content=message))
         session_history.add_ai_message(AIMessage(content=answer))
-        
+
         return {
             "response": answer,
             "session_id": session_id,
             "mode": CHAT_MODE_AGENT,
-            "tools_used": []
+            "tools_used": [],
+            "token_usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "embedding_tokens": embedding_tokens
+            }
         }
-    
+
     @staticmethod
     def _create_agent(llm, tools: list, llm_config: dict, agent_prompt: Optional[str] = None):
-        """Create LangChain agent with tools"""
-        tool_names = []
-        tool_descriptions = []
-        for tool in tools:
-            if hasattr(tool, 'name'):
-                tool_names.append(tool.name)
-                tool_desc = getattr(tool, 'description', '')
-                if tool_desc:
-                    tool_descriptions.append(f"- {tool.name}: {tool_desc}")
-            elif hasattr(tool, '__name__'):
-                tool_names.append(tool.__name__)
-        
-        tools_list = '\n'.join(tool_descriptions) if tool_descriptions else ', '.join(tool_names)
-        
+        """
+        Create LangChain agent with tools
+
+        This is where we wire up the LLM with all available tools.
+        The agent then decides which tools to use based on the user's question.
+        """
         # Use custom prompt if provided, otherwise use default
         if agent_prompt:
             system_prompt = agent_prompt
         else:
+            # Default system prompt - long but covers all the important stuff
             system_prompt = (
                 "You are the official AI assistant for dosibridge.com, trained and maintained by the DOSIBridge team.\n\n"
                 "DOSIBridge (Digital Operations Software Innovation) was founded in 2025 and is an innovative team using AI to enhance digital operations and software solutions. "
@@ -329,28 +433,44 @@ class ChatService:
                 "Your role is to provide accurate, secure, and helpful responses related to DOSIBridge products, services, and workflows.\n\n"
                 "When asked about your identity, respond: 'I am the DOSIBridge AI Agent, developed and trained by the DOSIBridge team to assist with product support, automation guidance, and technical workflows across the DOSIBridge platform.'\n\n"
                 "When asked about DOSIBridge team members, provide detailed information about Mihadul Islam (CEO & Founder) and Abdullah Al Sazib (Co-Founder & CTO).\n\n"
-                f"You have access to these tools ONLY:\n{tools_list}\n\n"
+                "You have access to various tools to help answer questions and perform tasks. Use them when appropriate.\n\n"
                 "IMPORTANT RULES:\n"
-                "- ONLY use tools from this exact list. Do not call any tool that is not in this list.\n"
-                "- If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate.\n"
-                "- Do not claim affiliation with any external AI vendor unless explicitly instructed."
+                "- Do NOT mention or reveal the names of internal tools, MCP tools, or any technical implementation details in your responses\n"
+                "- Do NOT list tool names when asked about capabilities - instead describe what you can help with in natural language\n"
+                "- Focus on providing helpful answers without exposing internal system architecture\n"
+                "- If asked about tools or capabilities, respond with what you can do, not how you do it\n"
+                "- If a question is outside DOSIBridge's scope, respond professionally and redirect when appropriate\n"
+                "- Do not claim affiliation with any external AI vendor unless explicitly instructed"
             )
-        
+
         # Sanitize tools for Gemini compatibility
+        # Gemini is picky about tool schemas, so we need to clean them up
         sanitized_tools = sanitize_tools_for_gemini(tools, llm_config.get("type", ""))
-        
+
+        # Create the agent - LangChain handles the rest
         return create_agent(
             model=llm,
             tools=sanitized_tools,
             system_prompt=system_prompt
         )
-    
+
     @staticmethod
     def _extract_content(content) -> str:
-        """Extract text content from various content types"""
+        """
+        Extract text content from various content types
+
+        Different LLMs return content in different formats:
+        - String (simple)
+        - List of dicts (Gemini)
+        - Dict with text key
+        - Other weird formats
+
+        This handles all of them. Could probably simplify but this works.
+        """
         if isinstance(content, str):
             return content
         elif isinstance(content, list):
+            # Handle list format (common with Gemini)
             result = ""
             for item in content:
                 if isinstance(item, dict):
@@ -362,9 +482,47 @@ class ChatService:
                     result += item
             return result
         elif isinstance(content, dict):
+            # Handle dict format
             if "text" in content:
                 return content["text"]
             return str(content)
         else:
+            # Fallback - just convert to string
             return str(content)
+
+    @staticmethod
+    def _normalize_message_content(message):
+        """Normalize message content to ensure it's a string (not a list)"""
+        from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+
+        if not isinstance(message, BaseMessage):
+            return message
+
+        # If content is already a string, return as-is
+        if isinstance(message.content, str):
+            return message
+
+        # Extract content and create a new message with string content
+        normalized_content = ChatService._extract_content(message.content)
+
+        # Create a new message of the same type with normalized content
+        if isinstance(message, HumanMessage):
+            return HumanMessage(content=normalized_content)
+        elif isinstance(message, AIMessage):
+            new_msg = AIMessage(content=normalized_content)
+            # Preserve tool_calls if they exist
+            if hasattr(message, 'tool_calls'):
+                new_msg.tool_calls = message.tool_calls
+            return new_msg
+        elif isinstance(message, SystemMessage):
+            return SystemMessage(content=normalized_content)
+        else:
+            # For other message types, try to preserve attributes
+            message.content = normalized_content
+            return message
+
+    @staticmethod
+    def _normalize_messages(messages):
+        """Normalize a list of messages to ensure all contents are strings"""
+        return [ChatService._normalize_message_content(msg) for msg in messages]
 

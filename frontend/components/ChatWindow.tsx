@@ -5,10 +5,19 @@
 "use client";
 
 import { useStore } from "@/lib/store";
-import { Loader2, MessageSquare } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ArrowDown, Loader2, MessageSquare } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import MessageBubble from "./MessageBubble";
 import ThinkingIndicator from "./ThinkingIndicator";
+import { TextGenerateEffect } from "./ui/text-generate-effect";
+import * as constants from "@/lib/constants";
+import {
+  calculateDistanceFromBottom,
+  isNearBottom,
+  shouldAutoScroll,
+  getScrollBehavior,
+  getScrollDelay,
+} from "@/lib/scrollHelpers";
 
 export default function ChatWindow() {
   const messages = useStore((state) => state.messages);
@@ -21,6 +30,7 @@ export default function ChatWindow() {
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isUserScrollingRef = useRef(false);
   const scrollCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   // Filter out empty messages
   const displayMessages = messages.filter(
@@ -28,8 +38,8 @@ export default function ChatWindow() {
   );
 
   // Get the last message content length for streaming detection
-  const lastMessageContent = displayMessages.length > 0 
-    ? displayMessages[displayMessages.length - 1].content 
+  const lastMessageContent = displayMessages.length > 0
+    ? displayMessages[displayMessages.length - 1].content
     : "";
   const currentContentLength = lastMessageContent.length;
 
@@ -44,9 +54,24 @@ export default function ChatWindow() {
       if (scrollCheckTimeoutRef.current) {
         clearTimeout(scrollCheckTimeoutRef.current);
       }
+      if (scrollCheckTimeoutRef.current) {
+        clearTimeout(scrollCheckTimeoutRef.current);
+      }
       scrollCheckTimeoutRef.current = setTimeout(() => {
         isUserScrollingRef.current = false;
-      }, 150);
+      }, constants.SCROLL_CHECK_TIMEOUT_MS);
+
+      // Show/hide scroll button logic
+      const scrollTop = container.scrollTop;
+      const scrollHeight = container.scrollHeight;
+      const clientHeight = container.clientHeight;
+      const distanceFromBottom = calculateDistanceFromBottom(
+        scrollTop,
+        scrollHeight,
+        clientHeight
+      );
+
+      setShowScrollButton(distanceFromBottom > constants.SCROLL_THRESHOLD_PX);
     };
 
     container.addEventListener("scroll", handleScroll, { passive: true });
@@ -58,6 +83,11 @@ export default function ChatWindow() {
     };
   }, []);
 
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    setShowScrollButton(false);
+  };
+
   // Improved smooth scrolling - triggers on content changes during streaming
   useEffect(() => {
     if (!containerRef.current || !messagesEndRef.current) return;
@@ -65,30 +95,31 @@ export default function ChatWindow() {
     const container = containerRef.current;
     const scrollElement = messagesEndRef.current;
 
-    // Check if user is near bottom (within 150px) to auto-scroll
-    const isNearBottom = () => {
-      const threshold = 150;
+    // Check if user is near bottom to auto-scroll
+    const checkNearBottom = () => {
       const scrollTop = container.scrollTop;
       const scrollHeight = container.scrollHeight;
       const clientHeight = container.clientHeight;
-      return scrollHeight - scrollTop - clientHeight < threshold;
+      return isNearBottom(scrollTop, scrollHeight, clientHeight);
     };
 
     // Check if content changed (new message or streaming update)
     const isNewMessage = displayMessages.length > lastMessageCountRef.current;
     const isContentUpdate = currentContentLength > lastContentLengthRef.current;
-    
+
     lastMessageCountRef.current = displayMessages.length;
     lastContentLengthRef.current = currentContentLength;
 
-    // Only auto-scroll if:
-    // 1. User hasn't manually scrolled up (or was near bottom)
-    // 2. Content is updating (new message or streaming)
-    const shouldAutoScroll = 
-      !isUserScrollingRef.current && 
-      (isNewMessage || (isStreaming && isContentUpdate) || isNearBottom());
+    // Only auto-scroll if conditions are met
+    const shouldAutoScrollNow = shouldAutoScroll(
+      isUserScrollingRef.current,
+      isNewMessage,
+      isStreaming,
+      isContentUpdate,
+      checkNearBottom()
+    );
 
-    if (shouldAutoScroll) {
+    if (shouldAutoScrollNow) {
       // Clear any pending scroll
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
@@ -99,12 +130,12 @@ export default function ChatWindow() {
         requestAnimationFrame(() => {
           if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({
-              behavior: isStreaming ? "smooth" : "auto",
+              behavior: getScrollBehavior(isStreaming),
               block: "end",
             });
           }
         });
-      }, isStreaming ? 50 : 0); // Small delay for streaming to batch updates
+      }, getScrollDelay(isStreaming));
     }
 
     return () => {
@@ -123,15 +154,22 @@ export default function ChatWindow() {
     // More frequent updates during streaming for smoother experience
     const scrollInterval = setInterval(() => {
       if (!containerRef.current || !messagesEndRef.current) return;
-      
+
       const container = containerRef.current;
       const scrollTop = container.scrollTop;
       const scrollHeight = container.scrollHeight;
       const clientHeight = container.clientHeight;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      
-      // Only scroll if user is near bottom (within 200px) and not manually scrolling
-      if (distanceFromBottom < 200 && !isUserScrollingRef.current) {
+      const distanceFromBottom = calculateDistanceFromBottom(
+        scrollTop,
+        scrollHeight,
+        clientHeight
+      );
+
+      // Only scroll if user is near bottom and not manually scrolling
+      if (
+        distanceFromBottom < constants.STREAMING_SCROLL_THRESHOLD_PX &&
+        !isUserScrollingRef.current
+      ) {
         requestAnimationFrame(() => {
           if (messagesEndRef.current) {
             messagesEndRef.current.scrollIntoView({
@@ -141,7 +179,7 @@ export default function ChatWindow() {
           }
         });
       }
-    }, 100); // Update every 100ms during streaming for smoother experience
+    }, constants.STREAMING_SCROLL_INTERVAL_MS);
 
     return () => clearInterval(scrollInterval);
   }, [isStreaming]);
@@ -167,9 +205,12 @@ export default function ChatWindow() {
                 <div className="absolute inset-0 rounded-full bg-[var(--green)] opacity-20 animate-ping" />
               </div>
             </div>
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-3 text-[var(--text-primary)] animate-slide-in-right">
-              How can I help you today?
-            </h2>
+            <div className="mb-3">
+              <TextGenerateEffect
+                words="How can I help you today?"
+                className="text-xl sm:text-2xl md:text-3xl font-semibold text-[var(--text-primary)] text-center animate-slide-in-right"
+              />
+            </div>
             <p className="text-sm sm:text-base text-[var(--text-secondary)] mb-8 animate-slide-in-left">
               Start a conversation or ask me anything
             </p>
@@ -213,7 +254,7 @@ export default function ChatWindow() {
               key={message.id}
               className="animate-fade-in"
               style={{
-                animationDelay: `${index * 50}ms`,
+                animationDelay: `${index * constants.MESSAGE_ANIMATION_DELAY_MS}ms`,
                 animationFillMode: "both",
               }}
             >
@@ -240,6 +281,17 @@ export default function ChatWindow() {
           )}
           <div ref={messagesEndRef} aria-hidden="true" />
         </div>
+      )}
+
+      {/* Scroll to Bottom Button */}
+      {showScrollButton && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-20 left-1/2 -translate-x-1/2 p-2 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-lg hover:bg-[var(--surface-hover)] transition-all duration-200 animate-in fade-in zoom-in cursor-pointer z-30 group"
+          aria-label="Scroll to bottom"
+        >
+          <ArrowDown className="w-5 h-5 text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]" />
+        </button>
       )}
     </div>
   );

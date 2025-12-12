@@ -1,29 +1,40 @@
 /**
  * Chat input component with send button and mode toggle
- * Uses AI SDK UI patterns for enhanced chat experience
+ * Refactored to "Thick Box" style (Shadcn AI look)
  */
 
 "use client";
 
-import { useAutoResize } from "@/hooks/useAutoResize";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useInputHistory } from "@/hooks/useInputHistory";
 import { createStreamReader, StreamChunk } from "@/lib/api";
 import { getUserFriendlyError, logError } from "@/lib/errors";
 import { useStore } from "@/lib/store";
+import { getTodayUsage } from "@/lib/api/monitoring";
 import {
   Loader2,
   Mic,
-  Plus,
-  Send,
   Settings,
   Sparkles,
   Square,
+  Paperclip,
+  ArrowUp,
 } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import RAGEnablePopup from "@/components/RAGEnablePopup";
+import GuestEmailDialog from "./chat/GuestEmailDialog";
+import * as constants from "@/lib/constants";
+import {
+  canSendMessage,
+  exceedsCharLimit,
+  generateSuggestions,
+  processStreamChunk,
+  calculateTextareaHeight,
+} from "@/lib/chatHelpers";
+
+import { cn } from "@/lib/utils";
 
 export default function ChatInput() {
   const [input, setInput] = useState("");
@@ -31,20 +42,19 @@ export default function ChatInput() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showRAGPopup, setShowRAGPopup] = useState(false);
+  const [showGuestEmailDialog, setShowGuestEmailDialog] = useState(false);
+
   const abortRef = useRef<(() => void) | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const prevAuthRef = useRef<boolean | null>(null);
-
-  // Auto-resize textarea
-  useAutoResize(textareaRef, input, 1, 8);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Input history
   const { addToHistory, navigateHistory, saveCurrentInput } = useInputHistory();
 
   // Debounced input for suggestions
-  const debouncedInput = useDebounce(input, 300);
+  const debouncedInput = useDebounce(input, constants.DEBOUNCE_DELAY_MS);
 
   const currentSessionId = useStore((state) => state.currentSessionId);
   const mode = useStore((state) => state.mode);
@@ -67,18 +77,28 @@ export default function ChatInput() {
   const clearActiveTools = useStore((state) => state.clearActiveTools);
   const setLoading = useStore((state) => state.setLoading);
 
-  // Cancel ongoing requests only when user explicitly logs out
-  // Don't cancel on initial page load when not authenticated (agent mode works without login)
+  // Auto-resize textarea
+  const adjustTextareaHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      const newHeight = calculateTextareaHeight(textarea.scrollHeight);
+      textarea.style.height = `${newHeight}px`;
+    }
+  };
+
   useEffect(() => {
-    // Track previous auth state - skip on first render
+    adjustTextareaHeight();
+  }, [input]);
+
+  // Cancel ongoing requests only when user explicitly logs out
+  useEffect(() => {
     if (prevAuthRef.current === null) {
       prevAuthRef.current = isAuthenticated;
-      return; // Skip on first render
+      return;
     }
 
-    // Only cancel if user was authenticated and now logged out
     if (prevAuthRef.current && !isAuthenticated && (isStreaming || isLoading)) {
-      // User logged out - cancel any ongoing requests
       if (abortRef.current) {
         abortRef.current();
         abortRef.current = null;
@@ -87,96 +107,33 @@ export default function ChatInput() {
       setLoading(false);
     }
 
-    // Update previous auth state
     prevAuthRef.current = isAuthenticated;
   }, [isAuthenticated, isStreaming, isLoading, setStreaming, setLoading]);
 
-  // textarea should be disabled only while loading/streaming
   const inputDisabled = isLoading || isStreaming;
-  // send button should be disabled while loading/streaming or when there's no input
-  const MAX_CHARS = 2000;
   const charCount = input.length;
-  const exceedMax = charCount > MAX_CHARS;
-  const sendDisabled = inputDisabled || !input.trim() || exceedMax;
+  const exceedMax = exceedsCharLimit(input);
+  const sendDisabled = !canSendMessage(input, isLoading, isStreaming);
 
-  // Generate suggestions based on input
+  // Generate autocomplete suggestions based on input
   useEffect(() => {
     let mounted = true;
 
     const updateSuggestions = () => {
       if (!mounted) return;
 
-      if (
-        debouncedInput.trim().length > 0 &&
-        debouncedInput.trim().length < 20
-      ) {
-        // Simple suggestion logic - can be enhanced with AI
-        const commonQueries = [
-          "What is",
-          "How to",
-          "Explain",
-          "Tell me about",
-          "Help me with",
-          "Show me",
-          "Create",
-          "Write",
-          "Analyze",
-          "Compare",
+      const newSuggestions = generateSuggestions(debouncedInput);
 
-          // New Suggestions
-          "Define",
-          "Generate",
-          "Fix",
-          "Debug",
-          "Summarize",
-          "Translate",
-          "Improve",
-          "Optimize",
-          "List",
-          "Guide me through",
-          "Teach me",
-          "Why does",
-          "When should",
-          "Where can I",
-          "Suggest",
-          "Recommend",
-          "Build",
-          "Design",
-          "Plan",
-          "Solve",
-          "Check",
-          "Convert",
-          "Explain step by step",
-          "Give examples of",
-          "Break down",
-          "Walk me through",
-          "Clarify",
-          "Correct",
-          "Find",
-          "Identify",
-        ];
-
-        const inputLower = debouncedInput.toLowerCase();
-        const matched = commonQueries
-          .filter((q) => q.toLowerCase().startsWith(inputLower))
-          .slice(0, 3);
-
-        if (matched.length > 0 && input.length > 0) {
-          setSuggestions(matched);
-          setShowSuggestions(true);
-        } else {
-          setSuggestions([]);
-          setShowSuggestions(false);
-        }
+      if (newSuggestions.length > 0 && input.length > 0) {
+        setSuggestions(newSuggestions);
+        setShowSuggestions(true);
       } else {
         setSuggestions([]);
         setShowSuggestions(false);
       }
     };
 
-    // Use requestAnimationFrame to avoid synchronous setState
     const rafId = requestAnimationFrame(updateSuggestions);
-
     return () => {
       mounted = false;
       cancelAnimationFrame(rafId);
@@ -188,9 +145,7 @@ export default function ChatInput() {
     const handleClickOutside = (e: MouseEvent) => {
       if (
         suggestionsRef.current &&
-        !suggestionsRef.current.contains(e.target as Node) &&
-        textareaRef.current &&
-        !textareaRef.current.contains(e.target as Node)
+        !suggestionsRef.current.contains(e.target as Node)
       ) {
         setShowSuggestions(false);
       }
@@ -221,7 +176,6 @@ export default function ChatInput() {
     }
   }, [showModelDropdown]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (abortRef.current) {
@@ -233,49 +187,56 @@ export default function ChatInput() {
   const handleSend = async () => {
     if (sendDisabled) return;
 
-    // Check authentication only for RAG mode
     if (mode === "rag" && !isAuthenticated) {
-      toast.error(
-        "Please log in to use RAG mode. RAG mode requires authentication."
-      );
+      toast.error("Please log in to use RAG mode.");
       return;
+    }
+
+    // Check for guest email if not authenticated
+    let guestEmail = null;
+    if (!isAuthenticated) {
+      const storedGuestEmail = localStorage.getItem(constants.GUEST_EMAIL_STORAGE_KEY);
+      if (!storedGuestEmail) {
+        setShowGuestEmailDialog(true);
+        return;
+      }
+      guestEmail = storedGuestEmail;
+    }
+
+    try {
+      const todayUsage = await getTodayUsage();
+      if (todayUsage.is_default_llm && todayUsage.limit !== -1) {
+        if (!todayUsage.is_allowed) {
+          toast.error("Daily limit reached! Add your own API key for unlimited requests.", { duration: constants.TOAST_DURATION_LONG });
+          return;
+        }
+        if (todayUsage.remaining <= constants.RATE_LIMIT_WARNING_THRESHOLD && todayUsage.remaining > 0) {
+          toast(`Warning: Only ${todayUsage.remaining} requests remaining today.`, { duration: constants.TOAST_DURATION_MEDIUM, icon: "⚠️" });
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to check daily limit:", error);
     }
 
     const message = input.trim();
     if (!message) return;
 
-    // Add to history
     addToHistory(message);
-
-    // Close suggestions
     setShowSuggestions(false);
-
     setInput("");
+
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
 
-    // keep focus on textarea so user can continue typing
-    setTimeout(() => textareaRef.current?.focus(), 0);
-    
-    // Initialize streaming state properly
     setLoading(true);
     setStreaming(true);
     setStreamingStatus("thinking");
     clearActiveTools();
 
-    // Add user message
-    addMessage({
-      role: "user",
-      content: message,
-    });
-
-    // Add placeholder assistant message
-    addMessage({
-      role: "assistant",
-      content: "",
-    });
+    addMessage({ role: "user", content: message });
+    addMessage({ role: "assistant", content: "" });
 
     const toolsUsed: string[] = [];
     let hasReceivedContent = false;
@@ -288,159 +249,89 @@ export default function ChatInput() {
           mode,
           collection_id: mode === "rag" ? selectedCollectionId : null,
           use_react: mode === "rag" ? useReact : false,
+          guest_email: guestEmail || undefined,
         },
         (chunk: StreamChunk) => {
-          if (chunk.error) {
-            toast.error(chunk.error);
-            // Remove empty assistant message on error
-            const messages = useStore.getState().messages;
-            if (
-              messages.length > 0 &&
-              messages[messages.length - 1].role === "assistant" &&
-              !messages[messages.length - 1].content
-            ) {
-              useStore.setState({ messages: messages.slice(0, -1) });
-            }
-            setStreaming(false);
-            setLoading(false);
-            setStreamingStatus(null);
-            clearActiveTools();
-            // Auto-focus on chat input when error occurs
-            setTimeout(() => textareaRef.current?.focus(), 100);
-            return;
-          }
-
-          // Process status updates from backend - handle all status types
-          if (chunk.status) {
-            if (
-              chunk.status === "thinking" ||
-              chunk.status === "tool_calling" ||
-              chunk.status === "answering" ||
-              chunk.status === "connected" ||
-              chunk.status === "creating_agent" ||
-              chunk.status === "agent_ready"
-            ) {
-              // Map backend statuses to frontend statuses
-              if (chunk.status === "connected" || chunk.status === "creating_agent" || chunk.status === "agent_ready") {
-                setStreamingStatus("thinking");
-              } else {
-                setStreamingStatus(chunk.status);
-              }
-            }
-          }
-
-          // Process tool calls
-          if (chunk.tool) {
-            toolsUsed.push(chunk.tool);
-            addActiveTool(chunk.tool);
-          }
-
-          // Process content chunks - accept all chunks including spaces
-          if (chunk.chunk !== undefined && chunk.chunk !== null) {
-            if (!hasReceivedContent) {
-              // First chunk received - switch to answering if not already set
-              if (chunk.status !== "answering") {
-                setStreamingStatus("answering");
-              }
-            }
-            hasReceivedContent = true;
-            updateLastMessage(chunk.chunk);
-          }
-
-          if (chunk.done) {
-            setStreaming(false);
-            setLoading(false);
-            setStreamingStatus(null);
-            clearActiveTools(); // Clear active tools when done
-
-            // Remove empty assistant message if no content was received
-            if (!hasReceivedContent) {
+          processStreamChunk(chunk, {
+            onError: (error) => {
+              toast.error(error);
               const messages = useStore.getState().messages;
-              if (
-                messages.length > 0 &&
-                messages[messages.length - 1].role === "assistant" &&
-                !messages[messages.length - 1].content
-              ) {
+              if (messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content) {
                 useStore.setState({ messages: messages.slice(0, -1) });
               }
-            }
-
-            // Update last message with tools used
-            if (chunk.tools_used && chunk.tools_used.length > 0) {
-              updateLastMessageTools(chunk.tools_used);
-            } else if (toolsUsed.length > 0) {
-              updateLastMessageTools([...toolsUsed]);
-            }
-
-            // Auto-focus on chat input when response is complete
-            setTimeout(() => textareaRef.current?.focus(), 100);
-          }
+              setStreaming(false);
+              setLoading(false);
+              setStreamingStatus(null);
+              clearActiveTools();
+            },
+            onStatusChange: (status) => {
+              setStreamingStatus(status as "thinking" | "tool_calling" | "answering" | null);
+            },
+            onToolUsed: (tool) => {
+              toolsUsed.push(tool);
+              addActiveTool(tool);
+            },
+            onContent: (content) => {
+              if (!hasReceivedContent) {
+                setStreamingStatus("answering");
+              }
+              hasReceivedContent = true;
+              updateLastMessage(content);
+            },
+            onComplete: (toolsUsedList) => {
+              setStreaming(false);
+              setLoading(false);
+              setStreamingStatus(null);
+              clearActiveTools();
+              if (!hasReceivedContent) {
+                const messages = useStore.getState().messages;
+                if (messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content) {
+                  useStore.setState({ messages: messages.slice(0, -1) });
+                }
+              }
+              if (toolsUsedList && toolsUsedList.length > 0) {
+                updateLastMessageTools(toolsUsedList);
+              } else if (toolsUsed.length > 0) {
+                updateLastMessageTools([...toolsUsed]);
+              }
+            },
+          });
         },
         (error: Error) => {
           logError(error, { session_id: currentSessionId, mode });
-          const errorMessage = getUserFriendlyError(error);
-          toast.error(errorMessage);
-          // Remove empty assistant message on error
+          toast.error(getUserFriendlyError(error));
           const messages = useStore.getState().messages;
-          if (
-            messages.length > 0 &&
-            messages[messages.length - 1].role === "assistant" &&
-            !messages[messages.length - 1].content
-          ) {
+          if (messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].content) {
             useStore.setState({ messages: messages.slice(0, -1) });
           }
           setStreaming(false);
           setLoading(false);
           setStreamingStatus(null);
-          clearActiveTools(); // Clear active tools on error
-          // Auto-focus on chat input when error occurs
-          setTimeout(() => textareaRef.current?.focus(), 100);
+          clearActiveTools();
         },
         () => {
           setStreaming(false);
           setLoading(false);
           setStreamingStatus(null);
-          clearActiveTools(); // Clear active tools when cancelled
-          // Auto-focus on chat input when stream is cancelled
-          setTimeout(() => textareaRef.current?.focus(), 100);
+          clearActiveTools();
         }
       );
     } catch (error) {
-      logError(error instanceof Error ? error : new Error(String(error)), {
-        session_id: currentSessionId,
-        mode,
-        message_length: message.length,
-      });
-      const errorMessage = getUserFriendlyError(error);
-      toast.error(errorMessage);
-      // Remove empty assistant message on error
-      const messages = useStore.getState().messages;
-      if (
-        messages.length > 0 &&
-        messages[messages.length - 1].role === "assistant" &&
-        !messages[messages.length - 1].content
-      ) {
-        useStore.setState({ messages: messages.slice(0, -1) });
-      }
+      logError(error instanceof Error ? error : new Error(String(error)), { session_id: currentSessionId, mode });
+      toast.error(getUserFriendlyError(error));
       setStreaming(false);
       setLoading(false);
       setStreamingStatus(null);
-      clearActiveTools(); // Clear active tools on error
-      // Auto-focus on chat input when error occurs
-      setTimeout(() => textareaRef.current?.focus(), 100);
+      clearActiveTools();
     }
   };
 
   const handleSuggestionClick = (suggestion: string) => {
     setInput(suggestion);
     setShowSuggestions(false);
-    setTimeout(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(
-        suggestion.length,
-        suggestion.length
-      );
-    }, 0);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
   };
 
   const handleStop = () => {
@@ -450,309 +341,192 @@ export default function ChatInput() {
       setStreaming(false);
       setLoading(false);
       setStreamingStatus(null);
-      clearActiveTools(); // Clear active tools when stopped
+      clearActiveTools();
       toast.success("Generation stopped");
-      // Auto-focus on chat input when stopped
-      setTimeout(() => textareaRef.current?.focus(), 100);
     }
   };
 
   const handleVoiceClick = () => {
-    // TODO: Implement voice input
     toast("Voice input coming soon", { icon: "🎤" });
   };
 
-  const handleAttachmentClick = () => {
-    // TODO: Implement file attachment
-    toast("File attachment coming soon", { icon: "📎" });
+  const handleGuestEmailSubmit = (email: string) => {
+    localStorage.setItem(constants.GUEST_EMAIL_STORAGE_KEY, email);
+    handleSend();
   };
 
   const getModeDisplayName = () => {
     return mode === "agent" ? "Agent" : "RAG";
   };
 
-  const handleKeyPress = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Handle arrow keys for history navigation
-    if (e.key === "ArrowUp" && input === "" && e.ctrlKey === false) {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      const historyItem = navigateHistory("up");
-      if (historyItem !== null) {
-        setInput(historyItem);
-        // Move cursor to end
-        setTimeout(() => {
-          if (textareaRef.current) {
-            textareaRef.current.setSelectionRange(
-              historyItem.length,
-              historyItem.length
-            );
-          }
-        }, 0);
-      }
+      handleSend();
       return;
     }
 
-    if (e.key === "ArrowDown" && e.ctrlKey === false) {
-      const historyItem = navigateHistory("down");
-      if (historyItem !== null) {
-        setInput(historyItem);
-        setTimeout(() => {
-          if (textareaRef.current) {
-            textareaRef.current.setSelectionRange(
-              historyItem.length,
-              historyItem.length
-            );
-          }
-        }, 0);
-      }
-      return;
-    }
-
-    // Save current input for history
-    saveCurrentInput(input);
-
-    // Enter (without Shift) sends. Ctrl/Cmd+Enter also sends.
-    if (e.key === "Enter") {
-      if ((e.ctrlKey || e.metaKey) && !sendDisabled) {
-        e.preventDefault();
-        handleSend();
-        return;
-      }
-
-      if (!e.shiftKey && !sendDisabled) {
-        e.preventDefault();
-        handleSend();
-      }
-    }
-
-    // Close suggestions on Escape
-    if (e.key === "Escape") {
-      setShowSuggestions(false);
+    // History navigation logic
+    if (e.key === "ArrowUp" && input.trim() === "" && textareaRef.current?.selectionStart === 0) {
+      e.preventDefault();
+      const prev = navigateHistory("up");
+      if (prev !== null) setInput(prev);
+    } else if (e.key === "ArrowDown" && input.trim() === "") {
+      e.preventDefault();
+      const next = navigateHistory("down");
+      if (next !== null) setInput(next);
     }
   };
 
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    saveCurrentInput(e.target.value);
+  };
+
   return (
-    <div className=" shrink-0 sticky bottom-0 z-40">
-      <div className="px-2 sm:px-3 md:px-4 lg:px-6 py-3 sm:py-4">
-        <div className="max-w-4xl mx-auto w-full flex flex-col">
-          {/* Chat input form */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSend();
-            }}
-            className="w-full relative"
+    <div className="shrink-0 sticky bottom-0 z-40 w-full pb-6 pt-4">
+      <div className="max-w-4xl mx-auto w-full px-2 sm:px-4 flex flex-col gap-2">
+
+        {/* Autocomplete Suggestions */}
+        {showSuggestions && suggestions.length > 0 && (
+          <div
+            ref={suggestionsRef}
+            className="mb-2 mx-4 bg-zinc-900/95 backdrop-blur-lg border border-zinc-800 rounded-xl shadow-xl overflow-hidden z-50 max-w-xl self-center w-full"
           >
-            {/* Suggestions dropdown */}
-            {showSuggestions && suggestions.length > 0 && (
-              <div
-                ref={suggestionsRef}
-                className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--surface)]/95 backdrop-blur-lg border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-50"
+            {suggestions.map((suggestion, index) => (
+              <button
+                key={index}
+                type="button"
+                onClick={() => handleSuggestionClick(suggestion)}
+                className="w-full text-left px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 transition-colors flex items-center gap-2"
               >
-                {suggestions.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    className="w-full text-left px-4 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors flex items-center gap-2"
-                  >
-                    <Sparkles className="w-4 h-4 text-[var(--green)] shrink-0" />
-                    <span className="flex-1">{suggestion}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+                <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span className="flex-1">{suggestion}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
-            {/* Input container with all buttons inside */}
-            <div className="w-full relative">
-              {/* Input field */}
-              <div className="relative w-full">
-                <div className="relative w-full bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl shadow-sm hover:border-[var(--border-hover)] focus-within:border-[var(--green)] focus-within:ring-1 focus-within:ring-[var(--green)]/30 transition-all">
-                  {/* Plus button - Left side */}
-                  <button
-                    type="button"
-                    onClick={handleAttachmentClick}
-                    disabled={inputDisabled}
-                    className="absolute left-2 bottom-2 h-8 w-8 rounded-full bg-transparent hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                    aria-label="Attach file"
-                    title="Attach file"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
+        {/* Input Component - "Thick Box" Style */}
+        <div className={cn(
+          "relative z-10 flex flex-col bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl transition-all duration-200",
+          "focus-within:ring-1 focus-within:ring-zinc-700/50 focus-within:border-zinc-700",
+          isLoading && "opacity-50 cursor-not-allowed"
+        )}>
 
-                  <textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value);
-                      saveCurrentInput(e.target.value);
-                    }}
-                    onKeyDown={handleKeyPress}
-                    onFocus={() => {
-                      if (suggestions.length > 0 && input.length > 0) {
-                        setShowSuggestions(true);
-                      }
-                    }}
-                    placeholder="Ask anything"
-                    disabled={inputDisabled}
-                    rows={1}
-                    className="w-full px-12 py-3 pr-24 resize-none focus:outline-none bg-transparent text-[var(--text-primary)] placeholder-[var(--text-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm sm:text-base leading-relaxed"
-                    style={{
-                      minHeight: "52px",
-                      maxHeight: "200px",
-                      boxSizing: "border-box",
-                    }}
-                    aria-label="Message input"
-                  />
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            disabled={inputDisabled}
+            placeholder="How can I help you today?"
+            className="w-full bg-transparent border-none text-zinc-100 placeholder:text-zinc-500 text-base py-3 px-4 min-h-[60px] max-h-[200px] resize-none focus:ring-0 focus:outline-none scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent rounded-t-2xl"
+            rows={1}
+          />
 
-                  {/* Buttons on right side - Inside input area */}
-                  <div className="absolute bottom-2 right-2 flex items-center gap-2">
-                    {/* Character counter - Before buttons */}
-                    {charCount > 0 && (
-                      <div className="text-xs text-[var(--text-secondary)] pointer-events-none mr-1">
-                        <span
-                          className={
-                            exceedMax
-                              ? "text-red-500 font-medium"
-                              : charCount > MAX_CHARS * 0.9
-                              ? "text-yellow-500"
-                              : ""
-                          }
-                        >
-                          {charCount}/{MAX_CHARS}
-                        </span>
-                      </div>
-                    )}
-                    {/* Model selector - Small icon button */}
-                    <div className="relative" ref={modelDropdownRef}>
-                      <button
-                        type="button"
-                        onClick={() => setShowModelDropdown(!showModelDropdown)}
-                        disabled={inputDisabled}
-                        className="h-8 w-8 rounded-full bg-transparent hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                        aria-label="Select mode"
-                        title={`Mode: ${getModeDisplayName()}`}
-                      >
-                        <Settings className="w-4 h-4" />
-                      </button>
+          {/* Toolbar */}
+          <div className="flex justify-between items-center p-2 pt-0">
+            {/* Left Tools */}
+            <div className="flex items-center gap-1.5">
+              {/* Voice */}
+              <button
+                onClick={handleVoiceClick}
+                disabled={inputDisabled}
+                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-50"
+                title="Voice Input"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
 
-                      {/* Model dropdown menu */}
-                      {showModelDropdown && (
-                        <div className="absolute bottom-full right-0 mb-2 bg-[var(--surface)]/95 backdrop-blur-lg border border-[var(--border)] rounded-lg shadow-xl overflow-hidden z-50 min-w-[120px]">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMode("agent");
-                              setShowModelDropdown(false);
-                            }}
-                            className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                              mode === "agent"
-                                ? "bg-[var(--green)]/10 text-[var(--green)] font-medium"
-                                : "text-[var(--text-primary)] hover:bg-[var(--surface-hover)]"
-                            }`}
-                          >
-                            Agent
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowModelDropdown(false);
-                              setShowRAGPopup(true);
-                            }}
-                            className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                              mode === "rag"
-                                ? "bg-[var(--green)]/10 text-[var(--green)] font-medium"
-                                : "text-[var(--text-primary)] hover:bg-[var(--surface-hover)]"
-                            }`}
-                          >
-                            RAG
-                          </button>
-                          {mode === "rag" && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setRagSettingsOpen(true);
-                                setSettingsOpen(true);
-                                setShowModelDropdown(false);
-                              }}
-                              className="w-full text-left px-4 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors border-t border-[var(--border)] flex items-center gap-2"
-                            >
-                              <Settings className="w-3.5 h-3.5" />
-                              <span>RAG Settings</span>
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
+              {/* Mode Selector */}
+              <div className="relative" ref={modelDropdownRef}>
+                <button
+                  onClick={() => setShowModelDropdown(!showModelDropdown)}
+                  disabled={inputDisabled}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-zinc-800",
+                    mode === 'rag' ? "text-indigo-400" : "text-zinc-400"
+                  )}
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>{getModeDisplayName()}</span>
+                </button>
 
-                    {/* Microphone button */}
+                {showModelDropdown && (
+                  <div className="absolute bottom-full left-0 mb-2 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl overflow-hidden min-w-[140px] z-50">
                     <button
-                      type="button"
-                      onClick={handleVoiceClick}
-                      disabled={inputDisabled}
-                      className="h-8 w-8 rounded-full bg-transparent hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                      aria-label="Voice input"
-                      title="Voice input"
+                      onClick={() => { setMode('agent'); setShowModelDropdown(false); }}
+                      className="w-full text-left px-4 py-2.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
                     >
-                      <Mic className="w-4 h-4" />
+                      Agent Mode
                     </button>
-
-                    {/* Send/Stop button */}
-                    {isStreaming ? (
+                    <button
+                      onClick={() => { setMode('rag'); setShowModelDropdown(false); }}
+                      className="w-full text-left px-4 py-2.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+                    >
+                      RAG Mode
+                    </button>
+                    {mode === 'rag' && (
                       <button
-                        type="button"
-                        onClick={handleStop}
-                        className="h-8 w-8 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all shadow-md hover:shadow-lg flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-[#40414f]"
-                        aria-label="Stop generation"
-                        title="Stop"
+                        onClick={() => { setRagSettingsOpen(true); setSettingsOpen(true); setShowModelDropdown(false); }}
+                        className="w-full text-left px-4 py-2.5 text-xs text-indigo-400 hover:bg-zinc-800 border-t border-zinc-800 transition-colors"
                       >
-                        <Square className="w-4 h-4 fill-white" />
-                      </button>
-                    ) : (
-                      <button
-                        type="submit"
-                        disabled={sendDisabled}
-                        className="h-8 w-8 rounded-full bg-gray-600 dark:bg-gray-500 hover:bg-gray-700 dark:hover:bg-gray-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-white transition-all shadow-md hover:shadow-lg disabled:shadow-none flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-[#40414f]"
-                        aria-label="Send message"
-                        title="Send (Enter)"
-                      >
-                        {isLoading ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Send className="w-4 h-4" />
-                        )}
+                        Settings
                       </button>
                     )}
                   </div>
-                </div>
+                )}
               </div>
             </div>
 
-            {/* Disclaimer */}
-            <div className="mt-2 text-center">
-              <p className="text-xs text-[var(--text-secondary)]">
-                DosiBridge can make mistakes. Check important info.
-              </p>
-            </div>
-
-            {/* Error message for exceeded limit */}
-            {exceedMax && (
-              <div className="mt-2 text-xs text-red-500 flex items-center gap-1.5">
-                <span>⚠️</span>
-                <span>Message exceeds {MAX_CHARS} characters</span>
+            {/* Right Tools - Send Button */}
+            <div className="flex items-center gap-2">
+              {/* Char Count */}
+              <div className={cn("text-[10px]", exceedMax ? "text-red-500" : "text-zinc-600")}>
+                {charCount}/{constants.MAX_INPUT_CHARS}
               </div>
-            )}
-          </form>
+
+              {isStreaming ? (
+                <button
+                  onClick={handleStop}
+                  className="p-2 rounded-full bg-zinc-100 hover:bg-zinc-300 transition-colors group"
+                  title="Stop generation"
+                >
+                  <Square className="w-4 h-4 text-black fill-black" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={sendDisabled}
+                  className={cn(
+                    "p-2 rounded-full transition-all duration-200",
+                    sendDisabled
+                      ? "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                      : "bg-white text-black hover:bg-zinc-200 shadow-md hover:shadow-lg"
+                  )}
+                  title="Send message"
+                >
+                  <ArrowUp className="w-5 h-5" strokeWidth={2.5} />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* RAG Enable Popup */}
       <RAGEnablePopup
         isOpen={showRAGPopup}
         onClose={() => setShowRAGPopup(false)}
-        onEnable={() => {
-          // Additional logic after enabling RAG can go here
-        }}
+        onEnable={() => { }}
       />
+
+      <GuestEmailDialog
+        isOpen={showGuestEmailDialog}
+        onClose={() => setShowGuestEmailDialog(false)}
+        onSubmit={handleGuestEmailSubmit}
+      />
+
     </div>
   );
 }

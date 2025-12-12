@@ -15,7 +15,7 @@ from .tools import retrieve_dosiblog_context, load_custom_rag_tools, create_appo
 async def run_agent_query(agent_executor, question: str, session_id: str = "default"):
     """
     Run a query through the agent with history support
-    
+
     Args:
         agent_executor: The agent to use
         question: User's question
@@ -25,14 +25,14 @@ async def run_agent_query(agent_executor, question: str, session_id: str = "defa
     print(f"💬 User Query: {question}")
     print(f"📝 Session ID: {session_id}")
     print(f"{'='*60}\n")
-    
+
     # Get chat history for this session
     history = history_manager.get_session_messages(session_id)
-    
+
     # Show conversation context if exists
     if history:
         print(f"📚 Conversation History: {len(history)} previous messages")
-    
+
     # Build messages with history
     messages = list(history) + [HumanMessage(content=question)]
     inputs = {"messages": messages}
@@ -50,7 +50,7 @@ async def run_agent_query(agent_executor, question: str, session_id: str = "defa
             else:
                 print(f"\n✅ Final Answer: {last_msg.content}\n")
                 final_answer = last_msg.content
-        
+
         elif hasattr(last_msg, "tool_name"):
             print(f"🔧 Tool '{last_msg.tool_name}' output: {last_msg.content}")
 
@@ -58,14 +58,14 @@ async def run_agent_query(agent_executor, question: str, session_id: str = "defa
     session_history = history_manager.get_session_history(session_id)
     session_history.add_user_message(question)
     session_history.add_ai_message(final_answer)
-    
+
     return final_answer
 
 
 async def run_rag_query(question: str, session_id: str = "default"):
     """
     Run a RAG query with conversation history (without agent)
-    
+
     Args:
         question: User's question
         session_id: Session identifier for history
@@ -74,13 +74,13 @@ async def run_rag_query(question: str, session_id: str = "default"):
     print(f"🔍 RAG Query: {question}")
     print(f"📝 Session ID: {session_id}")
     print(f"{'='*60}\n")
-    
+
     # Get chat history for this session
     history = history_manager.get_session_messages(session_id)
-    
+
     if history:
         print(f"📚 Conversation History: {len(history)} previous messages")
-    
+
     # Use RAG system with history
     # Load LLM from config (includes API key)
     from .llm_factory import create_llm_from_config
@@ -95,11 +95,11 @@ async def run_rag_query(question: str, session_id: str = "default"):
                 "or configure it in config/llm_config.json"
             ) from e
         raise
-    
+
     answer = rag_system.query_with_history(question, session_id, llm)
-    
+
     print(f"\n✅ Answer: {answer}\n")
-    
+
     return answer
 
 
@@ -111,7 +111,7 @@ async def run_agent_mode(
 ):
     """
     Run agent mode with MCP tools
-    
+
     Args:
         query: Query to execute
         additional_servers: Additional MCP servers to connect to (must be user-specific)
@@ -120,23 +120,39 @@ async def run_agent_mode(
     """
     # Load MCP servers configuration - user-specific only
     mcp_servers = Config.load_mcp_servers(additional_servers=additional_servers, user_id=user_id)
-    
+
     print(f"📡 Connecting to {len(mcp_servers)} MCP server(s)...\n")
-    
+
     # Use context manager to keep MCP sessions alive
     # Note: If servers are unavailable, we'll continue with available ones
     try:
         async with MCPClientManager(mcp_servers) as mcp_tools:
             # Combine with local DosiBlog RAG tool and appointment tool
             appointment_tool = create_appointment_tool(user_id=user_id, db=None)
-            all_tools = [retrieve_dosiblog_context, appointment_tool] + mcp_tools
-            
+
+            # Load custom RAG tools if user_id is provided
+            custom_rag_tools = []
+            if user_id:
+                try:
+                    from src.core import get_db_context
+                    db_gen = get_db_context()
+                    db = next(db_gen)
+                    try:
+                        custom_rag_tools = load_custom_rag_tools(user_id, db)
+                    finally:
+                        db.close()
+                except Exception as e:
+                    print(f"⚠️  Failed to load custom RAG tools: {e}")
+
+            all_tools = [retrieve_dosiblog_context, appointment_tool] + custom_rag_tools + mcp_tools
+
             print(f"\n📦 Total tools available: {len(all_tools)}")
             print(f"   • Local RAG tools: 1 (DosiBlog)")
+            print(f"   • Custom RAG tools: {len(custom_rag_tools)}")
             print(f"   • Remote MCP tools: {len(mcp_tools)}")
             print(f"   • Session ID: {session_id}")
             print(f"   • History: {len(history_manager.get_session_messages(session_id))} messages\n")
-            
+
             # Create the agent with all tools
             print("🔧 Creating agent...")
             # Load LLM from config (includes API key)
@@ -152,7 +168,7 @@ async def run_agent_mode(
                         "or configure it in config/llm_config.json"
                     ) from e
                 raise
-            
+
             agent_executor = create_agent(
                 model=llm,
                 tools=all_tools,
@@ -174,7 +190,7 @@ async def run_agent_mode(
                 )
             )
             print("✓ Agent created successfully!")
-            
+
             # Run queries
             if query:
                 await run_agent_query(agent_executor, query, session_id)
@@ -190,30 +206,50 @@ async def run_agent_mode(
         # If MCP connection fails completely, continue with just RAG tool
         print(f"\n⚠️  MCP connection failed: {str(e)}")
         print("   Continuing with RAG-only mode...\n")
-        
+
         appointment_tool = create_appointment_tool(user_id=user_id, db=None)
-        all_tools = [retrieve_dosiblog_context, appointment_tool]
+
+        # Load custom RAG tools if user_id is provided
+        custom_rag_tools = []
+        if user_id:
+            try:
+                from src.core import get_db_context
+                db_gen = get_db_context()
+                db = next(db_gen)
+                try:
+                    custom_rag_tools = load_custom_rag_tools(user_id, db)
+                finally:
+                    db.close()
+            except Exception as e:
+                print(f"⚠️  Failed to load custom RAG tools: {e}")
+
+        all_tools = [retrieve_dosiblog_context, appointment_tool] + custom_rag_tools
         print(f"📦 Total tools available: {len(all_tools)}")
         print(f"   • Local RAG tools: 1 (DosiBlog)")
+        print(f"   • Custom RAG tools: {len(custom_rag_tools)}")
         print(f"   • Appointment tool: 1")
         print(f"   • Remote MCP tools: 0 (connection failed)\n")
-        
+
         # Create agent with just RAG tool
         print("🔧 Creating agent (RAG-only mode)...")
         # Load LLM from config (includes API key)
         from .llm_factory import create_llm_from_config
         llm_config = Config.load_llm_config()
+        if not llm_config:
+            raise ValueError(
+                "No LLM configuration found. Please configure an LLM provider via environment variables or create a personal LLM config."
+            )
+
         try:
             llm = create_llm_from_config(llm_config, streaming=False, temperature=0)
         except Exception as e:
             error_msg = str(e)
             if "api_key" in error_msg.lower() or "OPENAI_API_KEY" in error_msg:
                 raise ValueError(
-                    "OpenAI API key is not set. Please set OPENAI_API_KEY environment variable "
-                    "or configure it in config/llm_config.json"
+                    "LLM API key is invalid or missing. Please configure a valid API key via environment variables or create a personal LLM config."
                 ) from e
             raise
-        
+
         agent_executor = create_agent(
             model=llm,
             tools=all_tools,
@@ -235,7 +271,7 @@ async def run_agent_mode(
             )
         )
         print("✓ Agent created successfully!")
-        
+
         # Run queries
         if query:
             await run_agent_query(agent_executor, query, session_id)
@@ -257,7 +293,7 @@ async def run_agent_mode(
                 "What technologies are used in that project?",
                 session_id
             )
-            
+
             # Show session summary
             history_manager.show_session_info(session_id)
 
@@ -265,7 +301,7 @@ async def run_agent_mode(
 async def run_rag_mode(query: str = None, session_id: str = "default"):
     """
     Run RAG-only mode (no MCP tools)
-    
+
     Args:
         query: Query to execute
         session_id: Session ID for conversation history

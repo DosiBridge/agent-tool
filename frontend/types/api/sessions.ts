@@ -16,5 +16,8 @@ export interface SessionInfo {
   messages: Array<{
     role: "user" | "assistant";
     content: string;
+    created_at?: string | null;
+    tools_used?: string[];
+    sources?: Array<{ title?: string; url?: string }>;
   }>;
 }
